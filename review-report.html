@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>纹兽战记 · IGN 风格评测与横向对比报告</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1f2e;
+    --surface2: #242b3d;
+    --border: #2e3650;
+    --text: #e8ecf4;
+    --muted: #8b95ad;
+    --accent: #ff4444;
+    --accent2: #ffcf5a;
+    --green: #4ade80;
+    --blue: #60a5fa;
+    --purple: #c78bff;
+    --radius: 12px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    line-height: 1.65;
+    font-size: 15px;
+  }
+  a { color: var(--blue); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+
+  /* Header */
+  .hero {
+    background: linear-gradient(135deg, #1a1030 0%, #0f1117 50%, #102030 100%);
+    border-bottom: 3px solid var(--accent);
+    padding: 48px 24px 40px;
+    text-align: center;
+  }
+  .hero .logo {
+    font-size: 13px;
+    font-weight: 800;
+    letter-spacing: 3px;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .hero h1 {
+    font-size: clamp(28px, 5vw, 42px);
+    font-weight: 800;
+    margin-bottom: 8px;
+  }
+  .hero .subtitle {
+    color: var(--muted);
+    font-size: 15px;
+    max-width: 640px;
+    margin: 0 auto 24px;
+  }
+  .hero-meta {
+    display: flex;
+    justify-content: center;
+    gap: 24px;
+    flex-wrap: wrap;
+    font-size: 13px;
+    color: var(--muted);
+  }
+  .hero-meta span { display: flex; align-items: center; gap: 6px; }
+
+  /* Score badge */
+  .score-hero {
+    display: inline-flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--surface);
+    border: 2px solid var(--accent2);
+    border-radius: var(--radius);
+    padding: 16px 28px;
+    margin-top: 28px;
+  }
+  .score-num {
+    font-size: 56px;
+    font-weight: 900;
+    color: var(--accent2);
+    line-height: 1;
+  }
+  .score-label { text-align: left; }
+  .score-label strong { display: block; font-size: 18px; color: var(--text); }
+  .score-label span { font-size: 13px; color: var(--muted); }
+
+  /* Layout */
+  .container { max-width: 960px; margin: 0 auto; padding: 0 20px 60px; }
+  nav.toc {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin: -28px auto 40px;
+    max-width: 960px;
+    position: relative;
+    z-index: 2;
+  }
+  nav.toc h2 { font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 12px; }
+  nav.toc ol { padding-left: 20px; columns: 2; column-gap: 32px; }
+  nav.toc li { margin-bottom: 6px; font-size: 14px; }
+  @media (max-width: 600px) { nav.toc ol { columns: 1; } }
+
+  section { margin-bottom: 48px; }
+  section > h2 {
+    font-size: 24px;
+    font-weight: 800;
+    margin-bottom: 6px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid var(--border);
+  }
+  section > .section-desc {
+    color: var(--muted);
+    font-size: 14px;
+    margin-bottom: 20px;
+  }
+  h3 { font-size: 18px; font-weight: 700; margin: 28px 0 12px; color: var(--accent2); }
+  h4 { font-size: 15px; font-weight: 700; margin: 20px 0 8px; }
+  p { margin-bottom: 12px; }
+  ul, ol { margin: 0 0 14px 20px; }
+  li { margin-bottom: 6px; }
+
+  /* Cards */
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 20px 24px;
+    margin-bottom: 16px;
+  }
+  .card.highlight { border-left: 4px solid var(--accent2); }
+  .card.pro { border-left: 4px solid var(--green); }
+  .card.con { border-left: 4px solid var(--accent); }
+  .verdict {
+    background: linear-gradient(135deg, #1e2a1e, var(--surface));
+    border: 1px solid #2a4a2a;
+    border-radius: var(--radius);
+    padding: 24px;
+    font-size: 16px;
+    line-height: 1.7;
+    margin: 20px 0;
+  }
+  .verdict strong { color: var(--accent2); }
+
+  /* Score grid */
+  .score-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .score-item {
+    background: var(--surface2);
+    border-radius: 10px;
+    padding: 14px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .score-item .name { font-size: 13px; color: var(--muted); }
+  .score-item .val { font-size: 22px; font-weight: 800; color: var(--accent2); }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: 16px 0; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13.5px;
+  }
+  th, td {
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    text-align: left;
+  }
+  th {
+    background: var(--surface2);
+    font-weight: 700;
+    color: var(--accent2);
+    white-space: nowrap;
+  }
+  tr:nth-child(even) td { background: rgba(255,255,255,.02); }
+  td.center { text-align: center; }
+  .highlight-cell { background: rgba(255,207,90,.12) !important; font-weight: 700; color: var(--accent2); }
+  .best { color: var(--green); font-weight: 700; }
+  .worst { color: var(--accent); }
+
+  /* Tags */
+  .tags { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 0; }
+  .tag {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+  }
+  .tag.good { border-color: #2a5a3a; color: var(--green); }
+  .tag.warn { border-color: #5a4a2a; color: var(--accent2); }
+  .tag.bad { border-color: #5a2a2a; color: #ff8a8a; }
+
+  /* Stars */
+  .stars { color: var(--accent2); letter-spacing: 1px; }
+
+  /* Fusion diagram */
+  .fusion {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: 12px;
+    margin: 24px 0;
+    padding: 24px;
+    background: var(--surface);
+    border-radius: var(--radius);
+    border: 1px solid var(--border);
+  }
+  .fusion-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 18px;
+    text-align: center;
+    font-size: 13px;
+    min-width: 120px;
+  }
+  .fusion-box.main {
+    border-color: var(--accent2);
+    background: rgba(255,207,90,.08);
+    font-weight: 700;
+    font-size: 15px;
+    padding: 16px 24px;
+  }
+  .fusion-arrow { color: var(--muted); font-size: 20px; }
+
+  /* Footer */
+  footer {
+    text-align: center;
+    padding: 32px 20px;
+    border-top: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 12px;
+  }
+  .disclaimer {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 16px 20px;
+    font-size: 13px;
+    color: var(--muted);
+    margin-top: 32px;
+  }
+  @media print {
+    body { background: #fff; color: #111; }
+    .hero { background: #f5f5f5; }
+    .card, nav.toc, table th, table td { border-color: #ccc; }
+  }
+</style>
+</head>
+<body>
+
+<header class="hero">
+  <div class="logo">Independent Review Report</div>
+  <h1>纹兽战记</h1>
+  <p class="subtitle">IGN 风格专业评测 × 火焰纹章 / 杀戮尖塔 / 宝可梦 横向对比<br>基于 v0.9 重构版代码与可玩内容 · 浏览器原型</p>
+  <div class="hero-meta">
+    <span>📅 2026-06-18</span>
+    <span>🎮 战棋 SRPG × Roguelike × 怪物收集</span>
+    <span>⏱ 单局 30–60 分钟</span>
+    <span>💻 双击 index.html 即玩</span>
+  </div>
+  <div class="score-hero">
+    <div class="score-num">7.2</div>
+    <div class="score-label">
+      <strong>Good — 作为独立原型</strong>
+      <span>核心循环成立，工程与平衡意识突出；离商业 1.0 仍有明显距离</span>
+    </div>
+  </div>
+</header>
+
+<div class="container">
+  <nav class="toc">
+    <h2>目录</h2>
+    <ol>
+      <li><a href="#verdict">一句话 Verdict</a></li>
+      <li><a href="#scores">分项评分</a></li>
+      <li><a href="#gameplay">玩法评测</a></li>
+      <li><a href="#depth">深度与内容</a></li>
+      <li><a href="#presentation">呈现与技术</a></li>
+      <li><a href="#pros-cons">优点与缺点</a></li>
+      <li><a href="#audience">适合谁玩</a></li>
+      <li><a href="#compare-intro">横向对比导言</a></li>
+      <li><a href="#compare-matrix">四款定位矩阵</a></li>
+      <li><a href="#compare-dimensions">分维度对比</a></li>
+      <li><a href="#fusion">融合策略评价</a></li>
+      <li><a href="#final">最公正总评</a></li>
+      <li><a href="#roadmap">开发优先级建议</a></li>
+    </ol>
+  </nav>
+
+  <!-- ===== PART 1: IGN REVIEW ===== -->
+  <section id="verdict">
+    <h2>一句话 Verdict</h2>
+    <p class="section-desc">IGN 风格 · 独立评测视角</p>
+    <div class="verdict">
+      <strong>纹兽战记</strong>把《火焰纹章》的战前推演、《杀戮尖塔》的章节地图、《宝可梦》的属性克制与收服进化，以及 deck-building 式的「精灵池 = 牌库」揉进了一个浏览器原型里——<strong>核心循环已经好玩，而且难得地有量化平衡工具支撑</strong>；但它仍是 demo，内容量、视听表现和长期动力都还没跟上系统深度。
+    </div>
+    <div class="tags">
+      <span class="tag good">战棋可读性</span>
+      <span class="tag good">Roguelike 结构完整</span>
+      <span class="tag good">工程成熟度高</span>
+      <span class="tag warn">内容偏薄</span>
+      <span class="tag warn">Meta 易碾压</span>
+      <span class="tag bad">无音效/占位美术</span>
+    </div>
+  </section>
+
+  <section id="scores">
+    <h2>分项评分</h2>
+    <p class="section-desc">以独立原型 / 垂直切片标准评定 · 满分 10</p>
+    <div class="score-grid">
+      <div class="score-item"><span class="name">玩法 Gameplay</span><span class="val">8.0</span></div>
+      <div class="score-item"><span class="name">深度 Depth</span><span class="val">7.5</span></div>
+      <div class="score-item"><span class="name">内容 Content</span><span class="val">5.5</span></div>
+      <div class="score-item"><span class="name">平衡 Balance</span><span class="val">7.0</span></div>
+      <div class="score-item"><span class="name">呈现 Presentation</span><span class="val">6.0</span></div>
+      <div class="score-item"><span class="name">创新 Innovation</span><span class="val">7.5</span></div>
+      <div class="score-item"><span class="name">完成度 Polish</span><span class="val">6.5</span></div>
+      <div class="score-item"><span class="name"><strong>综合 Overall</strong></span><span class="val">7.2</span></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>维度</th><th>分数</th><th>简评</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>玩法</td><td class="center">8.0</td><td>战棋决策密度高，速度交错行动消除「我方齐射」无聊先手</td></tr>
+          <tr><td>深度</td><td class="center">7.5</td><td>18 属性克制 + 遗物 build + 牌库管理，有 repeat 价值</td></tr>
+          <tr><td>内容</td><td class="center">5.5</td><td>三章、10 遗物、3 个随机事件——骨架有了，血肉偏薄</td></tr>
+          <tr><td>平衡</td><td class="center">7.0</td><td>有专业级模拟器；Meta 满配后通关率可飙到 100%</td></tr>
+          <tr><td>呈现</td><td class="center">6.0</td><td>UI 干净可读，动画到位；无音效，美术为第三方占位图</td></tr>
+          <tr><td>创新</td><td class="center">7.5</td><td>多类型融合自然，不是简单换皮拼接</td></tr>
+          <tr><td>完成度</td><td class="center">6.5</td><td>存档、重来本关、自动演示、战前预览都有；仍是原型质感</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="gameplay">
+    <h2>玩法评测</h2>
+
+    <h3>战棋层：像火纹，但更「可读」</h3>
+    <p>11×8 格子战场，平地 / 水域 / 森林（守方减伤 + 回避）分工明确。侧栏有<strong>行动顺序条</strong>，敌我按速度交错出手——比传统「我方回合 → 敌方回合」更有战术张力，也更考验站位和先手权。</p>
+    <p>红底攻击范围、橙底敌方威胁区、蓝框移动格，加上<strong>战斗预测面板</strong>（伤害拆解、命中%、暴击%、二段攻击、反击预判），让每次出手都像在下棋。对战术玩家而言，这是本作最扎实的卖点。</p>
+
+    <h3>Roguelike 层：牌库思维，而非单纯养宠</h3>
+    <p>每场 <strong>自选 3 + 随机 3</strong> 出战；等级、经验、进化跨战保留；阵亡<strong>永久出池</strong>；收服<strong>入池</strong>——这是 Slay the Spire 式 deck 逻辑，不是传统 RPG 的固定队伍。</p>
+    <p>休整节点可以<strong>释放一只精灵精简牌库</strong>，在「队伍厚度」与「抽到核心卡的概率」之间做 trade-off，有真正的 Roguelike 决策味。三章分支地图（战斗 / 精英 / 事件 / 休整 / Boss）结构完整，Boss 线（暴鲤龙 → 快龙 → 超梦）符合章节高潮战节奏。</p>
+
+    <h3>收集层：克制、进化、收服形成闭环</h3>
+    <p>18 属性克制（×2 / ×0.5 / ×0 免疫），普通攻击算普通系——打幽灵会无效，逼你学属性招。伊布每战可选火 / 水 / 雷形态，战后变回；其他精灵 Lv4 / Lv7 二段、三段进化。贴脸收服（血量越低成功率越高）+ 精英战遗物三选一，让单场战斗收获不止经验。</p>
+  </section>
+
+  <section id="depth">
+    <h2>深度与内容</h2>
+
+    <h3>系统深度：已经比内容多了</h3>
+    <p>遗物 10 件 + Meta 魂晶（跨局解锁起始等级 / 起始遗物），说明设计者在考虑长期 progression。但敌人技能池偏单调——大量野怪只有普攻，属性克制爽点主要靠玩家方；项目自测 super 克制占比一度仅 ~11%。聪明 AI 升级后通关率从 78% 涨到 95%，基线难度尚未完全对齐。</p>
+
+    <h3>内容量：三章 vertical slice</h3>
+  <ul>
+      <li>可玩怪物池小（6 只初始 + ~10 种野怪 + 3 Boss）</li>
+      <li>随机事件仅 <strong>3 个</strong>（树果 / 受伤野怪 / 石碑）</li>
+      <li>无音效、无剧情演出、无角色台词</li>
+      <li>单局三章打完即终局，repeat 动力主要靠 build 差异</li>
+    </ul>
+    <p>它现在更像 <strong>GDD 的高完成度可玩 demo</strong>，不是能刷上百小时的内容型作品。</p>
+  </section>
+
+  <section id="presentation">
+    <h2>呈现与技术亮点</h2>
+
+    <h3>呈现：功能型 UI，非商业级美术</h3>
+    <p>深色面板 + 清晰图例 + 浮动伤害数字 + 震屏反馈，信息架构做得不错。但 PokeAPI 占位精灵图、emoji 离线回退、纯 HTML/CSS/JS——玩起来像「很用心的 Game Jam」，不像商业发行版。正式发布前必须换原创美术，亦有 IP 风险。</p>
+
+    <h3>工程成熟度（玩家看不见，评测会提）</h3>
+    <ul>
+      <li>单文件 demo 拆成 <code>data / core / ui</code> 三层，改数值不动逻辑</li>
+      <li>本地存档、重来本关快照、自动演示、Agent API（<code>snapshot()</code> / <code>act()</code>）</li>
+      <li>平衡台 <code>balance/sim.js</code> 直接读真实 <code>js/data</code>，避免模拟器与游戏两套数值</li>
+    </ul>
+    <p>这种基础设施说明：<strong>作者在认真做产品，不是在堆 feature demo</strong>。</p>
+  </section>
+
+  <section id="pros-cons">
+    <h2>优点与缺点</h2>
+    <div class="card pro">
+      <h4>✅ Pros</h4>
+      <ul>
+        <li><strong>战术可读性极强</strong>：威胁区 + 预测面板，降低战棋门槛又不牺牲深度</li>
+        <li><strong>核心循环闭环完整</strong>：部署 → 战斗 → 成长/阵亡/收服 → 地图 → Boss，一局能通关</li>
+        <li><strong>融合类型自然</strong>：deck 池设计把火纹与宝可梦接上了，不是生硬缝合</li>
+        <li><strong>决策有重量</strong>：永久死亡、精简牌库、遗物选择，失败有意义</li>
+        <li><strong>可维护性高</strong>：对 mod 友好、对平衡迭代友好</li>
+      </ul>
+    </div>
+    <div class="card con">
+      <h4>❌ Cons</h4>
+      <ul>
+        <li><strong>内容量偏 demo</strong>：事件少、敌人招少、章节短</li>
+        <li><strong>Meta 可能碾压基线</strong>：满配后通关率 100%，长期挑战不足</li>
+        <li><strong>视听几乎为零</strong>：无音乐音效，Placeholder 美术</li>
+        <li><strong>属性策略未吃满</strong>：敌方太少元素招，克制潜力未释放</li>
+        <li><strong>平台局限</strong>：浏览器原型，无 Steam 级包装</li>
+      </ul>
+    </div>
+  </section>
+
+  <section id="audience">
+    <h2>适合谁玩？</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>玩家类型</th><th>推荐度</th><th>说明</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>喜欢火纹 / 三角战略类战棋</td><td class="center stars">★★★★</td><td>战前推演与威胁区是核心卖点</td></tr>
+          <tr><td>喜欢 Roguelike deck 构建</td><td class="center stars">★★★★</td><td>牌库管理有独特决策</td></tr>
+          <tr><td>喜欢宝可梦式克制与收集</td><td class="center stars">★★★</td><td>有影子，生态深度不足</td></tr>
+          <tr><td>追求剧情、美术、音效完整体验</td><td class="center stars">★★</td><td>仍是原型体量</td></tr>
+          <tr><td>当作正式商业游戏直接购买</td><td class="center stars">★</td><td>尚不具备发售条件</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <hr style="border:none;border-top:2px solid var(--border);margin:48px 0">
+
+  <!-- ===== PART 2: COMPARISON ===== -->
+  <section id="compare-intro">
+    <h2>横向对比导言</h2>
+    <p class="section-desc">纹兽战记 × 火焰纹章 × 杀戮尖塔 × 宝可梦</p>
+    <div class="card highlight">
+      <p><strong>评测前提：</strong>对比的是四款作品的<strong>设计层面</strong>，不是「浏览器原型 vs 商业大作」的成品对决。火焰纹章、杀戮尖塔、宝可梦代表各自品类成熟、有数十到数百小时内容的作品；纹兽战记是 v0.9 原型，单局约 30–60 分钟。下文分开评「机制借鉴是否到位」与「整体完成度是否可比」。</p>
+    </div>
+
+    <div class="fusion">
+      <div class="fusion-box">🔥 火焰纹章<br><small>战棋可读性</small></div>
+      <span class="fusion-arrow">＋</span>
+      <div class="fusion-box">🃏 杀戮尖塔<br><small>地图+遗物+Meta</small></div>
+      <span class="fusion-arrow">＋</span>
+      <div class="fusion-box">⚡ 宝可梦<br><small>属性+收服+进化</small></div>
+      <span class="fusion-arrow">→</span>
+      <div class="fusion-box main">纹兽战记</div>
+    </div>
+  </section>
+
+  <section id="compare-matrix">
+    <h2>四款游戏定位矩阵</h2>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th></th>
+            <th>纹兽战记</th>
+            <th>火焰纹章</th>
+            <th>杀戮尖塔</th>
+            <th>宝可梦</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>品类定位</td><td>战棋 × Roguelike × 收集</td><td>剧情战棋 SRPG</td><td>卡牌 Roguelike</td><td>回合制 RPG + 收集</td></tr>
+          <tr><td>核心快感</td><td>格子走位 + 克制 + 牌库构筑</td><td>角色羁绊 + 战术 + 剧情</td><td>每局 build 差异 + 路线规划</td><td>培养、对战、图鉴</td></tr>
+          <tr><td>单局结构</td><td>三章地图，每章 6 列节点</td><td>章节关卡，线性/分支剧情</td><td>三层 Act + 多层路线</td><td>开放世界，无「单局」概念</td></tr>
+          <tr><td>失败含义</td><td>精灵永久出池；整局可重开</td><td>角色永久死亡（经典模式）</td><td>本局结束，Meta 保留</td><td>濒死/黑屏，一般不删宠</td></tr>
+          <tr><td>成长载体</td><td>精灵池(deck) + 遗物 + 魂晶</td><td>固定队伍等级/转职/装备</td><td>卡牌 deck + 遗物</td><td>个体等级/进化/努力值</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="compare-dimensions">
+    <h2>分维度横向对比</h2>
+
+    <h3>1. 战斗 / 战术深度</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>维度</th><th>纹兽战记</th><th>火焰纹章</th><th>杀戮尖塔</th><th>宝可梦</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>战场</td><td>11×8 格子，地形(水/林)</td><td>多变地图，机关、冲锋等</td><td>无空间，纯卡牌</td><td>1v1/2v2，无走位(主系列)</td></tr>
+          <tr><td>行动顺序</td><td class="highlight-cell">速度交错(敌我混排)</td><td>回合制，通常整方行动</td><td>能量回合，玩家先</td><td>速度决定先后手</td></tr>
+          <tr><td>信息透明度</td><td class="best">★★★★★</td><td class="best">★★★★★</td><td>★★★★</td><td>★★★</td></tr>
+          <tr><td>决策密度</td><td>中高</td><td class="best">很高</td><td>高</td><td>中</td></tr>
+          <tr><td>单位/技能差异</td><td class="worst">小(~9种技能)</td><td class="best">极丰富</td><td class="best">数百张卡</td><td class="best">上千技能组合</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>客观结论：</strong>战棋可读性最接近火纹；战术上限远低于火纹。对比宝可梦，纹兽战记补上了「走位」维度，是融合中最有价值的部分。对比尖塔，两者深度维度不同（空间博弈 vs combo），不可直接比高低。</p>
+
+    <h3>2. Roguelike 结构与单局节奏</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>维度</th><th>纹兽战记</th><th>火焰纹章</th><th>杀戮尖塔</th><th>宝可梦</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>地图</td><td>每章 6 列随机分支</td><td>固定关卡设计</td><td class="best">三层 Act，路线极丰富</td><td>非 Roguelike</td></tr>
+          <tr><td>节点类型</td><td>5 类(战/精/事/休/Boss)</td><td>剧情战/支线</td><td class="best">战斗/精英/商店/休息/问号/Boss</td><td>道馆、野外、剧情</td></tr>
+          <tr><td>单局时长</td><td>30–60 分钟</td><td>20–80+ 小时</td><td>45–90 分钟</td><td>30–100+ 小时</td></tr>
+          <tr><td>随机事件</td><td class="worst">3 个</td><td>剧情驱动</td><td class="best">大量事件卡</td><td>少量随机遭遇</td></tr>
+          <tr><td>休整决策</td><td class="highlight-cell">回血 + 释放精灵精简牌库</td><td>基地整备</td><td>篝火：回血/升级卡</td><td>精灵中心回血</td></tr>
+          <tr><td>遗物/构筑</td><td>10 遗物</td><td>装备/技能</td><td class="best">数十遗物，深度 build</td><td>道具/特性，偏养成</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>客观结论：</strong>地图骨架明显学 StS，但 3 章 × 6 列、3 种事件，repeat 动力差一个数量级。「休整释放精灵」是四款里独有的 deck 管理决策，值得肯定。</p>
+
+    <h3>3. 收集、成长与失败惩罚</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>维度</th><th>纹兽战记</th><th>火焰纹章</th><th>杀戮尖塔</th><th>宝可梦</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>单位池</td><td class="highlight-cell">精灵池=牌库，跨战保留</td><td>固定招募</td><td>卡牌动态进出</td><td>盒子存宠，永久收集</td></tr>
+          <tr><td>出战机制</td><td>自选3 + 随机3</td><td>全员或剧情限定</td><td>套牌即出战</td><td>6 只队伍自由换</td></tr>
+          <tr><td>死亡/损失</td><td>阵亡永久出池</td><td>经典模式永久死亡</td><td>无单位死亡概念</td><td>一般可复活</td></tr>
+          <tr><td>收服</td><td>贴脸概率收服</td><td>无</td><td>无</td><td class="best">核心玩法</td></tr>
+          <tr><td>进化</td><td>Lv4/Lv7 + 伊布战前变身</td><td>转职/进阶</td><td>卡牌升级</td><td class="best">系列灵魂</td></tr>
+          <tr><td>跨局 Meta</td><td>魂晶解锁等级/遗物</td><td>多周目/支援</td><td class="best">解锁新卡/遗物池</td><td>无(主系列)</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>客观结论：</strong>最接近「StS 的 deck + 宝可梦的个体养成」混合体。收服远比宝可梦简陋；Meta 满配后通关率可达 100%，长期挑战不如 StS 的 Ascension。</p>
+
+    <h3>4. 属性 / 克制系统</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>维度</th><th>纹兽战记</th><th>火焰纹章</th><th>杀戮尖塔</th><th>宝可梦</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>属性数量</td><td>18 属性(宝可梦式)</td><td>武器三角+魔法属性</td><td>无</td><td class="best">18 属性</td></tr>
+          <tr><td>克制表达</td><td>×2 / ×0.5 / ×0</td><td>武器/魔法克制</td><td>—</td><td>同左，生态成熟</td></tr>
+          <tr><td>敌方运用</td><td class="worst">多数仅普攻</td><td class="best">敌人完整战术</td><td>—</td><td class="best">敌我都用属性招</td></tr>
+          <tr><td>策略占比</td><td>目标≥15%，曾~11%</td><td>克制是辅助</td><td>—</td><td class="best">克制是对战核心</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>客观结论：</strong>借了宝可梦的表，没借宝可梦的生态。这是四款对比里<strong>借鉴最多、落地最浅</strong>的一块。</p>
+
+    <h3>5. 综合体验矩阵（1–10）</h3>
+    <p class="section-desc">分数含义：在该维度上对「愿意玩这个类型的玩家」的体验质量，非销量或影响力</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>维度</th>
+            <th>纹兽战记</th>
+            <th>火纹</th>
+            <th>杀戮尖塔</th>
+            <th>宝可梦</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td>战术可读性</td><td class="highlight-cell">8.5</td><td class="best">9.0</td><td>7.0</td><td>6.0</td></tr>
+          <tr><td>战术上限</td><td>6.0</td><td class="best">9.5</td><td>8.5</td><td>7.0</td></tr>
+          <tr><td>Roguelike 构筑</td><td>6.5</td><td>3.0</td><td class="best">9.5</td><td>2.0</td></tr>
+          <tr><td>单局 replay</td><td>6.0</td><td>5.0</td><td class="best">9.0</td><td>4.0</td></tr>
+          <tr><td>收集/养成爽感</td><td>6.5</td><td>7.0</td><td>5.0</td><td class="best">9.5</td></tr>
+          <tr><td>属性克制深度</td><td class="worst">5.5</td><td>7.0</td><td>—</td><td class="best">9.0</td></tr>
+          <tr><td>内容/剧情</td><td class="worst">3.5</td><td class="best">9.0</td><td>7.0</td><td class="best">9.0</td></tr>
+          <tr><td>视听呈现</td><td class="worst">4.0</td><td class="best">8.5</td><td>8.0</td><td class="best">9.0</td></tr>
+          <tr><td>上手门槛</td><td class="best">8.5</td><td>6.5</td><td>7.0</td><td>7.5</td></tr>
+          <tr><td>长期动力</td><td>5.5</td><td>8.0</td><td class="best">9.0</td><td class="best">9.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="fusion">
+    <h2>融合策略：哪里成功，哪里勉强</h2>
+
+    <div class="card pro">
+      <h4>✅ 成功的融合</h4>
+      <ol>
+        <li><strong>火纹的可读性 + 宝可梦的个体成长</strong> — 预测面板降低战棋门槛；精灵有等级、进化、永久损失，比纯 Roguelike 更有养宠情感。</li>
+        <li><strong>StS 的地图节奏 + deck 式精灵池</strong> — 分支选路、精英/Boss、遗物三选一结构清晰；「阵亡=删牌」比 StS 删卡更直观。</li>
+        <li><strong>速度交错行动</strong> — 四款里独有，是纹兽战记自己的战术身份，不是换皮。</li>
+      </ol>
+    </div>
+
+    <div class="card con">
+      <h4>⚠️ 勉强或未完成</h4>
+      <ol>
+        <li><strong>宝可梦式克制</strong> — 表有了，敌方技能生态没有。</li>
+        <li><strong>StS 式 repeat</strong> — 遗物 10 个、事件 3 个，构筑多样性不够。</li>
+        <li><strong>火纹式剧情与角色</strong> — 无叙事，单位无性格与羁绊。</li>
+        <li><strong>Meta 曲线</strong> — 容易从「有挑战」滑到「稳定碾压」。</li>
+      </ol>
+    </div>
+
+    <h3>与各标杆的正面对照</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>对比对象</th><th>纹兽战记相对优势</th><th>纹兽战记相对劣势</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>vs 火纹</strong></td>
+            <td>单局更短、信息更透明、有 Roguelike 重复开局</td>
+            <td>战术深度、剧情、角色魅力、内容量</td>
+          </tr>
+          <tr>
+            <td><strong>vs 杀戮尖塔</strong></td>
+            <td>有空间战术、有个体养成与收服</td>
+            <td>构筑广度、事件与遗物池、Meta 难度设计</td>
+          </tr>
+          <tr>
+            <td><strong>vs 宝可梦</strong></td>
+            <td>战棋走位、永久损失、单局 Roguelike 结构</td>
+            <td>收集广度、对战生态、属性博弈、IP 与内容</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="final">
+    <h2>最公正的总评</h2>
+
+    <div class="verdict">
+      纹兽战记是一款<strong>设计文档完成度很高的可玩原型</strong>，不是三款神作的「低配合集」。它证明了一条路线可行：用战棋承载战术 → 用 Roguelike 地图承载单局结构 → 用精灵池承载跨战成长与情感 → 用属性表承载策略深度。
+    </div>
+
+    <blockquote style="border-left:4px solid var(--accent2);padding:12px 20px;margin:20px 0;color:var(--muted);font-style:italic;">
+      纹兽战记在「机制缝合」上是有逻辑的，不是乱贴标签；在「执行深度」上大约达到三款参考作的 30–50%（战棋可读性接近上限，内容量接近下限）。
+    </blockquote>
+
+    <h3>多语境综合评分</h3>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr><th>评价对象</th><th>分数</th><th>含义</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>作为<strong>独立原型</strong></td><td class="center highlight-cell">7.2 / 10</td><td>核心 loop 成立，工程与平衡意识加分</td></tr>
+          <tr><td>作为<strong>火纹替代品</strong></td><td class="center">4 / 10</td><td>战术与剧情都不够</td></tr>
+          <tr><td>作为<strong>尖塔-like</strong></td><td class="center">5.5 / 10</td><td>骨架像，构筑与 repeat 不够</td></tr>
+          <tr><td>作为<strong>宝可梦-like</strong></td><td class="center">5 / 10</td><td>有影子，生态远未建立</td></tr>
+          <tr><td><strong>融合原创性</strong></td><td class="center highlight-cell">7.5 / 10</td><td>deck 池 + 战棋 + 收服 的组合有辨识度</td></tr>
+          <tr><td>作为<strong>商业 1.0 发售版</strong></td><td class="center">5.5–6.0 / 10</td><td>好玩的一小时体验，但还不会买</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section id="roadmap">
+    <h2>开发优先级建议</h2>
+    <p>横向对比暴露的优先级：</p>
+    <div class="score-grid">
+      <div class="card" style="margin:0">
+        <h4 style="color:var(--green);margin-top:0">1. 先补宝可梦层</h4>
+        <p style="margin:0;font-size:13px">让敌人也会用属性招，克制从「玩家技巧」变「双方博弈」</p>
+      </div>
+      <div class="card" style="margin:0">
+        <h4 style="color:var(--accent2);margin-top:0">2. 再补尖塔层</h4>
+        <p style="margin:0;font-size:13px">扩遗物 / 事件 / 章节，把 repeat 从 3 次通关拉到 30 次</p>
+      </div>
+      <div class="card" style="margin:0">
+        <h4 style="color:var(--blue);margin-top:0">3. 最后补火纹层</h4>
+        <p style="margin:0;font-size:13px">角色差异化、剧情节点、Boss 战机制（而不只是堆血量）</p>
+      </div>
+    </div>
+
+    <div class="disclaimer">
+      <strong>免责声明：</strong>本报告为基于项目代码、CHANGELOG 与可玩内容的独立分析，不代表 IGN 官方立场，亦未与任天堂、Intelligent Systems、Mega Crit、Game Freak 等厂商存在关联。评分仅供开发参考与玩家预期管理。纹兽战记当前使用 PokeAPI 占位素材，商业发布前须替换为原创美术。
+    </div>
+  </section>
+</div>
+
+<footer>
+  <p>纹兽战记 · Review Report · Generated 2026-06-18</p>
+  <p>基于 v0.9 重构版 · 项目路径：<code>纹兽战记/review-report.html</code></p>
+</footer>
+
+</body>
+</html>

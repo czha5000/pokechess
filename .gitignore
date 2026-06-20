@@ -1,0 +1,13 @@
+# 依赖 / 临时
+node_modules/
+*.log
+# 备份压缩包
+*.tar
+*.zip
+*.tar.gz
+# 办公软件锁文件
+.~lock.*#
+~$*
+# 系统
+.DS_Store
+Thumbs.db
