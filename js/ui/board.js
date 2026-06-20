@@ -8,7 +8,7 @@ function render(){boardEl.style.gridTemplateColumns=`repeat(${COLS},50px)`;board
     const u=unitAt(x,y);
     if(u){const w=document.createElement('div');w.className='tokenwrap '+(u.side==='player'?'side-ally':'side-enemy')+(u.acted&&u.side==='player'?' acted':'');
       const eff=u.eff?Object.keys(u.eff).filter(k=>STATUS[k]&&u.eff[k]>0).map(k=>`<span title="${STATUS[k].name}(${u.eff[k]}回合)">${STATUS[k].icon}</span>`).join(''):'';
-      w.innerHTML=`<div class="flag">${u.side==='player'?'我':'敌'}</div><div class="lvb">L${u.lv}</div>
+      w.innerHTML=`<div class="flag">${u.side==='player'?'我':'敌'}</div><div class="lvb">L${u.lv}</div>${u.shield>0?'<div class="shb" style="position:absolute;top:-5px;right:-3px;font-size:10px;background:#1c3b5a;color:#9fd3ff;border-radius:6px;padding:0 3px;z-index:3">🛡'+u.shield+'</div>':''}
         ${eff?`<div class="seff" style="position:absolute;top:-5px;left:-3px;font-size:11px;line-height:1;text-shadow:0 0 2px #000;z-index:3">${eff}</div>`:''}
         <div class="token" style="background:${TCOLOR[u.type]}55"><img src="${SPRITE(u.pid)}" onerror="this.replaceWith(Object.assign(document.createElement('span'),{textContent:'${u.em}'}))"></div>
         <div class="hpbar"><div class="hpfill" style="width:${100*u.hp/u.maxhp}%;${u.hp/u.maxhp<.35?'background:#e0703f':''}"></div></div>`;c.appendChild(w);}
@@ -52,10 +52,10 @@ function onCell(x,y){if(stage!=='player'||busy)return;const u=unitAt(x,y),h=high
   if(u&&u===initiative[iPtr]&&u.side==='player'){selectUnit(u);return;}
   if(u&&u.side==='enemy'){showEnemyRange(u);return;}
   if(selected&&h&&h.kind==='move'){doMove(selected,x,y);return;}}
-function selectUnit(u){selected=u;pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
+function selectUnit(u){if(typeof sfxSelect==='function'&&selected!==u)sfxSelect();selected=u;pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
 function showOwnRange(u){highlights=[];const mv=u.moved?[{x:u.x,y:u.y}]:moveBFS(u);if(!u.moved)mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'move'}));
   const ms=new Set(mv.map(m=>m.x+','+m.y));threatFrom(mv,reachOf(u)).forEach(t=>{if(!ms.has(t.x+','+t.y))highlights.push({x:t.x,y:t.y,kind:'threat'});});}
 function showEnemyRange(e){selected=null;pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';document.getElementById('skillRow').innerHTML='';document.getElementById('actRow').innerHTML='';
   highlights=[];const mv=moveBFS(e);mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'foemove'}));const ms=new Set(mv.map(m=>m.x+','+m.y));threatFrom(mv,reachOf(e)).forEach(t=>{if(!ms.has(t.x+','+t.y))highlights.push({x:t.x,y:t.y,kind:'foe'});});showInfoEnemy(e);render();}
-function doMove(u,x,y){u.x=x;u.y=y;u.moved=true;showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
+function doMove(u,x,y){if(typeof sfxMove==='function')sfxMove();u.x=x;u.y=y;u.moved=true;showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
 function clearSel(){selected=null;pendingSkill=null;pendingTgt=null;highlights=[];fcEl.innerHTML='';document.getElementById('skillRow').innerHTML='';document.getElementById('actRow').innerHTML='';}

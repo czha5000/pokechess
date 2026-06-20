@@ -1,5 +1,5 @@
 // 单局(run):地图生成、节点推进、事件、休整
-function beginRun(){run.pool=POOL.map(poolEntry);run.chapter=1;run.relics=[];run.reviveUsed=false;applyMetaToRun();buildMap();show('intro',false);log('冒险开始！从地图首列选择一个节点。','#6ad1ff');if(meta.startLv>1||meta.equipRelic)log(`Meta 加成已生效：起始 Lv.${meta.startLv}${meta.equipRelic?'，起始遗物 '+RELICS.find(r=>r.id===meta.equipRelic).name:''}`,'#ffd95a');showMap();}
+function beginRun(){run.pool=POOL.map(poolEntry);run.chapter=1;run.relics=[];run.reviveUsed=false;run.ascSel=meta.ascSel||0;applyMetaToRun();buildMap();show('intro',false);log('冒险开始！从地图首列选择一个节点。','#6ad1ff');if(meta.startLv>1||meta.equipRelic)log(`Meta 加成已生效：起始 Lv.${meta.startLv}${meta.equipRelic?'，起始遗物 '+RELICS.find(r=>r.id===meta.equipRelic).name:''}`,'#ffd95a');showMap();}
 function buildMap(){run.map=[];const cols=run.depth;
   for(let c=0;c<cols;c++){let n=c===0?2:c===cols-1?1:1+(Math.random()*3|0);n=Math.max(1,Math.min(3,n));const arr=[];
     for(let r=0;r<n;r++){let type;if(c===cols-1)type='boss';else if(c===0)type='battle';else type=['battle','battle','elite','event','rest'][Math.random()*5|0];
@@ -13,7 +13,7 @@ function nodeById(id){for(const col of run.map)for(const n of col)if(n.id===id)r
 function reachableIds(){if(run.cur===null)return run.map[0].map(n=>n.id);const n=nodeById(run.cur);return n?n.edges:[];}
 function enterNode(n){run.cur=n.id;
   if(n.type==='event')showEvent(n);
-  else if(n.type==='rest'){run.pool.forEach(m=>{const cur=(m.curHp!=null?m.curHp:m.maxhp);m.curHp=Math.min(m.maxhp,cur+Math.ceil(m.maxhp*0.3));});log('🏕 休整:全队回复 30% 生命。','#7fe0a0');showRest(n);}
+  else if(n.type==='rest'){run.pool.forEach(m=>{const cur=(m.curHp!=null?m.curHp:m.maxhp);m.curHp=Math.min(m.maxhp,cur+Math.ceil(m.maxhp*ascRestHeal(run.ascSel||0)));});log('🏕 休整:全队回复 30% 生命。','#7fe0a0');showRest(n);}
   else startDeploy(n);}
 
 // 事件 / 休整

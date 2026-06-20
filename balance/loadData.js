@@ -6,7 +6,7 @@ function loadGameData(dataDir){
   const files=['config.js','types.js','skills.js','creatures.js','relics.js'];
   const code=files.map(f=>fs.readFileSync(path.join(dataDir,f),'utf8')).join('\n');
   const names=['COLS','ROWS','TERRAIN','PSTART','ESLOTS','MAXLV','THRESH','STAGE_LV','EVO_BONUS',
-    'ENEMY_POWER','BOSS_HP','CH_SCALE','STATUS','SPRITE','TYPE_CN','TCOLOR','CHART','typeMult','ACTIVE_TYPES',
+    'ENEMY_POWER','BOSS_HP','CH_SCALE','STATUS','ASC_MAX','ascEnemyMul','ascBossMul','ascRestHeal','SPRITE','TYPE_CN','TCOLOR','CHART','typeMult','ACTIVE_TYPES',
     'SKILLS','LEARN','POOL','EVO','EEVEE_FORMS','WILD','ELITE','CH_BOSS','CH_NAME','NICON','NNAME','RELICS'];
   // eslint-disable-next-line no-new-func
   return new Function(code+'\n;return {'+names.join(',')+'};')();

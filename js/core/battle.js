@@ -30,6 +30,6 @@ function onBattleWin(){
       run.chapter++;buildMap();log(`—— 进入 <b>${CH_NAME[run.chapter]}</b>，敌人更强了 ——`,'#ffcf5a');setTimeout(showMap,650);return;}
     setTimeout(showMap,500);};
   if(n&&(n.type==='elite'||n.type==='boss'))offerRelic(cont);else cont();}
-function runOver(win){stage='over';show('endScreen',true);const earned=awardShards(win);try{localStorage.removeItem(SAVE_KEY);}catch(e){}
+function runOver(win){stage='over';if(typeof sfxWin==='function'){win?sfxWin():sfxLose();}show('endScreen',true);const earned=awardShards(win);try{localStorage.removeItem(SAVE_KEY);}catch(e){}
   document.getElementById('endTitle').textContent=win?'🏆 通关全部三章！':`💀 全军覆没（${CH_NAME[run.chapter]}）`;
   document.getElementById('endMsg').innerHTML=(win?`你击败了最终 Boss <b>超梦</b>！最终精灵池 ${run.pool.length} 只。`:`队伍全灭。永久死亡 + 单局随机就是肉鸽的张力所在。`)+`<br>本局获得 💎 <b>${earned}</b> 魂晶（共 ${meta.shards}）。<br>回到开始界面可解锁<b>起始遗物 / 起始等级</b>，越打越强。`;}

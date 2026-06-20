@@ -17,7 +17,7 @@ const STAGE_LV={1:4,2:7};                              // 进化阶段触发等�
 const EVO_BONUS={1:{hp:10,atk:4,def:3,spd:1},2:{hp:14,atk:5,def:4,spd:1}};
 
 // 难度旋钮(v0.9:敌方加元素招后,双向克制使敌人更痛,故由 1.8 下调至 1.6 回到 ~73% 通关)
-const ENEMY_POWER=1.15; // v0.13 新增电/幽灵精灵+中毒层数后敌方更强,1.4→1.15 回到 ~70%
+const ENEMY_POWER=1.15; // v0.18 sim加入收服模型后更准,1.1→1.15 重新居中(~68% sim,真人收服更高)
 const BOSS_HP=2.4;     // Boss 血量倍率
 const CH_SCALE={1:1, 2:1.35, 3:1.7}; // 章节缩放
 
@@ -28,3 +28,9 @@ const STATUS={
  poison:{name:'中毒',icon:'☣',col:'#a040a0',stack:true,apply:3},
  para:{name:'麻痹',icon:'⚡',col:'#f2c233',turns:2,skip:35}
 };
+
+// Ascension 难度阶梯(通关解锁更高层供选择,强 build 去爬高层,挑战守恒)
+const ASC_MAX=8;
+function ascEnemyMul(t){return 1+(t||0)*0.08;}  // 每层普通敌人血/攻 +8%
+function ascBossMul(t){return 1+(t||0)*0.06;}   // 每层 Boss 血 +6%
+function ascRestHeal(t){return Math.max(0.15,0.30-(t||0)*0.02);} // 高层休整回血递减(30%→最低15%)

@@ -13,6 +13,7 @@ async function nextActor(){
   if(tk.ticked){render();await delay(380);}
   if(tk.dead){if(checkEnd())return;advanceInit();return;}
   if(tk.skip){u.acted=true;render();await delay(200);advanceInit();return;}
+  if(u.side==='player'){const sr=relicShieldRegen();if(sr>0){u.shield=(u.shield||0)+sr;floatText(u.x,u.y,'+'+sr+'🛡','#9fd3ff');}}
   if(u.side==='player'){stage='player';busy=false;document.getElementById('turnBadge').textContent='我方行动：'+u.name;selectUnit(u);if(autoOn)setTimeout(()=>autoPlayUnit(u),AUTODELAY);}
   else{stage='enemy';busy=true;document.getElementById('turnBadge').textContent='敌方行动：'+u.name;clearSel();render();
-    await delay(280);await aiAct(u);busy=false;advanceInit();}}
+    await delay(280);await aiAct(u);u.acted=true;busy=false;advanceInit();}}

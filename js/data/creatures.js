@@ -40,9 +40,9 @@ const WILD={
 const ELITE={name:'可达鸭',pid:54,type:'water',em:'🦆',hp:34,atk:14,def:9,spd:6,skl:6,lck:4,mov:4,rng:1,skills:['basic','e_water'],elite:true};
 // 三章 Boss(高血量、长回合、非秒杀)
 const CH_BOSS={
- 1:{name:'暴鲤龙',pid:130,type:'water',em:'🐉',hp:80,atk:14,def:11,spd:7,skl:7,lck:5,mov:4,rng:1,skills:['basic','e_water'],elite:true},
- 2:{name:'快龙',pid:149,type:'dragon',em:'🐲',hp:105,atk:15,def:13,spd:8,skl:8,lck:6,mov:5,rng:1,skills:['basic','gust'],elite:true},
- 3:{name:'超梦',pid:150,type:'psychic',em:'🧠',hp:140,atk:17,def:13,spd:9,skl:9,lck:7,mov:5,rng:2,skills:['basic','confusion'],elite:true}
+ 1:{name:'暴鲤龙',pid:130,type:'water',em:'🐉',hp:80,atk:14,def:11,spd:7,skl:7,lck:5,mov:4,rng:1,skills:['basic','e_water'],elite:true,mech:'enrage'},
+ 2:{name:'快龙',pid:149,type:'dragon',em:'🐲',hp:105,atk:15,def:13,spd:8,skl:8,lck:6,mov:5,rng:1,skills:['basic','gust'],elite:true,dmgCap:16},
+ 3:{name:'超梦',pid:150,type:'psychic',em:'🧠',hp:140,atk:17,def:13,spd:9,skl:9,lck:7,mov:5,rng:2,skills:['basic','confusion'],elite:true,bossShield:15}
 };
 const CH_NAME={1:'第一章 · 静水湾',2:'第二章 · 龙脊山',3:'第三章 · 心智深渊'};
 const NICON={battle:'⚔',elite:'☠',event:'❓',rest:'🏕',boss:'👑'};

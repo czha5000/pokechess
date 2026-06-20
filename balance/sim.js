@@ -7,11 +7,12 @@
 'use strict';
 const {loadGameData}=require('./loadData');
 const G=loadGameData();
-const {typeMult,SKILLS,LEARN,POOL,WILD,ELITE,CH_BOSS,EVO,EEVEE_FORMS,RELICS,STATUS,
+const {typeMult,SKILLS,LEARN,POOL,WILD,ELITE,CH_BOSS,EVO,EEVEE_FORMS,RELICS,STATUS,ascEnemyMul,ascBossMul,ascRestHeal,
   COLS,ROWS,TERRAIN,PSTART,ESLOTS,MAXLV,THRESH,STAGE_LV,EVO_BONUS,CH_SCALE}=G;
 
 const EH=+(process.env.EH||1.15), BH=+(process.env.BH||2.4), EC=+(process.env.EC||0), DEPTOT=+(process.env.DEPTOT||5);
 const STARTLV=+(process.env.STARTLV||1);
+const ASC=+(process.env.ASC||0);
 const EQUIP=(process.env.RELICS||'').split(',').map(s=>s.trim()).filter(Boolean).map(id=>RELICS.find(r=>r.id===id)).filter(Boolean);
 const CRITX=3, DOUBLE_GAP=4, FOREST_AVO=15, EEVEE=['fire','water','electric'];
 const rnd=()=>Math.random()*100, ri=n=>Math.random()*n|0;
@@ -21,20 +22,25 @@ const TRACE=!!process.env.TRACE; let TRACING=false;
 function T(s){if(TRACING)console.log(s);}
 
 // ---- 遗物钩子(镜像 core/relics.js) ----
-function rDmg(att,sk){let m=1;if(att.player)for(const r of EQUIP)if(r.dmgMult)m*=r.dmgMult(att,sk);return m;}
+function rDmg(att,sk,def){let m=1;if(att.player)for(const r of EQUIP)if(r.dmgMult)m*=r.dmgMult(att,sk,def);return m;}
 function rHit(att,sk){let a=0;if(att.player)for(const r of EQUIP)if(r.hitAdd)a+=r.hitAdd(att,sk);return a;}
 function rCap(){let a=0;for(const r of EQUIP)if(r.capAdd)a+=r.capAdd;return a;}
 function rExp(){let m=1;for(const r of EQUIP)if(r.expMult)m*=r.expMult;return m;}
 function rStat(u){u._rb={atk:0,def:0,spd:0,maxhp:0,lck:0};for(const r of EQUIP)if(r.statMod){const bb={atk:u.atk,def:u.def,spd:u.spd,maxhp:u.maxhp,lck:u.lck};r.statMod(u);u._rb.atk+=u.atk-bb.atk;u._rb.def+=u.def-bb.def;u._rb.spd+=u.spd-bb.spd;u._rb.maxhp+=u.maxhp-bb.maxhp;u._rb.lck+=u.lck-bb.lck;}}
 function rKill(att){if(att.player)for(const r of EQUIP)if(r.onKill)r.onKill(att);}
 function rThorns(){let t=0;for(const r of EQUIP)if(r.thorns)t+=r.thorns;return t;}
-function rCrit(att){let v=0;if(att.player)for(const r of EQUIP)if(r.critAdd)v+=r.critAdd;return v;}
+function rShieldRegen(){let v=0;for(const r of EQUIP)if(r.shieldRegen)v+=r.shieldRegen;return v;}
+function rCrit(att){let v=0;if(att.player)for(const r of EQUIP)if(r.critAdd)v+=(typeof r.critAdd==='function'?r.critAdd():r.critAdd);return v;}
 function rTaken(def){let m=1;if(def&&def.player)for(const r of EQUIP)if(r.dmgTakenMult)m*=r.dmgTakenMult;return m;}
+let CURUNITS=null;
+function adjAlliesS(u){return CURUNITS?CURUNITS.filter(a=>a.player===u.player&&a.hp>0&&a!==u&&Math.abs(a.x-u.x)+Math.abs(a.y-u.y)===1).length:0;}
+function isFlankedS(att,def){if(!CURUNITS)return false;const dx=Math.sign(def.x-att.x),dy=Math.sign(def.y-att.y);const ox=def.x+dx,oy=def.y+dy;return CURUNITS.some(a=>a.player&&a.hp>0&&a.x===ox&&a.y===oy);}
+function pushTargetS(att,def,n){let dx=Math.sign(def.x-att.x),dy=Math.sign(def.y-att.y);if(dx&&dy){if(Math.abs(def.x-att.x)>=Math.abs(def.y-att.y))dy=0;else dx=0;}if(!dx&&!dy)return;for(let i=0;i<n;i++){const nx=def.x+dx,ny=def.y+dy;if(nx<0||ny<0||nx>=COLS||ny>=ROWS||TERRAIN[ny][nx]===1){def.hp=0;return;}const occ=CURUNITS&&CURUNITS.find(u=>u.x===nx&&u.y===ny&&u.hp>0);if(occ){def.hp-=4;occ.hp-=4;return;}def.x=nx;def.y=ny;}}
 
 // ---- 数值 ----
 function cover(u){return TERRAIN[u.y][u.x]===2?2:0;}
 function avo(u){return TERRAIN[u.y][u.x]===2?FOREST_AVO:0;}
-function baseDmg(att,def,sk){const m=typeMult(sk.type,def.type);if(m===0)return{d:0,m:0};let d=Math.max(1,Math.round(att.atk*sk.mult*m)-def.def-cover(def));d=Math.round(d*rDmg(att,sk)*rTaken(def));return{d:Math.max(1,d),m};}
+function baseDmg(att,def,sk){const m=typeMult(sk.type,def.type);if(m===0)return{d:0,m:0};let d=Math.max(1,Math.round(att.atk*sk.mult*m)-def.def-cover(def));d=Math.round(d*rDmg(att,sk,def)*rTaken(def));if(sk.useShield)d+=(att.shield||0);if(att.player){if(EQUIP.some(r=>r.id==='formation'))d=Math.round(d*(1+0.12*adjAlliesS(att)));if(EQUIP.some(r=>r.id==='flank')&&isFlankedS(att,def))d=Math.round(d*1.5);if(EQUIP.some(r=>r.id==='alpha')&&!def.acted)d=Math.round(d*1.4);}return{d:Math.max(1,d),m};}
 function hitRate(att,def,sk){return Math.max(0,Math.min(100,Math.round(sk.hit+att.skl*2-(def.spd*2+def.lck)-avo(def)+rHit(att,sk))));}
 function critRate(att,def,sk){return Math.max(0,Math.min(100,Math.round(sk.crit+att.skl-def.lck+rCrit(att))));}
 function doubles(a,b){return (a.spd-b.spd)>=DOUBLE_GAP;}
@@ -53,7 +59,7 @@ function strike(att,def,skKey){const s=SKILLS[skKey]||skKey;const times=(doubles
   for(let i=0;i<times;i++){if(def.hp<=0)break;const b=baseDmg(att,def,s);
     if(b.m===0){if(att.player)tally('immune');else tally('e_immune');break;}
     if(rnd()>=hitRate(att,def,s)){if(att.player)tally('miss');continue;}
-    const crit=rnd()<critRate(att,def,s);const d=crit?b.d*CRITX:b.d;def.hp-=d;dealt+=d;
+    const crit=rnd()<critRate(att,def,s);let d=crit?b.d*CRITX:b.d;if(def.dmgCap&&d>def.dmgCap)d=def.dmgCap;const ab=Math.min(def.shield||0,d);if(ab>0)def.shield-=ab;def.hp-=(d-ab);dealt+=d;
     if(att.player)tally(b.m>1?'super':b.m<1?'resist':'neutral');
     else tally(b.m>1?'e_super':b.m<1?'e_resist':'e_neutral');
     if(s.inflict&&def.hp>0&&Math.random()*100<s.inflict.chance)applyEff(def,s.inflict.kind);
@@ -61,15 +67,19 @@ function strike(att,def,skKey){const s=SKILLS[skKey]||skKey;const times=(doubles
     if(!att.player&&rThorns()>0&&att.hp>0){att.hp-=rThorns();} // 我方荆棘反伤敌人
   }
   if(s.recoil&&dealt>0&&att.hp>0)att.hp-=Math.max(1,Math.round(dealt*s.recoil));
+  if(def.hp>0&&(s.knock||(att.player&&EQUIP.some(r=>r.id==='knockback'))))pushTargetS(att,def,s.knock||1);
   return dealt;}
 
 // ---- 单位 ----
 function metaBump(m,target){while(m.lv<target){m.lv++;m.maxhp+=3;m.atk+=1;m.def+=1;m.skl+=1;if(m.lv%2===0)m.spd+=1;const key=m.hero?'normal':m.key;const sk=(LEARN[key]||['basic'])[m.lv-1];if(sk&&!m.skills.includes(sk)&&!m.hero)m.skills.push(sk);}}
 function poolEntry(p){const e={key:p.key,type:p.type,hero:!!p.hero,lv:1,exp:0,stage:0,maxhp:p.hp,atk:p.atk,def:p.def,spd:p.spd,skl:p.skl,lck:p.lck,mov:p.mov,rng:p.rng,skills:[(LEARN[p.key]||['basic'])[0]]};if(STARTLV>1)metaBump(e,STARTLV);e.curHp=e.maxhp;return e;}
 function mkBattleUnit(src,x,y){const u=Object.assign({},src);u.player=true;u.src=src;u.x=x;u.y=y;u.hp=Math.max(1,Math.min(src.maxhp,src.curHp!=null?src.curHp:src.maxhp));u.skills=src.skills.slice();u.transformed=false;rStat(u);return u;}
-function mkEnemy(t,x,y,boss){const s=boss?1:CH_SCALE[run.chapter]*EH;const e=Object.assign({},t);e.player=false;
-  e.maxhp=boss?Math.round(t.hp*BH):Math.round(t.hp*s);e.hp=e.maxhp;e.atk=Math.round(t.atk*(boss?EH:s));e.def=boss?t.def:Math.round(t.def*CH_SCALE[run.chapter]);
+function mkEnemy(t,x,y,boss){const s=boss?1:CH_SCALE[run.chapter]*EH;const aE=ascEnemyMul(ASC),aB=ascBossMul(ASC);const e=Object.assign({},t);e.player=false;
+  e.maxhp=boss?Math.round(t.hp*BH*aB):Math.round(t.hp*s*aE);e.hp=e.maxhp;e.atk=Math.round(t.atk*(boss?EH:s)*aE);e.def=boss?t.def:Math.round(t.def*CH_SCALE[run.chapter]);
   e.x=x;e.y=y;e.skills=t.skills.slice();return e;}
+let CAPBUF=null;
+function capChanceS(def){return Math.min(0.95,(def.elite?0.25:0.70)*(1-def.hp/def.maxhp)+rCap());}
+function poolFromEnemy(e){const k=e.type;const sk=(LEARN[k]||['basic']).slice(0,2);const mh=e.maxhp||e.hp;return{key:k,type:e.type,hero:false,lv:1,exp:0,stage:0,maxhp:mh,curHp:mh,atk:e.atk,def:e.def,spd:e.spd,skl:e.skl,lck:e.lck,mov:e.mov,rng:e.rng,skills:sk};}
 
 // ---- 范围/寻路 ----
 function moveTiles(units,u){const seen={[u.x+','+u.y]:0},q=[{x:u.x,y:u.y,d:0}],out=[{x:u.x,y:u.y,d:0}];
@@ -93,26 +103,27 @@ function chooseAttack(units,u){const enemies=units.filter(e=>!e.player&&e.hp>0);
   return best;}
 function actPlayer(units,u){const plan=chooseAttack(units,u);const low=u.hp/u.maxhp<0.35;
   if(plan&&(plan.lethal||plan.score>2)&&!(low&&!plan.lethal&&plan.score<6)){T('  我方 '+u.key+'(Lv'+u.lv+') →('+plan.tile.x+','+plan.tile.y+') 用['+SKILLS[plan.skKey].name+'] 打 '+plan.enemy.type);u.x=plan.tile.x;u.y=plan.tile.y;const s=SKILLS[plan.skKey];
+    {const ce=plan.enemy;if(run.pool&&run.pool.length<5&&!ce.elite&&(Math.abs(u.x-ce.x)+Math.abs(u.y-ce.y))<=1&&capChanceS(ce)>=0.5){tally('capTry');if(Math.random()<capChanceS(ce)){tally('capture');if(CAPBUF)CAPBUF.push(poolFromEnemy(ce));ce.hp=0;}return;}}
     if(s.kind==='aoe'){const list=[plan.enemy,...units.filter(e=>!e.player&&e.hp>0&&e!==plan.enemy&&Math.abs(e.x-plan.enemy.x)+Math.abs(e.y-plan.enemy.y)===1)];let dealt=0;
       for(const d of list){const b=baseDmg(u,d,s);if(b.m===0){tally('immune');continue;}if(rnd()>=hitRate(u,d,s)){tally('miss');continue;}d.hp-=b.d;dealt+=b.d;tally(b.m>1?'super':b.m<1?'resist':'neutral');}
       const dead=list.filter(d=>d.hp<=0).length;if(dead)rKill(u);gainExp(u,Math.round(dealt*1.4)+dead*5);}
     else{const dealt=strike(u,plan.enemy,plan.skKey);
       if(plan.enemy.hp<=0){M.deaths;rKill(u);gainExp(u,Math.round(dealt*1.4)+5);}
-      else{if(dist(u,plan.enemy)<=plan.enemy.rng){strike(plan.enemy,u,'basic');}gainExp(u,Math.round(dealt*1.4));}}
+      else{if(dist(u,plan.enemy)<=plan.enemy.rng&&!(plan.enemy.eff&&plan.enemy.eff.para)){strike(plan.enemy,u,'basic');}gainExp(u,Math.round(dealt*1.4));}}
   }else{const enemies=units.filter(e=>!e.player&&e.hp>0);if(!enemies.length)return;const tiles=moveTiles(units,u);const near=enemies.reduce((a,b)=>dist(u,a)<dist(u,b)?a:b);let bt=null,bs=1e9;for(const t of tiles){const expo=_threatAtS(units,t.x,t.y,null)*4+(low?0:(Math.abs(t.x-near.x)+Math.abs(t.y-near.y))*0.3)-(TERRAIN[t.y][t.x]===2?1.5:0);if(expo<bs){bs=expo;bt=t;}}if(bt){u.x=bt.x;u.y=bt.y;}}}
 function aiScore(e,t){let best=-1;e.skills.forEach(k=>{const s=SKILLS[k];if(s.kind!=='atk'&&s.kind!=='aoe')return;const v=typeMult(s.type,t.type)*s.mult;if(v>best)best=v;});return best;}
 function aiPick(e,t){let best='basic',bv=-1;e.skills.forEach(k=>{const s=SKILLS[k];if(s.kind!=='atk'&&s.kind!=='aoe')return;const v=typeMult(s.type,t.type)*s.mult;if(v>bv){bv=v;best=k;}});return best;}
-function actEnemy(units,e){let ts=units.filter(u=>u.player&&u.hp>0);if(!ts.length)return;const hit=ts.filter(t=>aiScore(e,t)>0);if(hit.length)ts=hit;
+function actEnemy(units,e){if(e.mech==='enrage'&&!e._enraged&&e.hp/e.maxhp<0.5){e.atk=Math.round(e.atk*1.5);e._enraged=true;}if(e.bossShield){e.shield=(e.shield||0)+e.bossShield;}let ts=units.filter(u=>u.player&&u.hp>0);if(!ts.length)return;const hit=ts.filter(t=>aiScore(e,t)>0);if(hit.length)ts=hit;
   ts.sort((a,b)=>{const ma=aiScore(e,a),mb=aiScore(e,b);if(mb!==ma)return mb-ma;return a.hp-b.hp;});
   const tgt=ts[0],sk=aiPick(e,tgt),s=SKILLS[sk],reach=e.rng+(s.rb||0);
   T('  敌 '+e.type+' 用['+SKILLS[sk].name+'] 打 '+tgt.key);
   if(dist(e,tgt)>reach){const tiles=moveTiles(units,e);let bt=null,bd=1e9;for(const t of tiles){const dd=Math.abs(t.x-tgt.x)+Math.abs(t.y-tgt.y);if(dd<bd){bd=dd;bt=t;}}if(bt){e.x=bt.x;e.y=bt.y;}}
-  if(dist(e,tgt)<=reach){strike(e,tgt,sk);if(tgt.hp>0&&dist(e,tgt)<=tgt.rng&&e.hp>0){const back=strike(tgt,e,'basic');if(e.hp>0)gainExp(tgt,back);}}}
+  if(dist(e,tgt)<=reach){strike(e,tgt,sk);if(tgt.hp>0&&dist(e,tgt)<=tgt.rng&&e.hp>0&&!(tgt.eff&&tgt.eff.para)){const back=strike(tgt,e,'basic');if(e.hp>0)gainExp(tgt,back);}}}
 
 // ---- 单场战斗(速度交错) ----
 let run;
 function battle(pool,deploy,nodeType,chapter){
-  run.chapter=chapter;const units=[];
+  run.chapter=chapter;run.pool=pool;const units=[];const caps=[];CAPBUF=caps;
   deploy.forEach((src,s)=>units.push(mkBattleUnit(src,PSTART[s][0],PSTART[s][1])));
   const slots=[0,1,2,4,5];let si=0;const R=()=>{const ks=Object.keys(WILD);return WILD[ks[ri(ks.length)]];};
   if(nodeType==='boss'){units.push(mkEnemy(CH_BOSS[chapter],ESLOTS[3][0],ESLOTS[3][1],true));for(let i=0;i<3+EC&&si<slots.length;i++){const sl=slots[si++];units.push(mkEnemy(R(),ESLOTS[sl][0],ESLOTS[sl][1]));}}
@@ -123,16 +134,17 @@ function battle(pool,deploy,nodeType,chapter){
   T(`\n[第${chapter}章/${nodeType}] 出战:${units.filter(u=>u.player).map(u=>u.key+(u.transformed?'→'+u.type:'')+'Lv'+u.lv).join(' ')}  敌:${units.filter(u=>!u.player).map(u=>u.type+(u.elite?'★':'')+'('+u.hp+')').join(' ')}`);
   const pAlive=()=>units.some(u=>u.player&&u.hp>0),eAlive=()=>units.some(u=>!u.player&&u.hp>0);
   const sync=()=>units.filter(u=>u.player&&u.hp>0).forEach(u=>{const s=u.src;const rb=u._rb||{atk:0,def:0,spd:0,maxhp:0,lck:0};s.lv=u.lv;s.exp=u.exp;s.stage=u.stage;s.maxhp=u.maxhp-rb.maxhp;s.atk=u.atk-rb.atk;s.def=u.def-rb.def;s.spd=u.spd-rb.spd;s.skl=u.skl;s.curHp=Math.max(1,Math.min(s.maxhp,u.hp-rb.maxhp));if(!s.hero)s.skills=u.skills.slice();});
-  let turns=0;
-  while(turns<40){turns++;
+  let turns=0;CURUNITS=units;
+  while(turns<40){turns++;units.forEach(x=>x.acted=false);
     const order=units.filter(u=>u.hp>0).slice().sort((a,b)=>(b.spd-a.spd)||((a.player?0:1)-(b.player?0:1)));
     for(const u of order){if(u.hp<=0)continue;
       if(u.eff){if(u.eff.burn>0){u.hp-=STATUS.burn.dmg;if(--u.eff.burn<=0)delete u.eff.burn;}if(u.eff.poison>0){u.hp-=u.eff.poison;if(--u.eff.poison<=0)delete u.eff.poison;}}
       if(u.hp<=0)continue;
       let _sk=false;if(u.eff&&u.eff.para>0){if(--u.eff.para<=0)delete u.eff.para;if(Math.random()*100<STATUS.para.skip)_sk=true;}
       if(_sk)continue;
-      u.player?actPlayer(units,u):actEnemy(units,u);if(!eAlive()||!pAlive())break;}
-    if(!eAlive()){T('  => 胜 ('+turns+'回合)');sync();return{win:true,turns,dead:units.filter(u=>u.player&&u.hp<=0).map(u=>u.src),nodeType};}
+      if(u.player){const sr=rShieldRegen();if(sr>0)u.shield=(u.shield||0)+sr;}
+      u.player?actPlayer(units,u):actEnemy(units,u);u.acted=true;if(!eAlive()||!pAlive())break;}
+    if(!eAlive()){T('  => 胜 ('+turns+'回合)');sync();return{win:true,turns,dead:units.filter(u=>u.player&&u.hp<=0).map(u=>u.src),caps,nodeType};}
     if(!pAlive()){T('  => 败 ('+turns+'回合)');sync();return{win:false,turns,dead:[],nodeType};}
   }
   return{win:false,turns,dead:[],nodeType,stall:true};}
@@ -147,10 +159,11 @@ function runOnce(){let pool=POOL.map(poolEntry);run={chapter:1};
   const rec={win:false,chapter:0,battles:0,turns:0,deaths:0,bossTurns:{},stage1:[],stage3:[]};
   for(let ch=1;ch<=3;ch++){rec.chapter=ch;
     for(let col=0;col<6;col++){let type=col===5?'boss':col===0?'battle':['battle','battle','elite','event','rest'][ri(5)];
-      if(type==='rest'){pool.forEach(m=>{const c=m.curHp!=null?m.curHp:m.maxhp;m.curHp=Math.min(m.maxhp,c+Math.ceil(m.maxhp*0.3));});continue;}
+      if(type==='rest'){pool.forEach(m=>{const c=m.curHp!=null?m.curHp:m.maxhp;m.curHp=Math.min(m.maxhp,c+Math.ceil(m.maxhp*ascRestHeal(ASC)));});continue;}
       if(type==='event')continue;
       const r=battle(pool,pickDeploy(pool),type,ch);rec.battles++;rec.turns+=r.turns;if(type==='boss')rec.bossTurns[ch]=r.turns;
       if(r.dead.length){rec.deaths+=r.dead.length;pool=pool.filter(p=>!r.dead.includes(p));}
+      if(r.caps&&r.caps.length)pool=pool.concat(r.caps);
       if(!r.win)return Object.assign(rec,{win:false,diedAt:`第${ch}章/${type}`});}
     pool.forEach(m=>m.curHp=m.maxhp); // 章末回满阀门
     if(ch===1)rec.stage1=pool.filter(p=>!p.hero).map(p=>p.stage);
@@ -181,3 +194,4 @@ console.log('\n【节奏】 平均回合/场',(agg.turns/agg.battles).toFixed(1)
 console.log('\n【进化曲线】 一章末二段+',pct(agg.s1.filter(x=>x>=1).length,agg.s1.length),'| 三章末三段',pct(agg.s3.filter(x=>x>=2).length,agg.s3.length),'二段+',pct(agg.s3.filter(x=>x>=1).length,agg.s3.length));
 console.log('\n【克制深度·我方】');PKEYS.forEach(k=>console.log('   '+k+': '+pct(M.hits[k]||0,TH)));
 console.log('【克制深度·敌方(双向博弈)】');EKEYS.forEach(k=>console.log('   '+k+': '+pct(M.hits[k]||0,EH_T)));
+console.log('\n【收服】 平均每轮收服 '+((M.hits['capture']||0)/N).toFixed(2)+' 只 (尝试 '+((M.hits['capTry']||0)/N).toFixed(2)+')');
