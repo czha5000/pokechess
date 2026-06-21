@@ -1,7 +1,7 @@
 // 存档(localStorage) + 重来本关(内存快照)
 const SAVE_KEY='wenshou_save';
-function serializeRun(){return JSON.stringify({pool:run.pool,map:run.map,cur:run.cur,depth:run.depth,chapter:run.chapter,ascSel:run.ascSel||0,reviveUsed:!!run.reviveUsed,relicIds:run.relics.map(r=>r.id),uid});}
-function applyRunData(o){run.pool=o.pool;run.map=o.map;run.cur=o.cur;run.depth=o.depth||6;run.chapter=o.chapter;run.ascSel=o.ascSel||0;run.reviveUsed=!!o.reviveUsed;run.relics=(o.relicIds||[]).map(id=>RELICS.find(r=>r.id===id)).filter(Boolean);if(o.uid)uid=Math.max(uid,o.uid);}
+function serializeRun(){return JSON.stringify({pool:run.pool,map:run.map,cur:run.cur,depth:run.depth,chapter:run.chapter,ascSel:run.ascSel||0,gold:run.gold||0,bag:run.bag||[],reviveUsed:!!run.reviveUsed,relicIds:run.relics.map(r=>r.id),uid});}
+function applyRunData(o){run.pool=o.pool;run.map=o.map;run.cur=o.cur;run.depth=o.depth||6;run.chapter=o.chapter;run.ascSel=o.ascSel||0;run.gold=o.gold||0;run.bag=o.bag||[];run.reviveUsed=!!o.reviveUsed;run.relics=(o.relicIds||[]).map(id=>RELICS.find(r=>r.id===id)).filter(Boolean);if(o.uid)uid=Math.max(uid,o.uid);}
 function autoSave(){try{localStorage.setItem(SAVE_KEY,serializeRun());}catch(e){}}
 function saveGame(){try{localStorage.setItem(SAVE_KEY,serializeRun());log('💾 进度已保存(自动也会在每次回到地图时保存)。','#7fe0a0');}catch(e){alert('保存失败:'+e.message);}}
 function hasSave(){try{return !!localStorage.getItem(SAVE_KEY);}catch(e){return false;}}

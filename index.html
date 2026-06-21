@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>纹兽战记 · 重构版 (v0.9)</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <h1>纹兽战记 <span class="small">· 重构版</span></h1>
+    <div>
+      <span class="badge click" id="autoBtn">🤖 自动演示</span>
+      <span class="badge click" id="mapBtn">🗺 章节地图</span>
+      <span class="badge click" id="chartBtn">📖 克制表</span>
+      <span class="badge" id="turnBadge">—</span>
+    </div>
+  </div>
+  <div class="layout">
+    <div class="boardwrap" id="boardwrap"><div id="board"></div>
+      <div class="legend">蓝框=移动 · <span style="color:#ff7a7a">红底=攻击范围</span> · <span style="color:#ffb24d">橙底=敌方威胁区</span> ｜ 普攻=普通系(幽灵免疫)；效果绝佳×2/不好×0.5/无效×0。</div>
+    </div>
+    <div class="side">
+      <div id="orderBar"></div>
+      <div class="info" id="info">从章节地图选择节点开始。</div>
+      <div class="row" id="skillRow"></div>
+      <div id="forecast"></div>
+      <div class="row" id="actRow"></div>
+      <hr style="border-color:#3a4360">
+      <div class="row"><button class="btn" id="endTurn">跳过该单位 ⏭</button><button class="btn ghost" id="retryBattle">重来本关 ↺</button><button class="btn ghost" id="restart">放弃重开</button></div>
+      <div id="log"></div>
+    </div>
+  </div>
+</div>
+
+<!-- 开局 -->
+<div class="overlay" id="intro"><div class="modal">
+  <h2>纹兽战记 · 三章冒险</h2>
+  <p class="small">连闯三章，每章一张分支地图(战斗⚔/精英☠/事件❓/休整🏕/Boss👑)，章末 Boss 依次为 <b>暴鲤龙 → 快龙 → 超梦</b>(高血量、长回合)。<br>
+  · 每场 <b>自选3 + 随机3</b> 出战；等级/经验/进化<b>跨战与跨章保留</b>。<br>
+  · <b>升级温和、进化是质变</b>：约第一章末(Lv4)进入二段进化，第三章中段(Lv7)三段进化。<br>
+  · 命中目标即得经验(不必抢最后一击)；阵亡=永久出池，收服=入池。<br>
+  · 伊布(主角)每战可进化火/水/雷形态，战后变回。图片为占位素材。</p>
+  <div id="metaPanel"></div>
+  <div class="row"><button class="btn" id="startRun">开始冒险 ▶</button><button class="btn ghost" id="loadBtn" style="display:none">📂 继续存档</button></div>
+</div></div>
+
+<!-- 地图 -->
+<div class="overlay" id="mapScreen" style="display:none"><div class="modal">
+  <h2>章节地图 🗺</h2>
+  <p class="small" id="mapHint">点亮(金色)的节点可前往。</p>
+  <div class="mapwrap" id="mapwrap"><svg id="mapSvg"></svg></div>
+  <h3 style="margin:6px 0 2px">精灵池 <span class="small" id="poolCount"></span></h3>
+  <div class="roster" id="roster"></div>
+  <h3 style="margin:8px 0 2px">遗物</h3>
+  <div class="roster" id="relicBar"></div>
+  <div class="row"><button class="btn ghost" id="saveBtn">💾 保存进度</button><span class="small" style="align-self:center">(每次回到地图会自动保存)</span></div>
+  <div class="legend">⚔普通战斗 · ☠精英(强敌+可收服+遗物) · ❓事件 · 🏕休整(回血/可释放精简牌库) · 👑Boss(遗物)</div>
+</div></div>
+
+<!-- 部署 -->
+<div class="overlay" id="deploy" style="display:none"><div class="modal">
+  <h2 id="deployTitle">部署出战(自选3)</h2>
+  <p class="small" id="deploySub"></p>
+  <div id="previewBoard" style="margin:8px 0;overflow:auto"></div>
+  <div class="pick" id="pickArea"></div>
+  <div class="row"><button class="btn" id="confirmDeploy" disabled>已选 0/3 — 随机补充并开战 ▶</button></div>
+</div></div>
+
+<!-- 事件 -->
+<div class="overlay" id="eventModal" style="display:none"><div class="modal">
+  <h2 id="evTitle">❓ 事件</h2><p id="evDesc" class="small"></p><div class="row" id="evChoices"></div>
+</div></div>
+
+<!-- 休整 -->
+<div class="overlay" id="restModal" style="display:none"><div class="modal">
+  <h2>🏕 休整</h2><p class="small">全队已回满血。可选择<b>释放一只</b>精灵以精简牌库(提升随机抽到核心的概率)，或直接出发。</p>
+  <div class="roster" id="restRoster"></div>
+  <div class="row"><button class="btn ghost" id="restLeave">不释放，出发 ▶</button></div>
+</div></div>
+
+<!-- 克制表 -->
+<div class="overlay" id="chartModal" style="display:none"><div class="modal"><h2>属性克制表</h2>
+  <p class="small">行=招数属性，列=防守方。绿×2 / 红×0.5 / 黑×0(无效)。</p>
+  <div id="chartBox" style="overflow:auto"></div>
+  <div class="row"><button class="btn" id="chartClose">关闭</button></div></div></div>
+
+<!-- 遗物奖励 -->
+<div class="overlay" id="relicModal" style="display:none"><div class="modal">
+  <h2>✦ 获得遗物 — 三选一</h2><p class="small">遗物提供本局永久增益，是构筑(build)的核心。</p>
+  <div class="row" id="relicChoices"></div>
+</div></div>
+
+<!-- 结算 -->
+<div class="overlay" id="endScreen" style="display:none"><div class="modal end">
+  <h2 id="endTitle"></h2><p id="endMsg" class="small"></p><button class="btn" id="endRestart">重新开始</button></div></div>
+
+<!-- ===== 脚本(依赖顺序: data → core → ui → main) ===== -->
+<script src="js/data/config.js"></script>
+<script src="js/data/types.js"></script>
+<script src="js/data/skills.js"></script>
+<script src="js/data/creatures.js"></script>
+<script src="js/data/story.js"></script>
+<script src="js/data/items.js"></script>
+<script src="js/data/relics.js"></script>
+<script src="js/core/state.js"></script>
+<script src="js/core/relics.js"></script>
+<script src="js/core/units.js"></script>
+<script src="js/core/combat.js"></script>
+<script src="js/core/ai.js"></script>
+<script src="js/core/turn.js"></script>
+<script src="js/core/run.js"></script>
+<script src="js/core/battle.js"></script>
+<script src="js/core/save.js"></script>
+<script src="js/core/meta.js"></script>
+<script src="js/ui/board.js"></script>
+<script src="js/ui/vfx.js"></script>
+<script src="js/ui/cutscene.js"></script>
+<script src="js/ui/ux.js"></script>
+<script src="js/ui/panels.js"></script>
+<script src="js/ui/mapview.js"></script>
+<script src="js/ui/deploy.js"></script>
+<script src="js/ui/overlays.js"></script>
+<script src="js/ui/autoplay.js"></script>
+<script src="js/ui/agent_api.js"></script>
+<script src="js/ui/sfx.js"></script>
+<script src="js/ui/music.js"></script>
+<script src="js/ui/menumusic.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

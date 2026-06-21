@@ -6,7 +6,7 @@ let autoOn=false; // 自动演示开关(autoplay.js)
 
 const CRITX=3, DOUBLE_GAP=4, FOREST_AVO=15; // 暴击倍率 / 二段速度差 / 森林回避
 const rand100=()=>Math.random()*100;
-const delay=ms=>new Promise(r=>setTimeout(r,ms));
+let SPEED=1;const delay=ms=>new Promise(r=>setTimeout(r,ms/(SPEED||1)));
 
 // DOM 引用(脚本置于 <body> 末尾,加载时 DOM 已就绪)
 const boardEl=document.getElementById('board'),

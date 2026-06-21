@@ -1,5 +1,5 @@
 // Meta 跨局进度:魂晶货币(独立 localStorage,跨整局持久) + 开局 hub 解锁
-let meta={shards:0, relics:[], startLv:1, equipRelic:null, asc:0, ascSel:0};
+let meta={shards:0, relics:[], startLv:1, equipRelic:null, asc:0, ascSel:0, deck:0};
 const META_KEY='wenshou_meta';
 const META_RELICS=[ // 可解锁为"起始遗物"的项及其魂晶价格
  {id:'power_band',cost:30},{id:'swift_boots',cost:30},{id:'exp_necklace',cost:40},
@@ -35,8 +35,12 @@ function renderHub(){const el=document.getElementById('metaPanel');if(!el)return
   if(meta.relics.length)h+=`<div class="small">点已解锁遗物 = 选为本局起始(再点取消)。当前：${meta.equipRelic?RELICS.find(r=>r.id===meta.equipRelic).icon+RELICS.find(r=>r.id===meta.equipRelic).name:'无'}</div>`;
   h+=`<div style="margin-top:8px;border-top:1px solid #2e3650;padding-top:6px">试炼层数 (Ascension) <b>${meta.ascSel}</b> / 已解锁 ${meta.asc} <button class="btn ghost" data-asc="-1">−</button><button class="btn ghost" data-asc="1">+</button></div>`;
   h+=`<div class="small">本层:敌人 +${Math.round((ascEnemyMul(meta.ascSel)-1)*100)}% · Boss血 +${Math.round((ascBossMul(meta.ascSel)-1)*100)}% · 休整回血 ${Math.round(ascRestHeal(meta.ascSel)*100)}% · 魂晶 +${Math.round(meta.ascSel*15)}%。通关当前层解锁下一层。</div>`;
+  h+=`<div style="margin-top:8px;border-top:1px solid #2e3650;padding-top:6px">开局阵容:</div><div class="row">`;
+  if(typeof START_DECKS!=='undefined')START_DECKS.forEach((d,i)=>{h+=`<span class="ochip ${(meta.deck||0)===i?'cur':'ally'}" style="cursor:pointer" data-deck="${i}" title="${d.desc}">${(meta.deck||0)===i?'✅':''}${d.name}</span>`;});
+  h+=`</div><div class="small">${(typeof START_DECKS!=='undefined')?START_DECKS[meta.deck||0].desc:''}</div>`;
   h+=`</div>`;el.innerHTML=h;
   el.querySelectorAll('[data-unlock]').forEach(b=>b.onclick=()=>unlockRelic(b.dataset.unlock));
   el.querySelectorAll('[data-equip]').forEach(b=>b.onclick=()=>{meta.equipRelic=(meta.equipRelic===b.dataset.equip)?null:b.dataset.equip;saveMeta();renderHub();});
   const lvb=el.querySelector('[data-buy="lv"]');if(lvb)lvb.onclick=buyStartLv;
-  el.querySelectorAll('[data-asc]').forEach(b=>b.onclick=()=>{meta.ascSel=Math.max(0,Math.min(meta.asc,meta.ascSel+(+b.dataset.asc)));saveMeta();renderHub();});}
+  el.querySelectorAll('[data-asc]').forEach(b=>b.onclick=()=>{meta.ascSel=Math.max(0,Math.min(meta.asc,meta.ascSel+(+b.dataset.asc)));saveMeta();renderHub();});
+  el.querySelectorAll('[data-deck]').forEach(b=>b.onclick=()=>{meta.deck=+b.dataset.deck;saveMeta();renderHub();});}

@@ -1,9 +1,10 @@
 // 单局(run):地图生成、节点推进、事件、休整
-function beginRun(){run.pool=POOL.map(poolEntry);run.chapter=1;run.relics=[];run.reviveUsed=false;run.ascSel=meta.ascSel||0;applyMetaToRun();buildMap();show('intro',false);log('冒险开始！从地图首列选择一个节点。','#6ad1ff');if(meta.startLv>1||meta.equipRelic)log(`Meta 加成已生效：起始 Lv.${meta.startLv}${meta.equipRelic?'，起始遗物 '+RELICS.find(r=>r.id===meta.equipRelic).name:''}`,'#ffd95a');showMap();}
+function buildDeck(d){const arr=[];(d.units||[]).forEach(u=>{if(u.indexOf('w:')===0){const w=WILD[u.slice(2)];if(w)arr.push(poolEntryFromEnemy(w));}else{const p=POOL.find(x=>(x.key||x.type)===u);if(p)arr.push(poolEntry(p));}});return arr.length?arr:POOL.map(poolEntry);}
+function beginRun(){const _dk=(typeof START_DECKS!=='undefined')?(START_DECKS[(meta.deck||0)]||START_DECKS[0]):null;run.pool=_dk?buildDeck(_dk):POOL.map(poolEntry);run.chapter=1;run.relics=[];run.reviveUsed=false;run._over=false;run.gold=0;run.bag=[];run.ascSel=meta.ascSel||0;applyMetaToRun();if(_dk&&_dk.relic){const _r=RELICS.find(x=>x.id===_dk.relic);if(_r&&!run.relics.some(z=>z.id===_r.id))run.relics.push(_r);}buildMap();show('intro',false);log('冒险开始！从地图首列选择一个节点。','#6ad1ff');if(typeof STORY!=='undefined'){log(STORY.chapter[1],'#ffcf5a');}if(meta.startLv>1||meta.equipRelic)log(`Meta 加成已生效：起始 Lv.${meta.startLv}${meta.equipRelic?'，起始遗物 '+RELICS.find(r=>r.id===meta.equipRelic).name:''}`,'#ffd95a');var _go=function(){if(typeof showCutscene==='function'&&typeof STORY!=='undefined'&&STORY.scene){showCutscene(STORY.scene.opening,showMap);}else showMap();};if(typeof showVideo==='function'){showVideo('assets/opening.mp4',_go);}else _go();}
 function buildMap(){run.map=[];const cols=run.depth;
   for(let c=0;c<cols;c++){let n=c===0?2:c===cols-1?1:1+(Math.random()*3|0);n=Math.max(1,Math.min(3,n));const arr=[];
-    for(let r=0;r<n;r++){let type;if(c===cols-1)type='boss';else if(c===0)type='battle';else type=['battle','battle','elite','event','rest'][Math.random()*5|0];
-      arr.push({id:c+'-'+r,c,r,type,done:false,edges:[]});}run.map.push(arr);}
+    for(let r=0;r<n;r++){let type;if(c===cols-1)type='boss';else if(c===0)type='battle';else type=['battle','battle','elite','event','rest','shop'][Math.random()*6|0];
+      const node={id:c+'-'+r,c,r,type,done:false,edges:[]};if(type==='battle'&&c>0){const rr=Math.random();if(rr<0.15){node.obj='survive';node.objN=3+(Math.random()<0.5?1:0);}else if(rr<0.30){node.obj='reach';}}arr.push(node);}run.map.push(arr);}
   for(let c=0;c<cols-1;c++){const cur=run.map[c],nxt=run.map[c+1];
     cur.forEach((node,ri)=>{const k=1+(Math.random()<0.5?1:0);const base=Math.round(ri*(nxt.length-1)/Math.max(1,cur.length-1));
       for(let j=0;j<k;j++){const idx=Math.max(0,Math.min(nxt.length-1,base+(j===0?0:(Math.random()<0.5?-1:1))));if(!node.edges.includes(nxt[idx].id))node.edges.push(nxt[idx].id);}});
@@ -13,6 +14,7 @@ function nodeById(id){for(const col of run.map)for(const n of col)if(n.id===id)r
 function reachableIds(){if(run.cur===null)return run.map[0].map(n=>n.id);const n=nodeById(run.cur);return n?n.edges:[];}
 function enterNode(n){run.cur=n.id;
   if(n.type==='event')showEvent(n);
+  else if(n.type==='shop')showShop(n);
   else if(n.type==='rest'){run.pool.forEach(m=>{const cur=(m.curHp!=null?m.curHp:m.maxhp);m.curHp=Math.min(m.maxhp,cur+Math.ceil(m.maxhp*ascRestHeal(run.ascSel||0)));});log('🏕 休整:全队回复 30% 生命。','#7fe0a0');showRest(n);}
   else startDeploy(n);}
 
@@ -65,6 +67,14 @@ function showEvent(n){const ev=EVENTS[Math.random()*EVENTS.length|0];document.ge
   const box=document.getElementById('evChoices');box.innerHTML='';
   ev.c.forEach(ch=>{const b=document.createElement('button');b.className='btn';b.textContent=ch.label;b.onclick=()=>{ch.fn();if(document.getElementById('eventModal').style.display!=='none'&&!/选择/.test(document.getElementById('evTitle').textContent))finishNode();};box.appendChild(b);});
   show('eventModal',true);if(autoOn)setTimeout(autoEvent,800);}
+function shopOffers(n){if(!n._shop){const owned=new Set(run.relics.map(r=>r.id));const pool=RELICS.filter(r=>!owned.has(r.id));const rel=[];for(let i=0;i<2&&pool.length;i++)rel.push(pool.splice(Math.random()*pool.length|0,1)[0]);n._shop={rel,healed:false,item:(typeof HELD_KEYS!=='undefined')?HELD_KEYS[Math.random()*HELD_KEYS.length|0]:null};}return n._shop;}
+function showShop(n){const sh=shopOffers(n);document.getElementById('evTitle').textContent='🛒 商队商店　💰 '+(run.gold||0);document.getElementById('evDesc').textContent='用金币购买;离开即继续。';
+  const box=document.getElementById('evChoices');box.innerHTML='';box.style.maxHeight='';
+  sh.rel.forEach((r,idx)=>{const price=50;const b=document.createElement('button');b.className='btn ghost';b.style.cssText='display:flex;flex-direction:column;align-items:flex-start;text-align:left;max-width:240px';b.innerHTML=`<span>🛍 ${r.icon} ${r.name} <b>(💰${price})</b></span><small style="font-weight:400;color:#ccd">${r.desc}</small>`;b.onclick=()=>{if((run.gold||0)<price){log('金币不足。','#ff8a8a');return;}run.gold-=price;run.relics.push(r);sh.rel.splice(idx,1);log(`购买 ${r.icon} ${r.name}`,'#ffd95a');renderRelicBar();showShop(n);};box.appendChild(b);});
+  if(!sh.healed){const hp=30,b=document.createElement('button');b.className='btn';b.textContent=`💊 全队回满 (💰${hp})`;b.onclick=()=>{if((run.gold||0)<hp){log('金币不足。','#ff8a8a');return;}run.gold-=hp;run.pool.forEach(m=>m.curHp=m.maxhp);sh.healed=true;log('全队回满。','#7fe0a0');showShop(n);};box.appendChild(b);}
+  if(sh.item&&typeof HELD_ITEMS!=='undefined'){const it=HELD_ITEMS[sh.item],ip=40,ib=document.createElement('button');ib.className='btn ghost';ib.style.cssText='display:flex;flex-direction:column;align-items:flex-start;text-align:left;max-width:240px';ib.innerHTML=`<span>🛍 ${it.icon} ${it.name} <b>(💰${ip})</b></span><small style="font-weight:400;color:#ccd">${it.desc}</small>`;ib.onclick=()=>{if((run.gold||0)<ip){log('金币不足。','#ff8a8a');return;}run.gold-=ip;run.bag=run.bag||[];run.bag.push(sh.item);sh.item=null;log(`购买道具 ${it.icon} ${it.name}(进背包)`,'#ffd95a');renderRelicBar();showShop(n);};box.appendChild(ib);}
+  const lv=document.createElement('button');lv.className='btn';lv.textContent='离开商店';lv.onclick=()=>{show('eventModal',false);finishNode();};box.appendChild(lv);
+  show('eventModal',true);if(autoOn)setTimeout(()=>{show('eventModal',false);finishNode();},800);}
 function showRest(n){const box=document.getElementById('restRoster');box.innerHTML='';
   run.pool.forEach(m=>{const d=document.createElement('div');d.className='rmon';d.style.cursor='pointer';
     d.innerHTML=`<img src="${SPRITE(m.pid)}" onerror="this.replaceWith(Object.assign(document.createElement('div'),{textContent:'${m.em}',style:'font-size:34px'}))"><br>${m.name}${hpMini(m)}<br>释放`;

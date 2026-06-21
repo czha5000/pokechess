@@ -7,9 +7,10 @@ function highlightTargets(u,sk){const s=SKILLS[sk];highlights=[];
   if(s.kind==='heal'){units.filter(a=>a.side==='player'&&a.hp>0&&Math.abs(a.x-u.x)+Math.abs(a.y-u.y)<=1).forEach(a=>highlights.push({x:a.x,y:a.y,kind:'heal'}));}
   else{const reach=u.rng+(s.rb||0);units.filter(e=>e.side==='enemy'&&e.hp>0&&Math.abs(e.x-u.x)+Math.abs(e.y-u.y)<=reach).forEach(e=>highlights.push({x:e.x,y:e.y,kind:'atk'}));}}
 function renderActs(u){const row=document.getElementById('actRow');row.innerHTML='';
+  if(u.moved&&!u.acted){const ub=document.createElement('button');ub.className='btn ghost';ub.textContent='↩ 撤销移动(或右键)';ub.onclick=()=>undoMove(u);row.appendChild(ub);}
   if(u.hero&&!u.transformed&&!u.acted){['fire','water','electric'].forEach(f=>{const F=EEVEE_FORMS[f];const b=document.createElement('button');b.className='btn evo';b.textContent=`进化→${F.name}`;b.onclick=()=>transformEevee(u,f);row.appendChild(b);});}
   units.filter(e=>e.side==='enemy'&&e.hp>0&&Math.abs(e.x-u.x)+Math.abs(e.y-u.y)===1).forEach(e=>{const ch=capChance(u,e),b=document.createElement('button');b.className='btn';b.style.background='var(--accent)';b.textContent=`收服 ${e.name}(${Math.round(ch*100)}%)`;b.onclick=()=>doCapture(u,e);row.appendChild(b);});
-  const w=document.createElement('button');w.className='btn ghost';w.textContent='待机(结束该单位)';w.onclick=()=>{u.acted=true;clearSel();render();advanceInit();};row.appendChild(w);}
+  const w=document.createElement('button');w.className='btn ghost';w.textContent='待机(结束该单位)';w.onclick=()=>{if(!w.dataset.armed){w.dataset.armed='1';w.textContent='再点一次=确认待机';w.style.background='var(--accent)';return;}u.acted=true;clearSel();render();advanceInit();};row.appendChild(w);}
 function transformEevee(u,f){const F=EEVEE_FORMS[f];u.type=F.el;u.pid=F.pid;u.name=F.name;u.transformed=true;u.skills=LEARN[F.el].slice(0,Math.max(u.lv,2));
   log(`✦ 伊布进化成 <b>${F.name}</b>(${TYPE_CN[F.el]})（战后变回）`,'#c78bff');burst(u.x,u.y,'#c78bff');floatText(u.x,u.y,'进化!','#c78bff');showInfo(u);renderSkills(u);renderActs(u);render();}
 function showInfo(u){const atMax=u.lv>=MAXLV,need=THRESH[u.lv]||0,rem=atMax?0:Math.max(0,need-u.exp);

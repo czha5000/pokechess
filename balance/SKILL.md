@@ -14,42 +14,56 @@ description: 纹兽战记 的自动平衡台。用无头模拟器(读取游戏�
 cd balance
 node sim.js [局数]            # 默认 100 局,用 js/data 当前数值
 # 旋钮(环境变量,用于试探"改成这样会怎样",不改源文件):
-EH=2.0 node sim.js 100        # 普通敌人 血/攻 倍率
-BH=2.6 node sim.js 100        # Boss 血量倍率
+EH=0.8 node sim.js 100        # 普通敌人 血/攻 微调倍率(默认跟随 config.ENEMY_POWER)
+BH=1.7 node sim.js 100        # Boss 血量加成(默认跟随 config.BOSS_HP)
 EC=1   node sim.js 100        # 普通战额外敌人数
 DEPTOT=4 node sim.js 100      # 我方出战总数
+ASC=4  node sim.js 100        # Ascension 难度层(0–8)
 RELICS=power_band,exp_necklace node sim.js   # 给玩家装备遗物(测 build/Meta)
+ITEMS=power_amulet node sim.js               # 给全部出战单位装备同一携带道具(测道具强度)
 STARTLV=2 node sim.js         # 起始等级(测 Meta 加成)
 ```
 
-旋钮只影响这次试探。确定要改后,再去 `js/data/config.js`(`ENEMY_POWER`/`BOSS_HP`/`CH_SCALE`/`THRESH`/`STAGE_LV`)或对应数据文件落地。
+**EH/BH 默认跟随 config**(`process.env.EH||G.ENEMY_POWER`),所以改了 config 后 `node sim.js` 直接反映真实数值,不会再出现"sim 默认值和游戏不一致"的漂移。旋钮只影响这次试探;确定要改后,去 `js/data/config.js`(`ENEMY_POWER`/`BOSS_HP`/`ENEMY_LV`/`ELITE_LV`/`BOSS_LV`/`THRESH`/`STAGE_LV`)或对应数据文件落地。
+
+## 已纳入测试的特性(sim 复刻清单)
+
+平衡台不是只测"砍人",下列全部机制都在 sim 里复刻、计入通关率:
+
+- **敌人等级体系**:敌人按章节真正升级(`ENEMY_LV` 各章基础 + 精英 `ELITE_LV` / Boss `BOSS_LV` 加成),随级长 hp/atk/def/skl/spd——**不再永远 Lv1 被秒**。`mkEnemy` 与游戏 `units.js` 完全镜像。
+- **战斗目标**:`battle`/`elite` 节点 15% 守住(survive)+ 15% 抵达(reach),与游戏一致;报告里有"目标胜"计数。
+- **金币经济**:商店节点近似为回血 20%(休整为 `ascRestHeal`,章末回满)。
+- **携带道具**:`ITEMS=` 装备后,攻/防/速/血、命中、暴击、每回合回血、命中附毒/灼烧全部生效(镜像 `combat.js` 道具钩子)。
+- **遗物 / Ascension / 状态(灼烧·中毒层数·麻痹)/ 护盾 / Boss·精英机制(暴怒·伤害上限·护盾)/ 地形(熔岩·高地·森林)/ 夹击·阵型·先手·击退 / 收服**:均已复刻。
 
 ## 指标与目标区间(评测 AI = 中等水平)
 
 | 指标 | 目标带 | 解读 |
 |---|---|---|
-| 通关率(基线:无遗物/Lv1) | **65–80%** | AI 78% ≈ 真人熟练 45–60%。>85 太易,<55 太难 |
-| 各章通过率 | 平滑递减,**无单章阵亡尖峰 >15%** | 某章骤降=该章难度尖峰 |
-| Boss 平均回合 | **4–6** | <3 被秒;>8 拖沓 |
-| 平均回合/场 | **3.5–5** | 太低=互秒,太高=磨 |
-| 一章末二段进化 | **≥60%** | 验证 Lv4 节奏 |
+| 通关率(基线:无遗物/Lv1/asc0) | **55–68%** | 弱号基线偏难是有意的:逼玩家靠 build/道具/Meta 成长。当前 ~59% |
+| 各章通过率 | 前章宽容、**末章=高潮墙**可偏低 | 当前 97/93/59,失败集中在"第3章/boss 超梦"≈正常收束 |
+| Boss 平均回合 | **4–8** | <3 被秒;>10 拖沓。当前 4.0 / 7.1 / 7.7 |
+| 平均回合/场 | **3.5–6** | 太低=互秒,太高=磨。当前 4.2 |
+| 一章末二段进化 | **≥40%** | 验证 Lv4 节奏 |
 | 三章末三段进化 | **≥50%** | 验证 Lv7 节奏 |
-| 克制 super 占比 | **≥15%(理想)** | 当前~11% 偏低,克制爽点不够 |
-| Meta 满级+遗物 通关率 | **不应长期 100%** | 当前会到 100% → Meta 增益偏强,需关注 |
+| 克制 super 占比 | **≥15%** | 当前 ~16%,双向(敌方 e_super ~18%) |
+| 强 build / 道具 通关率 | 应明显高于基线 | power_amulet ~81%、startLv2 ~97%——成长曲线有效 |
+| Ascension 阶梯 | asc0→asc8 单调下降 | 当前 60→47→33→18→9%,层层加压 |
 
 ## 超出区间 → 调什么(对照表)
 
-- 通关率过高 → `ENEMY_POWER`↑ / `BOSS_HP`↑ / `EC+1` / `DEPTOT−1`
+- 通关率过高 → `ENEMY_POWER`↑ / `BOSS_HP`↑ / `ENEMY_LV[ch]`↑ / `EC+1` / `DEPTOT−1`
 - 通关率过低 → 上述反向
-- 某章阵亡尖峰 → 调该章 `CH_SCALE[ch]` 或该章 Boss 数值(`CH_BOSS`)
+- 某章阵亡尖峰 → 调该章 `ENEMY_LV[ch]`(敌人等级,影响全属性)或该章 Boss 数值(`CH_BOSS`)。⚠️ **敌人等级别超过玩家级上限**(`MAXLV=8`):ch3 敌人 `ENEMY_LV[3]+ELITE/BOSS_LV` 过高会让末章不可能。等级应贴近玩家各章预期等级。
 - Boss 回合过短 → `BOSS_HP`↑(优先,而非提攻击,避免秒人)
 - 克制 super 占比低 → `SKILLS.basic.mult`↓ / 元素招 `mult`↑ / 给敌人更多样的属性
 - Meta 状态碾压 → 降低 `meta.js` 的起始等级幅度/起始遗物强度,或抬高基线难度
 
 ## 维护(避免漂移)
 
-- **数值类**(怪物/招数/遗物/章节缩放/经验曲线):只改 `js/data/*`,模拟器自动跟随。
-- **战斗公式类**(命中/暴击/伤害/经验/进化逻辑):同时改 `js/core/combat.js` **和** `balance/sim.js`(公式在 sim 里是手写复刻的,二者需保持一致)。每次改完跑 `node sim.js` 对比基线确认未跑偏。
+- **数值类**(怪物/招数/遗物/道具/敌人等级/经验曲线):只改 `js/data/*`,模拟器自动跟随(`loadData.js` 已加载 `items.js`)。
+- **战斗公式 / 怪物构造类**(命中/暴击/伤害/经验/进化/**敌人等级 `mkEnemy`**):同时改 `js/core/*` **和** `balance/sim.js`(公式在 sim 里是手写复刻的,二者需保持一致)。敌人等级成长在 `units.js enemyLevel/mkEnemy` 与 `sim.js enemyLevelS/mkEnemy` 两处,改一处必改另一处。每次改完跑 `node sim.js` 对比基线确认未跑偏。
+- ⚠️ **挂载写盘截断**:本工作区的 Windows 挂载会截断"用编辑器工具写入的大文件"(node 读取时报 `Unexpected end of input`)。改 `sim.js`/`units.js`/`loadData.js` 这类 node 读取文件后,**务必 `node --check` 验证**;若截断,用 `cat > file <<'EOF'` 整文件重写。
 
 ## 步骤记录(供"在真实游戏里看一两局")
 

@@ -27,4 +27,4 @@ function offerRelic(cont){
     box.appendChild(b);});
   show('relicModal',true);if(autoOn)setTimeout(autoRelic,900);}
 function renderRelicBar(){const el=document.getElementById('relicBar');if(!el)return;
-  el.innerHTML=run.relics.length?run.relics.map(r=>`<span title="${r.name}：${r.desc}" style="font-size:22px;cursor:help">${r.icon}</span>`).join(' '):'<span class="small">(暂无遗物；打精英☠/Boss👑 可三选一获得)</span>';}
+  el.innerHTML='<span style="color:#ffd95a;margin-right:8px">💰 '+((typeof run!=='undefined'&&run.gold)||0)+'</span>'+(run.relics.length?run.relics.map(r=>`<span title="${r.name}：${r.desc}" style="font-size:22px;cursor:help">${r.icon}</span>`).join(' '):'<span class="small">(暂无遗物；打精英☠/Boss👑 可三选一获得)</span>');}

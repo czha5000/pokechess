@@ -12,7 +12,16 @@ h1{font-size:20px;margin:0}
 @keyframes shake{0%,100%{transform:translate(0,0)}20%{transform:translate(-4px,2px)}40%{transform:translate(4px,-2px)}60%{transform:translate(-3px,-1px)}80%{transform:translate(3px,1px)}}
 #board{display:grid;gap:2px}
 .cell{width:50px;height:50px;border-radius:6px;position:relative;display:flex;align-items:center;justify-content:center;transition:.08s}
-.plain{background:var(--plain)} .forest{background:var(--forest)} .water{background:var(--waterT)}
+.plain{background:linear-gradient(135deg,#3c4458,#333a4d)}
+.water{background:linear-gradient(135deg,#2f72b6,#1d4c82)}
+.water::before{content:"\2248";position:absolute;color:#cfe7ff;opacity:.55;font-size:22px;font-weight:800;pointer-events:none;z-index:0}
+.forest{background:linear-gradient(135deg,#327540,#23502c)}
+.forest::before{content:"\1F332";position:absolute;bottom:-1px;right:0;font-size:17px;opacity:.7;pointer-events:none;z-index:0}
+.lava{background:linear-gradient(135deg,#ef6a2e,#7d1d09);animation:lavaPulse 1.5s ease-in-out infinite}
+.lava::before{content:"\1F525";position:absolute;font-size:17px;opacity:.7;pointer-events:none;z-index:0}
+.high{background:linear-gradient(135deg,#caa765,#8a6b34);box-shadow:inset 0 2px 0 rgba(255,255,255,.25),inset 0 -3px 6px rgba(0,0,0,.3)}
+.high::before{content:"\26F0";position:absolute;bottom:-1px;right:0;font-size:16px;opacity:.75;pointer-events:none;z-index:0}
+@keyframes lavaPulse{0%,100%{filter:brightness(1)}50%{filter:brightness(1.3)}}
 .cell.move{outline:3px solid #6ad1ff;outline-offset:-3px;cursor:pointer}
 .cell.threat{box-shadow:inset 0 0 0 99px rgba(255,70,70,.24)}
 .cell.atk{outline:3px solid #ff3b3b;outline-offset:-3px;cursor:pointer}

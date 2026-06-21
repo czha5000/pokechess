@@ -30,6 +30,7 @@ const WILD={
  geodude:{name:'小拳石',pid:74,type:'rock',em:'🪨',hp:26,atk:11,def:12,spd:3,skl:4,lck:3,mov:3,rng:1,skills:['basic','rockthrow']},
  bellsprout:{name:'喇叭芽',pid:69,type:'grass',em:'🌱',hp:20,atk:12,def:5,spd:6,skl:6,lck:3,mov:4,rng:2,skills:['basic','e_grass']},
  zubat:{name:'超音蝠',pid:41,type:'poison',em:'🦇',hp:19,atk:10,def:5,spd:9,skl:6,lck:4,mov:6,rng:1,skills:['basic','sludge']},
+ chansey:{name:'吉利蛋',pid:113,type:'normal',em:'🥚',hp:42,atk:7,def:5,spd:5,skl:5,lck:6,mov:4,rng:1,skills:['basic','heal'],role:'healer'},
  mareep:{name:'咩利羊',pid:179,type:'electric',em:'🐑',hp:21,atk:11,def:6,spd:7,skl:6,lck:4,mov:4,rng:1,skills:['basic','e_elec']},
  voltorb:{name:'霹雳电球',pid:100,type:'electric',em:'🔴',hp:20,atk:10,def:7,spd:10,skl:7,lck:4,mov:4,rng:2,skills:['basic','e_elec']},
  misdreavus:{name:'梦妖',pid:200,type:'ghost',em:'🌀',hp:19,atk:13,def:5,spd:9,skl:7,lck:5,mov:5,rng:2,skills:['basic','e_ghost']},
@@ -38,6 +39,12 @@ const WILD={
  horsea:{name:'墨海马',pid:116,type:'water',em:'🐴',hp:21,atk:11,def:7,spd:7,skl:6,lck:4,mov:4,rng:2,skills:['basic','e_water']}
 };
 const ELITE={name:'可达鸭',pid:54,type:'water',em:'🦆',hp:34,atk:14,def:9,spd:6,skl:6,lck:4,mov:4,rng:1,skills:['basic','e_water'],elite:true};
+// 分章精英(各带一个机制;mech 判定与 Boss 通用)
+const CH_ELITE={
+ 1:{name:'可达鸭',pid:54,type:'water',em:'🦆',hp:34,atk:14,def:9,spd:6,skl:6,lck:4,mov:4,rng:1,skills:['basic','e_water'],elite:true,mech:'enrage'},
+ 2:{name:'隆隆石',pid:75,type:'rock',em:'🪨',hp:42,atk:13,def:14,spd:3,skl:5,lck:4,mov:3,rng:1,skills:['basic','rockthrow'],elite:true,dmgCap:14},
+ 3:{name:'耿鬼',pid:94,type:'ghost',em:'👻',hp:34,atk:15,def:6,spd:9,skl:8,lck:5,mov:5,rng:2,skills:['basic','e_ghost'],elite:true,bossShield:8}
+};
 // 三章 Boss(高血量、长回合、非秒杀)
 const CH_BOSS={
  1:{name:'暴鲤龙',pid:130,type:'water',em:'🐉',hp:80,atk:14,def:11,spd:7,skl:7,lck:5,mov:4,rng:1,skills:['basic','e_water'],elite:true,mech:'enrage'},
@@ -45,5 +52,11 @@ const CH_BOSS={
  3:{name:'超梦',pid:150,type:'psychic',em:'🧠',hp:140,atk:17,def:13,spd:9,skl:9,lck:7,mov:5,rng:2,skills:['basic','confusion'],elite:true,bossShield:15}
 };
 const CH_NAME={1:'第一章 · 静水湾',2:'第二章 · 龙脊山',3:'第三章 · 心智深渊'};
-const NICON={battle:'⚔',elite:'☠',event:'❓',rest:'🏕',boss:'👑'};
-const NNAME={battle:'战斗',elite:'精英',event:'事件',rest:'休整',boss:'BOSS'};
+const NICON={battle:'⚔',elite:'☠',event:'❓',rest:'🏕',boss:'👑',shop:'🛒'};
+const NNAME={battle:'战斗',elite:'精英',event:'事件',rest:'休整',boss:'BOSS',shop:'商店'};
+// 开局阵容(C4):units 用 POOL 的 key,或 'w:野怪key' 引用野怪;relic=免费起始遗物
+const START_DECKS=[
+ {id:'all',  name:'全能队', desc:'六系俱全,最稳的开局,适合新手', units:['fire','water','grass','electric','ghost','normal'], relic:null},
+ {id:'aggro',name:'先锋队', desc:'高攻速攻,脆但爆发(免费:瞄准镜)', units:['fire','electric','ghost','normal'], relic:'sharp_scope'},
+ {id:'wall', name:'壁垒队', desc:'肉盾持久,慢热稳健(免费:重盾)', units:['water','grass','normal','w:geodude','w:machop'], relic:'heavy_shield'}
+];

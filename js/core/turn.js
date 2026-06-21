@@ -1,5 +1,6 @@
 // 速度交错行动引擎:所有存活单位按速度排序,逐个行动(敌我混排)
 function startRound(){units.forEach(u=>{u.acted=false;u.moved=false;});
+  if(typeof run!=='undefined'&&run.obj==='survive'){run.round=(run.round||0)+1;if(run.round>run.objN){winBattle();return;}log('🎯 守住中…还需 '+(run.objN-run.round+1)+' 回合','#9fd3ff');}
   initiative=units.filter(u=>u.hp>0).slice().sort((a,b)=>(b.spd-a.spd)||((a.side==='player'?0:1)-(b.side==='player'?0:1)));
   iPtr=-1;advanceInit();}
 function advanceInit(){iPtr++;nextActor();}
@@ -14,6 +15,7 @@ async function nextActor(){
   if(tk.dead){if(checkEnd())return;advanceInit();return;}
   if(tk.skip){u.acted=true;render();await delay(200);advanceInit();return;}
   if(u.side==='player'){const sr=relicShieldRegen();if(sr>0){u.shield=(u.shield||0)+sr;floatText(u.x,u.y,'+'+sr+'🛡','#9fd3ff');}}
+  {const _it=(typeof itemOf==='function')?itemOf(u):null;if(_it&&_it.regen&&u.hp>0){u.hp=Math.min(u.maxhp,u.hp+_it.regen);floatText(u.x,u.y,'+'+_it.regen,'#6affa0');setHp(u);}}
   if(u.side==='player'){stage='player';busy=false;document.getElementById('turnBadge').textContent='我方行动：'+u.name;selectUnit(u);if(autoOn)setTimeout(()=>autoPlayUnit(u),AUTODELAY);}
   else{stage='enemy';busy=true;document.getElementById('turnBadge').textContent='敌方行动：'+u.name;clearSel();render();
     await delay(280);await aiAct(u);u.acted=true;busy=false;advanceInit();}}

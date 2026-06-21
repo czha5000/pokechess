@@ -1,10 +1,11 @@
 // 棋盘渲染、战斗动画、范围计算、格子点击与选择
 function render(){boardEl.style.gridTemplateColumns=`repeat(${COLS},50px)`;boardEl.innerHTML='';
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){const c=document.createElement('div'),t=TERRAIN[y][x];
-    c.className='cell '+(t===1?'water':t===2?'forest':'plain');c.dataset.x=x;c.dataset.y=y;
+    c.className='cell '+(t===1?'water':t===2?'forest':t===3?'lava':t===4?'high':'plain');c.dataset.x=x;c.dataset.y=y;
     const h=highlights.find(m=>m.x===x&&m.y===y);if(h)c.classList.add(h.kind);
     if(selected&&selected.x===x&&selected.y===y)c.classList.add('sel');
     if(pendingTgt&&pendingTgt.x===x&&pendingTgt.y===y)c.classList.add('tgt');
+    if(typeof run!=='undefined'&&run.obj==='reach'&&run.objX===x&&run.objY===y){c.style.position='relative';const gs=document.createElement('div');gs.textContent='🏁';gs.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;pointer-events:none;z-index:1;opacity:.85';c.appendChild(gs);}
     const u=unitAt(x,y);
     if(u){const w=document.createElement('div');w.className='tokenwrap '+(u.side==='player'?'side-ally':'side-enemy')+(u.acted&&u.side==='player'?' acted':'');
       const eff=u.eff?Object.keys(u.eff).filter(k=>STATUS[k]&&u.eff[k]>0).map(k=>`<span title="${STATUS[k].name}(${u.eff[k]}回合)">${STATUS[k].icon}</span>`).join(''):'';
@@ -27,7 +28,7 @@ function renderPreview(){const el=document.getElementById('previewBoard');if(!el
   let h=`<div style="display:grid;grid-template-columns:repeat(${COLS},22px);gap:1px">`;
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){const t=TERRAIN[y][x];
     const e=pendingEnemies.find(u=>u.x===x&&u.y===y);
-    const bg=t===1?'#244a78':t===2?'#2f5d3a':'#39425f';
+    const bg=t===1?'#244a78':t===2?'#2f5d3a':t===3?'#8a2e12':t===4?'#8a6b34':'#39425f';
     let inner='';
     if(e)inner=`<span style="font-size:13px" title="${e.name} ${TYPE_CN[e.type]}${e.elite?' ★':''}">${e.em}</span>`;
     else if(starts.has(x+','+y))inner='<span style="color:#43c6ff;font-size:11px;font-weight:800">我</span>';
@@ -52,10 +53,15 @@ function onCell(x,y){if(stage!=='player'||busy)return;const u=unitAt(x,y),h=high
   if(u&&u===initiative[iPtr]&&u.side==='player'){selectUnit(u);return;}
   if(u&&u.side==='enemy'){showEnemyRange(u);return;}
   if(selected&&h&&h.kind==='move'){doMove(selected,x,y);return;}}
-function selectUnit(u){if(typeof sfxSelect==='function'&&selected!==u)sfxSelect();selected=u;pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
+function selectUnit(u){if(typeof sfxSelect==='function'&&selected!==u)sfxSelect();selected=u;if(!u.moved){u._homeX=u.x;u._homeY=u.y;}pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
 function showOwnRange(u){highlights=[];const mv=u.moved?[{x:u.x,y:u.y}]:moveBFS(u);if(!u.moved)mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'move'}));
   const ms=new Set(mv.map(m=>m.x+','+m.y));threatFrom(mv,reachOf(u)).forEach(t=>{if(!ms.has(t.x+','+t.y))highlights.push({x:t.x,y:t.y,kind:'threat'});});}
 function showEnemyRange(e){selected=null;pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';document.getElementById('skillRow').innerHTML='';document.getElementById('actRow').innerHTML='';
   highlights=[];const mv=moveBFS(e);mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'foemove'}));const ms=new Set(mv.map(m=>m.x+','+m.y));threatFrom(mv,reachOf(e)).forEach(t=>{if(!ms.has(t.x+','+t.y))highlights.push({x:t.x,y:t.y,kind:'foe'});});showInfoEnemy(e);render();}
-function doMove(u,x,y){if(typeof sfxMove==='function')sfxMove();u.x=x;u.y=y;u.moved=true;showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
+function doMove(u,x,y){if(typeof sfxMove==='function')sfxMove();
+  const finish=()=>{busy=false;u.x=x;u.y=y;u.moved=true;if(typeof run!=='undefined'&&run.obj==='reach'&&run.objX!=null&&u.x===run.objX&&u.y===run.objY){render();log('🏁 抵达目标格——任务达成!','#7fe0a0');if(typeof winBattle==='function')winBattle();return;}showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();};
+  const src=cellEl(u.x,u.y),dst=cellEl(x,y),w=src&&src.querySelector('.tokenwrap');
+  if(w&&dst&&!(typeof autoOn!=='undefined'&&autoOn)){const a=src.getBoundingClientRect(),b=dst.getBoundingClientRect();const ms=Math.max(80,Math.round(190/(typeof SPEED!=='undefined'?SPEED:1)));busy=true;w.style.zIndex='5';w.style.transition='transform '+ms+'ms ease';w.style.transform='translate('+(b.left-a.left)+'px,'+(b.top-a.top)+'px)';setTimeout(finish,ms+10);}else finish();}
+function undoMove(u){if(!u||!u.moved)return;u.x=(u._homeX!=null?u._homeX:u.x);u.y=(u._homeY!=null?u._homeY:u.y);u.moved=false;selectUnit(u);}
+if(typeof boardEl!=='undefined'&&boardEl)boardEl.addEventListener('contextmenu',e=>{e.preventDefault();if(stage==='player'&&!busy&&selected&&selected===initiative[iPtr]&&selected.moved)undoMove(selected);});
 function clearSel(){selected=null;pendingSkill=null;pendingTgt=null;highlights=[];fcEl.innerHTML='';document.getElementById('skillRow').innerHTML='';document.getElementById('actRow').innerHTML='';}
