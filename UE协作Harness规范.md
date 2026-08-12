@@ -20,7 +20,9 @@
 - **读**:`SceneTools.find_actors`/`get_current_level` 读关卡里的 actor 列表;`ObjectTools.get_properties`/`get_class`/`list_properties` 读变量值、Class Defaults、CDO(注意 Class 本身的 refPath 读不到实例属性,要用 `Default__<ClassName>` 这个 CDO 路径)。
 - **写**:`SceneTools.add_to_scene_from_class`/`remove_from_scene` 增删 actor;`AssetTools.save_assets` 落盘。写操作会立刻反映在 `.umap`/`.uasset` 二进制文件里,能被 git 捕捉到。
 
-**存在但本轮未验证的能力**:`BlueprintTools` 工具集里有 `create_node`/`connect_pins`/`delete_node`/`write_graph_dsl`/`compile_blueprint`/`add_function_graph` 等一整套 Blueprint 图级别编辑工具——理论上可以完全绕开剪贴板协议,直接改 EventGraph/Function 逻辑。**在这条路径被专门测试验证之前,Blueprint 逻辑改动仍走第 3 节的剪贴板协议**,不要凭"工具存在"就假设它能直接可靠地用于生产改动。
+**2026-08-13 追加验证:`BlueprintTools` 图级别编辑已验证可用**(修复 `BP_Tile` 的 `Set SelectedUnit` 断线 bug,见 `UE蓝图状态.md`)。完整链路:`list_graphs` 定位图 → `read_graph_dsl` 看整体结构(排查用)→ `find_nodes(title=...)` 按标题定位具体节点 → `get_node_infos` 读节点的输入/输出 pin 明细(哪些接了、接到哪、类型是什么)→ `connect_pins(output_pin, input_pin)` 接线 → `compile_blueprint` 编译验证(失败会直接抛出报错文本,成功返回 null)→ `save_assets` 落盘。**结论:小范围、定位明确的图编辑(接一根线、改一个节点)可以直接走 MCP,不必再退回剪贴板协议**;但大范围新增节点/重构 Function 内部逻辑仍建议走剪贴板协议(`ue-blueprint-paste-gen` skill 生成的粘贴块经过连线完整性校验,MCP 这条路径目前没有等价的"整体校验"能力,节点越多手工逐个接线出错概率越高)。
+
+**写之前主动查编译状态**:`.uasset` 自上次 git 提交起字节没变,不代表它是"健康"的——蓝图编译校验只在被触发重新编译时才跑(`load_level`、Play、或显式 `compile_blueprint`),错误可能潜伏很久不暴露。新会话接手或做任何改动前,建议先对相关蓝图跑一遍 `compile_blueprint` 确认现状干净,不要假设"没 diff = 没问题"。
 
 **MCP 写操作的安全习惯**(比剪贴板+人工审查风险更高,因为没有人在中间审一遍):
 1. 写之前 `git status` 确认工作区干净。
@@ -32,7 +34,7 @@
 
 以下场景仍然用剪贴板协议:
 - 编辑器没开着,或 MCP server 没启动(`ModelContextProtocol.StartServer` 手动起)。
-- Blueprint 图逻辑改动(EventGraph/Function 内部节点连线)——直到 `BlueprintTools` 图编辑路径被验证前的默认做法。
+- Blueprint 图逻辑的**大范围新增/重构**(一次要加好几个节点、搭一整条新链路)——`ue-blueprint-paste-gen` skill 生成的粘贴块有连线完整性自动校验,MCP 逐个 `connect_pins` 手工接线在节点多的时候出错概率更高、没有等价的整体校验。小范围改动(接一根线、查/改单个节点)直接走 MCP,见 0.1 节。
 
 流程和原则不变(见第 2、3 节)。
 
@@ -83,6 +85,6 @@
 - ~~不能直接读写 `.uasset`~~ / ~~没有 Python/Remote Control 之类的实时连接~~ —— **已过时**,MCP 连接打通后这两条不再成立,见第 0.1 节。
 - 仍然成立的限制:
   - `.uasset`/`.umap` 是二进制,直接文本 diff/review 看不出实质内容变了什么,只能靠 `UE蓝图状态.md` 这类结构化快照 + 编辑器里 Play 测试来验证语义正确性。
-  - Blueprint 图逻辑(EventGraph/Function 内部)的直接 MCP 编辑路径(`BlueprintTools`)存在但未验证,当前仍走剪贴板协议,见第 0.2 节。
+  - Blueprint 图逻辑(EventGraph/Function 内部)的直接 MCP 编辑路径(`BlueprintTools`)**小范围改动已验证可用**(接线、改单个节点);大范围新增/重构仍建议走剪贴板协议,见第 0.1/0.2 节。
   - MCP server 只认本机连接(`127.0.0.1:8000`,无鉴权),编辑器必须开着、server 必须在跑,否则自动回落到剪贴板协议。
 - 剪贴板文本的技术细节(哪些字段必须写、常见坑)记录在 `UE节点备忘录.md`,不在本文件重复。
