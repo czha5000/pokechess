@@ -1,4 +1,4 @@
-// 音乐总控:菜单/结算放人声主题曲(theme.mp3),进游戏放器乐版(theme_inst.mp3)。一个 🎵 键统一开关。
+// 音乐总控:菜单/结算放人声主题曲(theme.mp3),进游戏放器乐版(theme_inst.mp3)。Boss 战放人声主题曲(更燃)。一个 🎵 键统一开关。
 // 默认音乐/音效均为开;首次点击前浏览器禁止出声,故显示一次"点击开启声音"提示。
 (function(){
  let _on=true,_unlocked=false,_cur=null,_menuA=null,_gameA=null,_hint=null,_suspended=false;
@@ -11,7 +11,8 @@
    if(_suspended){menuA().pause();gameA().pause();return;}
    if(!_on||!_unlocked){menuA().pause();gameA().pause();_cur=null;return;}
    if(isMenu()){if(_cur!=='menu'){gameA().pause();menuA().play().catch(()=>{});_cur='menu';}}
-   else{if(_cur!=='game'){menuA().pause();gameA().play().catch(()=>{});_cur='game';}}
+   else{const boss=!!(typeof window!=='undefined'&&window.inBossBattle);const want=boss?'boss':'game';
+     if(_cur!==want){if(boss){gameA().pause();menuA().play().catch(()=>{});}else{menuA().pause();gameA().play().catch(()=>{});}_cur=want;}}
  }
  function unlock(){_unlocked=true;if(_hint){_hint.remove();_hint=null;}director();}
  window.musicSuspend=function(b){_suspended=b;if(b){menuA().pause();gameA().pause();}else{_cur=null;director();}};

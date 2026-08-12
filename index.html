@@ -20,6 +20,7 @@
   <div class="layout">
     <div class="boardwrap" id="boardwrap"><div id="board"></div>
       <div class="legend">蓝框=移动 · <span style="color:#ff7a7a">红底=攻击范围</span> · <span style="color:#ffb24d">橙底=敌方威胁区</span> ｜ 普攻=普通系(幽灵免疫)；效果绝佳×2/不好×0.5/无效×0。</div>
+      <div class="legend">地形：<span style="color:#caa765">⛰高地=造成伤害+25%</span> · <span style="color:#7fe0a0">🌲森林=受到伤害−2、闪避+15%</span> · <span style="color:#ff8a5a">🔥岩浆=每回合−4 HP</span> · <span style="color:#9fd3ff">≈水=不可进入</span></div>
     </div>
     <div class="side">
       <div id="orderBar"></div>
@@ -55,7 +56,7 @@
   <div class="roster" id="roster"></div>
   <h3 style="margin:8px 0 2px">遗物</h3>
   <div class="roster" id="relicBar"></div>
-  <div class="row"><button class="btn ghost" id="saveBtn">💾 保存进度</button><span class="small" style="align-self:center">(每次回到地图会自动保存)</span></div>
+  <div class="row"><button class="btn ghost" id="saveBtn">💾 保存进度</button><button class="btn ghost" id="bagBtn">🎒 背包/道具</button><span class="small" style="align-self:center">(每次回到地图会自动保存)</span></div>
   <div class="legend">⚔普通战斗 · ☠精英(强敌+可收服+遗物) · ❓事件 · 🏕休整(回血/可释放精简牌库) · 👑Boss(遗物)</div>
 </div></div>
 
@@ -88,7 +89,7 @@
 
 <!-- 遗物奖励 -->
 <div class="overlay" id="relicModal" style="display:none"><div class="modal">
-  <h2>✦ 获得遗物 — 三选一</h2><p class="small">遗物提供本局永久增益，是构筑(build)的核心。</p>
+  <h2 id="relicTitle">✦ 战利品 — 三选一</h2><p class="small" id="relicSub">每场战斗后,推进你的构筑。</p>
   <div class="row" id="relicChoices"></div>
 </div></div>
 

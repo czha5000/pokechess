@@ -14,9 +14,8 @@ function unlockRelic(id){const u=META_RELICS.find(x=>x.id===id);if(!u||meta.reli
   if(meta.shards<u.cost){alert('魂晶不足');return;}meta.shards-=u.cost;meta.relics.push(id);if(!meta.equipRelic)meta.equipRelic=id;saveMeta();renderHub();}
 function buyStartLv(){if(meta.startLv>=3)return;const c=META_LV_COST[meta.startLv];if(meta.shards<c){alert('魂晶不足');return;}meta.shards-=c;meta.startLv++;saveMeta();renderHub();}
 
-// 把精灵池条目提升到目标等级(应用逐级成长,起始等级≤3 不触发进化)
-function metaBumpEntry(m,target){while(m.lv<target){m.lv++;m.maxhp+=3;m.atk+=1;m.def+=1;m.skl+=1;if(m.lv%2===0)m.spd+=1;
-  const key=m.hero?'normal':m.key;const sk=(LEARN[key]||['basic'])[m.lv-1];if(sk&&!m.skills.includes(sk)&&!m.hero)m.skills.push(sk);}}
+// 把精灵池条目提升到目标等级(v0.50 统一走 bumpEntryToLv;起始等级≤3 天然不触发进化)
+function metaBumpEntry(m,target){bumpEntryToLv(m,target);}
 function applyMetaToRun(){
   if(meta.startLv>1)run.pool.forEach(m=>metaBumpEntry(m,meta.startLv));
   if(meta.equipRelic){const r=RELICS.find(x=>x.id===meta.equipRelic);if(r&&!run.relics.some(z=>z.id===r.id))run.relics.push(r);}}

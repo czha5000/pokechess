@@ -6,8 +6,8 @@ function loadGameData(dataDir){
   const files=['config.js','types.js','skills.js','creatures.js','relics.js','items.js'];
   const code=files.map(f=>fs.readFileSync(path.join(dataDir,f),'utf8')).join('\n');
   const names=['COLS','ROWS','TERRAIN','MAPS','PSTART','ESLOTS','MAXLV','THRESH','STAGE_LV','EVO_BONUS',
-    'ENEMY_POWER','BOSS_HP','CH_SCALE','ENEMY_LV','ELITE_LV','BOSS_LV','HELD_ITEMS','STATUS','ASC_MAX','ascEnemyMul','ascBossMul','ascRestHeal','SPRITE','TYPE_CN','TCOLOR','CHART','typeMult','ACTIVE_TYPES',
-    'SKILLS','LEARN','POOL','EVO','EEVEE_FORMS','WILD','ELITE','CH_ELITE','CH_BOSS','CH_NAME','NICON','NNAME','RELICS'];
+    'ENEMY_POWER','ENEMY_HP_MUL','BOSS_HP','CH_SCALE','ENEMY_LV','ELITE_LV','BOSS_LV','MAP_DEPTH','CH_MAPS','ENEMY_MOV_CAP','FEATURES','DEF_K','REST_HEAL','LOS_HIT','LOS_DMG','SHIELD_CAP','ZOC_ON','FLANK_MULT','FLANK_NOCOUNTER','HELD_ITEMS','STATUS','ASC_MAX','ascEnemyMul','ascBossMul','ascRestHeal','SPRITE','TYPE_CN','TCOLOR','CHART','typeMult','ACTIVE_TYPES',
+    'SKILLS','LEARN','DRAFT_POOL','UNIVERSAL_DRAFT','POOL','EVO','EEVEE_FORMS','WILD','ELITE','CH_ELITE','CH_BOSS','CH_NAME','NICON','NNAME','RELICS','START_DECKS'];
   // eslint-disable-next-line no-new-func
   return new Function(code+'\n;return {'+names.join(',')+'};')();
 }

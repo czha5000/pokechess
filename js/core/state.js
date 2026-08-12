@@ -1,6 +1,6 @@
 // 全局状态 + 基础工具(经典script共享全局作用域)
 let units=[], selected=null, stage='intro', highlights=[], picks=[], pendingSkill=null, pendingTgt=null, busy=false, uid=1;
-let run={pool:[],map:[],cur:null,depth:6,chapter:1}, pendingNode=null, pendingEnemies=[], deployList=[], battleCaptures=[];
+let run={pool:[],map:[],cur:null,depth:(typeof MAP_DEPTH!=="undefined"?MAP_DEPTH:9),chapter:1}, pendingNode=null, pendingEnemies=[], deployList=[], battleCaptures=[];
 let initiative=[], iPtr=0;
 let autoOn=false; // 自动演示开关(autoplay.js)
 

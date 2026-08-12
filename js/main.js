@@ -12,6 +12,7 @@ bind('restart', ()=>location.reload());
 bind('endRestart', ()=>location.reload());
 bind('autoBtn', toggleAuto);
 bind('saveBtn', saveGame);
+bind('bagBtn', ()=>showBag());
 bind('loadBtn', loadGame);
 bind('retryBattle', ()=>{if((stage==='player'||stage==='enemy')&&retrySnap){if(confirm('重来本关：回到本节点部署前(本关进度作废,精灵池/遗物恢复)。确定?'))retryBattle();}});
 

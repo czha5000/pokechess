@@ -30,6 +30,12 @@ h1{font-size:20px;margin:0}
 .cell.foemove{outline:2px dashed #ffb24d;outline-offset:-3px}
 .cell.foe{box-shadow:inset 0 0 0 99px rgba(255,150,40,.22)}
 .cell.sel{box-shadow:0 0 0 3px #fff inset}
+.cell.oor{outline:2px dashed #ff5252;outline-offset:-3px;position:relative}
+.cell.oor::after{content:'✗';position:absolute;top:-2px;right:2px;color:#ff5252;font-weight:900;font-size:15px;text-shadow:0 0 3px #000;z-index:4;pointer-events:none}
+.cell.acting{position:relative;z-index:2;animation:actPulse 1s ease-in-out infinite}
+@keyframes actPulse{0%,100%{box-shadow:0 0 0 3px #ffd95a inset,0 0 8px 1px rgba(255,217,90,.45)}50%{box-shadow:0 0 0 3px #ffe98a inset,0 0 16px 4px rgba(255,217,90,.85)}}
+.cell.acting::before{content:'▼';position:absolute;top:-16px;left:50%;transform:translateX(-50%);color:#ffd95a;font-size:15px;text-shadow:0 0 3px #000;animation:actBounce .8s ease-in-out infinite;z-index:6;pointer-events:none}
+@keyframes actBounce{0%,100%{transform:translateX(-50%) translateY(0)}50%{transform:translateX(-50%) translateY(-4px)}}
 .tokenwrap{position:relative;width:46px;height:46px;display:flex;align-items:center;justify-content:center;transition:transform .12s ease-out;z-index:2}
 .token{width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:22px;border:3px solid #fff;background:#0003;overflow:hidden}
 .token img{width:40px;height:40px;image-rendering:pixelated;pointer-events:none}

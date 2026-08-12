@@ -3,7 +3,11 @@ function render(){boardEl.style.gridTemplateColumns=`repeat(${COLS},50px)`;board
   for(let y=0;y<ROWS;y++)for(let x=0;x<COLS;x++){const c=document.createElement('div'),t=TERRAIN[y][x];
     c.className='cell '+(t===1?'water':t===2?'forest':t===3?'lava':t===4?'high':'plain');c.dataset.x=x;c.dataset.y=y;
     const h=highlights.find(m=>m.x===x&&m.y===y);if(h)c.classList.add(h.kind);
+    if(h&&h.zoc>0){const z=document.createElement('div');z.textContent='⚔';z.title='走到这里会被 '+h.zoc+' 个敌人借机攻击';
+      z.style.cssText='position:absolute;top:0;right:1px;font-size:11px;color:#ffb24d;pointer-events:none;z-index:2;text-shadow:0 0 3px #000';
+      c.style.position='relative';c.appendChild(z);}
     if(selected&&selected.x===x&&selected.y===y)c.classList.add('sel');
+    {const _act=(typeof initiative!=='undefined'&&initiative)?initiative[iPtr]:null;if(_act&&_act.hp>0&&_act.x===x&&_act.y===y&&(stage==='player'||stage==='enemy'))c.classList.add('acting');}
     if(pendingTgt&&pendingTgt.x===x&&pendingTgt.y===y)c.classList.add('tgt');
     if(typeof run!=='undefined'&&run.obj==='reach'&&run.objX===x&&run.objY===y){c.style.position='relative';const gs=document.createElement('div');gs.textContent='🏁';gs.style.cssText='position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-size:22px;pointer-events:none;z-index:1;opacity:.85';c.appendChild(gs);}
     const u=unitAt(x,y);
@@ -48,18 +52,29 @@ function moveBFS(u){const seen={[u.x+','+u.y]:0},q=[{x:u.x,y:u.y,d:0}],out=[];
 function threatFrom(mv,reach){const set={};mv.forEach(m=>{for(let dx=-reach;dx<=reach;dx++)for(let dy=-reach;dy<=reach;dy++){if(Math.abs(dx)+Math.abs(dy)>reach||(dx===0&&dy===0))continue;const x=m.x+dx,y=m.y+dy;if(x<0||y<0||x>=COLS||y>=ROWS)continue;set[x+','+y]=1;}});return Object.keys(set).map(k=>{const[x,y]=k.split(',').map(Number);return{x,y};});}
 
 function onCell(x,y){if(stage!=='player'||busy)return;const u=unitAt(x,y),h=highlights.find(m=>m.x===x&&m.y===y);
-  if(selected&&pendingSkill&&h&&h.kind==='heal'){execHeal(selected,pendingSkill,unitAt(x,y));return;}
+  if(selected&&pendingSkill&&h&&h.kind==='heal'){const _k=SKILLS[pendingSkill].kind;
+    if(_k==='charge'){execCharge(selected);return;}
+    if(_k==='swap'){const t=unitAt(x,y);if(t&&t!==selected)execSwap(selected,t);return;}
+    execHeal(selected,pendingSkill,unitAt(x,y));return;}
   if(selected&&pendingSkill&&h&&h.kind==='atk'){showForecast(selected,pendingSkill,unitAt(x,y));return;}
+  if(selected&&pendingSkill&&SKILLS[pendingSkill]&&SKILLS[pendingSkill].kind!=='heal'&&u&&u.side==='enemy'&&h&&h.kind==='oor'){floatText(x,y,'✗ 范围外','#ff5252');flashCell(x,y);log('⚠ <b>'+u.name+'</b> 在攻击范围外——先移动靠近,或换射程更远的技能。','#ff9a9a');return;}
   if(u&&u===initiative[iPtr]&&u.side==='player'){selectUnit(u);return;}
   if(u&&u.side==='enemy'){showEnemyRange(u);return;}
   if(selected&&h&&h.kind==='move'){doMove(selected,x,y);return;}}
 function selectUnit(u){if(typeof sfxSelect==='function'&&selected!==u)sfxSelect();selected=u;if(!u.moved){u._homeX=u.x;u._homeY=u.y;}pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();}
-function showOwnRange(u){highlights=[];const mv=u.moved?[{x:u.x,y:u.y}]:moveBFS(u);if(!u.moved)mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'move'}));
+function showOwnRange(u){highlights=[];const mv=u.moved?[{x:u.x,y:u.y}]:moveBFS(u);
+  if(!u.moved){const prov=(typeof zocProvokers==='function');
+    mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'move',zoc:prov?zocProvokers(u,u.x,u.y,m.x,m.y).length:0}));}
   const ms=new Set(mv.map(m=>m.x+','+m.y));threatFrom(mv,reachOf(u)).forEach(t=>{if(!ms.has(t.x+','+t.y))highlights.push({x:t.x,y:t.y,kind:'threat'});});}
 function showEnemyRange(e){selected=null;pendingSkill=null;pendingTgt=null;fcEl.innerHTML='';document.getElementById('skillRow').innerHTML='';document.getElementById('actRow').innerHTML='';
   highlights=[];const mv=moveBFS(e);mv.forEach(m=>highlights.push({x:m.x,y:m.y,kind:'foemove'}));const ms=new Set(mv.map(m=>m.x+','+m.y));threatFrom(mv,reachOf(e)).forEach(t=>{if(!ms.has(t.x+','+t.y))highlights.push({x:t.x,y:t.y,kind:'foe'});});showInfoEnemy(e);render();}
 function doMove(u,x,y){if(typeof sfxMove==='function')sfxMove();
-  const finish=()=>{busy=false;u.x=x;u.y=y;u.moved=true;if(typeof run!=='undefined'&&run.obj==='reach'&&run.objX!=null&&u.x===run.objX&&u.y===run.objY){render();log('🏁 抵达目标格——任务达成!','#7fe0a0');if(typeof winBattle==='function')winBattle();return;}showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();};
+  const ox=u.x,oy=u.y;
+  const finish=async()=>{busy=false;u.x=x;u.y=y;u.moved=true;
+    // 借机攻击:脱离敌方邻格要挨打(移动前已在范围高亮里用 ⚔ 标出)
+    if(typeof zocProvoke==='function'){const hit=await zocProvoke(u,ox,oy,x,y);
+      if(hit){u._noUndo=true;render();if(u.hp<=0){clearSel();advanceInit();return;}}}
+    if(typeof run!=='undefined'&&run.obj==='reach'&&run.objX!=null&&u.x===run.objX&&u.y===run.objY){render();log('🏁 抵达目标格——任务达成!','#7fe0a0');if(typeof winBattle==='function')winBattle();return;}showOwnRange(u);showInfo(u);renderSkills(u);renderActs(u);render();};
   const src=cellEl(u.x,u.y),dst=cellEl(x,y),w=src&&src.querySelector('.tokenwrap');
   if(w&&dst&&!(typeof autoOn!=='undefined'&&autoOn)){const a=src.getBoundingClientRect(),b=dst.getBoundingClientRect();const ms=Math.max(80,Math.round(190/(typeof SPEED!=='undefined'?SPEED:1)));busy=true;w.style.zIndex='5';w.style.transition='transform '+ms+'ms ease';w.style.transform='translate('+(b.left-a.left)+'px,'+(b.top-a.top)+'px)';setTimeout(finish,ms+10);}else finish();}
 function undoMove(u){if(!u||!u.moved)return;u.x=(u._homeX!=null?u._homeX:u.x);u.y=(u._homeY!=null?u._homeY:u.y);u.moved=false;selectUnit(u);}

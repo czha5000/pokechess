@@ -36,4 +36,6 @@ STORY.scene={
   3:[{name:'超梦',pid:150,text:'你为何一次次回来?为那些倒下的纹痕……还是,只想逃离?'}]
  }
 };
-STORY.bossVideo={1:'assets/boss1.mp4'};
+STORY.bossVideo={1:'assets/boss1.mp4',2:'assets/boss2.mp4',3:'assets/boss3.mp4'};
+STORY.winVideo='assets/ending.mp4'; // 通关胜利 CG
+STORY.chapterVideo={1:'assets/env1.mp4'}; // 各章环境空镜(进入章节时播)
