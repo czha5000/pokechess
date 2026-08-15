@@ -24,6 +24,6 @@
 - [ ] 移动和攻击两个模式不会互相干扰(重新设计后测试)
 
 ## 待补(第6/7步)
-- [ ] 血条 UI 跟随 HP 变化(2026-08-15 已实现:`WBP_HealthBar` + `BP_Unit.HealthBarComponent`/`UpdateHealthBar`,`Setup` 时初始化满血、`TryAttack` 扣血后调用更新。已用 MCP 直接读取 PIE 里的活对象确认——`HealthBarComponent`/`HealthBarWidget` 非空、`Space=World`、`DrawSize=(100,14)`、`Percent` 与 HP/MaxHP 吻合(20/20→1.0)。**但截图肉眼确认没做成**(相机取景一直对不准格子,放弃了),**待人工 Play 实测**:①单位头顶应该能看到一条血条;②点我方攻击敌方后,敌方血条应该实时缩短。)
+- [x] 血条 UI 跟随 HP 变化(2026-08-15 完整实现并人工 Play 验收通过:`WBP_HealthBar` + `BP_Unit.HealthBarComponent`/`UpdateHealthBar`,`Setup` 时初始化满血、`TryAttack` 扣血后调用更新。过程中修了两个真实 bug——①Transform 类型 pin 不支持字符串默认值导致血条位置一直是 (0,0,0)、旋转也没面向固定相机,看起来是一条细线;②HP/MaxHP 整数相除截断成 0,导致随便掉一滴血就整条全红。两个都已修复,`RunRegressionTests` T5/T6a/T6b 三条断言覆盖。)
 - [ ] 一方全灭 → 胜负弹窗
 - [ ] 敌方 AI 自动移动+攻击
