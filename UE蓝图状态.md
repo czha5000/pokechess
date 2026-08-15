@@ -14,17 +14,32 @@
 | Row | Integer | 989E623C43F9417073E99FA096C78C35 | |
 | MoveRange | Integer | 未知 | 默认 4 |
 | Side | Boolean | 735371B54A6EEBD5326EEDB5B6A97AFE | true=我方,false=敌方 |
-| MaxHP | Integer | 未知 | |
-| HP | Integer | 7E7CE5CF43871663225F4B9260614168 | ⚠ Class Defaults 当前值未确认,测试打出 -30 疑似默认 0 |
-| Atk | Integer | 5630A3C3448BD43A03C96DA37CDA3333 | |
-| Def | Integer | 1B57114147085BA71CDBC081B6E015F3 | |
-| Spd | Integer | 未知 | |
+| MaxHP | Integer | 未知 | **Class Defaults 已确认 = 20**(2026-08-15 核实) |
+| HP | Integer | 7E7CE5CF43871663225F4B9260614168 | **Class Defaults 已确认 = 20**,此前"疑似默认0"的记录已过时 |
+| Atk | Integer | 5630A3C3448BD43A03C96DA37CDA3333 | Class Defaults = 10 |
+| Def | Integer | 1B57114147085BA71CDBC081B6E015F3 | Class Defaults = 5 |
+| Spd | Integer | 未知 | Class Defaults = 6 |
 | AtkType | Integer | 未知 | 占位,未接入属性克制表 |
 | EnemyMat | Material | - | |
-| AtkRange | Integer | 未知 | 默认 1,**已建但逻辑还没接入判断** |
+| AtkRange | Integer | 未知 | Class Defaults = 2,**已接入 `TryAttack` 的距离判断**(此前"还没接入判断"的记录已过时,见已知问题2) |
+| HealthBarComponent | WidgetComponent | (2026-08-15 新增) | 头顶血条的 WidgetComponent,`UserConstructionScript` 里动态创建 |
+| HealthBarWidget | WBP_HealthBar (Object) | (2026-08-15 新增) | 血条 Widget 实例,`UserConstructionScript` 里 `ConstructObjectfromClass` 生成后经 `SetWidget` 挂到 `HealthBarComponent` 上,同时存一份引用在这个变量方便其他函数直接调用 |
 
 ### 函数
-- **Setup(bAlly: Bool)**:`Set Side = bAlly` → Branch(Side) → False 分支 `Mesh.SetMaterial(0, M_Enemy)`
+- **Setup(bAlly: Bool)**:`Set Side = bAlly` → Branch(Side) → False 分支 `Mesh.SetMaterial(0, M_Enemy)` → **`UpdateHealthBar()`(2026-08-15 新增,初始化血条为满血)**
+- **UpdateHealthBar()**(2026-08-15 新增):`HealthBarWidget.SetHealthPercent(HP / Max(MaxHP, 1))`。由 `Setup` 和 `GridManager.TryAttack`(伤害结算后)两处调用,保证血条随 HP 变化实时更新。
+
+### UserConstructionScript(2026-08-15 新增血条搭建逻辑)
+```
+ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
+  → AddWidgetComponent(self, RelativeTransform=Z+120)  → WidgetComponent 实例
+    → SetWidget(component, widget实例)
+    → SetWidgetSpace(component, World)
+    → SetDrawSize(component, 100x14)
+    → Set HealthBarComponent = component
+    → Set HealthBarWidget = widget实例
+```
+**踩坑记录**:`AddWidgetComponent`(Construction Script 专用的"动态加组件"节点)没有 WidgetClass 输入 pin,也没有 `SetWidgetClass` 这个蓝图可调用节点(这个引擎版本没暴露)——正确做法是用 `ConstructObjectfromClass` 单独构造 Widget 实例,再用 `SetWidget`(接受实例,不是类)挂上去。细节见 `UE节点备忘录.md`。
 
 ### EventGraph
 - BeginPlay / ActorBeginOverlap / Tick:模板残留,**Disabled,不用管**
@@ -79,6 +94,7 @@
       伤害 = Max(SelectedUnit.Atk - Defender.Def, 0)          [占位公式]
       新HP = Max(Defender.HP - 伤害, 0)
       Set Defender.HP = 新HP
+      → **Defender.UpdateHealthBar()(2026-08-15 新增,MCP `create_node`/`connect_pins` 插入,紧接在 Set HP 之后)**
       → LessEqual(新HP, 0) →True→ K2_DestroyActor(Defender)
       → (两分支汇合) → ClearHighlights(self) → Set SelectedUnit=None
   ```
@@ -127,6 +143,21 @@
 
 ---
 
+## WBP_HealthBar (`/Game/UI/WBP_HealthBar.WBP_HealthBar_C`,2026-08-15 新增)
+
+> 第一个 UMG Widget Blueprint,`/Game/UI/` 是新建的文件夹(此前项目里所有资产都在 `/Game/Maps/`)。
+
+### 结构
+`RootCanvas`(CanvasPanel,根)→ `HealthProgressBar`(ProgressBar,`bIsVariable=true`,尺寸 100×14,锚点左上不拉伸)。样式:`FillColorAndOpacity` 绿色 `(0.15,0.85,0.2,1)`,`WidgetStyle.BackgroundImage.TintColor` 暗红 `(0.25,0.02,0.02,1)`。
+
+### 函数
+- **SetHealthPercent(Percent: Float)**:`HealthProgressBar.SetPercent(Clamp(Percent, 0, 1))`。这是外部(`BP_Unit.UpdateHealthBar`)驱动血条的唯一入口——**没有用 UMG 的属性 Binding(没找到 MCP 里对应的绑定工具),走的是"外部主动 Push 新值"模式**,谁的 HP 变了就显式调用一次这个函数。
+
+### 用法
+每个 `BP_Unit` 在 `UserConstructionScript` 里各自 `ConstructObjectfromClass` 出一份独立实例,挂在自己的 `HealthBarComponent`(WidgetComponent,World Space)上,不是共享同一个 Widget。
+
+---
+
 ## BP_TacticsController
 
 - `InputKey(N)` → `GetAllActorsOfClass(BP_TurnManager)[0]` → `EndTurn`
@@ -145,7 +176,7 @@
 3. `EditorAppToolset.StartPIE`(warmupSeconds 给 2~3 秒,够 BeginPlay 里的建图逻辑和测试都跑完)。
 4. `LogsToolset.GetLogEntries(pattern="PASS:|FAIL:|REGRESSION_TESTS_DONE")` 读结果。
 5. `EditorAppToolset.StopPIE`。
-6. **把 `bRunRegressionTestsOnBeginPlay` 设回 `false`**(不设回去的话下次任何人正常 Play 都会顺带跑测试、多生成两个临时单位)——这一步不需要额外 save,只要没存关卡,编辑器里的实例属性改动不会落盘,下次重开关卡自然是默认值 false。
+6. **把 `bRunRegressionTestsOnBeginPlay` 设回 `false`**(不设回去的话下次任何人正常 Play 都会顺带跑测试、多生成两个临时单位)。**⚠ 2026-08-15 实测踩过坑:这个属性一旦通过 `set_properties` 改过,关卡(`TestMap.umap`)就会被标记为 dirty——如果之后为了保存其他蓝图改动调用了 `AssetTools.save_assets([])`("保存所有 dirty 资产"),会连带把关卡也存盘,若这时还没把开关设回 false,会把 `true` 意外落盘。**正确顺序:先把开关设回 false,确认 `get_properties` 读到的是 false,再做任何 `save_assets` 调用;提交前最好用 `git diff --stat` 确认 `.umap` 这次改动符合预期(通常应该没变化,除非你确实是故意在改关卡里的东西)。
 
 ### 触发机制
 
@@ -169,3 +200,4 @@
 **改完任何 GridManager/Unit/Tile 的逻辑,尤其是修 bug 之后,顺手在 `RunRegressionTests` 里加一条对应断言**,复用 `Assert(Condition, TestName)` 这个内部函数(PASS/FAIL 都走 `PrintString`,可以直接在 Output Log 里 grep)。新增断言时:
 - 如果要调用自身(GridManager)的其他函数,DSL 里**必须显式传 `self` 作为第一个参数**(哪怕是自己调自己),比如 `(CallFunction|IsTileOccupied self colA rowA)`——这类自定义 Function 节点即使自调用也会暴露一个 `self` pin,不传会报 "Could not connect pin X to self"。
 - 需要新增的临时测试对象记得在断言完之后 `DestroyActor` 清理掉。
+- **⚠ 已知坑,别踩第二次**:`(Utilities|IsValid X)` 嵌在 `Assert` 这类普通函数调用的参数位置里(纯表达式写法)不可靠——本轮实测会导致执行流程"静默卡住"(编译通过、不报运行时错误,但 `RunRegressionTests` 跑到那一句之后,后面所有语句,包括结尾的 `REGRESSION_TESTS_DONE`,全部不再执行,Output Log 里也不留任何报错痕迹,非常难排查)。**正确写法是把 `IsValid` 当 `if` 的条件单独起一整条语句**,像 `TryAttack` 里的用法一样:`(if (Utilities|IsValid X) (真分支...) (else (假分支...)))`,不要嵌到别的函数调用参数里。

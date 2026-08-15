@@ -55,6 +55,16 @@
 - 控制台起 MCP 服务用 `ModelContextProtocol.StartServer <port>`(位置参数),不是 `-ModelContextProtocolPort=<port>`(那是编辑器启动命令行参数,控制台里这么写端口会被解析成 0 报 "Invalid port 0")。
 - 项目 `.mcp.json`(UE 工程根目录)和用户全局 `~/.claude.json` 里都各自存了一份 `unreal-mcp` 的端口配置,两边可能不一致(本轮就撞上了:一个写 8000 一个写 8001,且 8000 还被 ComfyUI 占用)。**编辑器里手动 `StartServer <port>` 之后,当前会话的 MCP 连接不会自动重连**,要在 Claude Code 里跑一次 `/mcp` 手动重连。
 
+## UMG / Widget 相关踩坑(2026-08-15,搭血条时)
+
+- **`AddComponent|UserInterface|AddWidgetComponent`(Construction Script 里"动态加 WidgetComponent"节点)没有 `WidgetClass` 输入 pin**,这个引擎版本里也**没有 `SetWidgetClass` 这个蓝图可调用节点**(`find_node_types`/`create_node` 都确认不存在)。正确做法:用 `Game|ConstructObjectfromClass`(Class 传 `/Game/UI/WBP_XXX.WBP_XXX_C`,`set_pin_value` 设置)单独构造一个 Widget 实例,再用 `UserInterface|SetWidget`(接受 Widget **实例**,不是 Class)把它挂到 WidgetComponent 上。副作用是这个实例可以顺手存一份到 Actor 自己的成员变量里,后面调用 `SetPercent` 之类的函数不用再 `GetUserWidgetObject()+Cast` 一遍。
+- **`ConstructObjectfromClass` 的输出 pin 类型会在 `set_pin_value` 设置 Class 参数之后自动跟着变**(从泛型 `Object Reference` 变成具体的 `WBP_XXX Object Reference`),不需要额外 Cast 节点就能直接接到期望该具体类型的输入 pin 上。
+- **UMG `UToolsetRegistry.UMGToolSet` 没有"属性 Binding"(就是编辑器里属性旁边点 Bind 生成一个 Get 函数那种)的对应工具**——`BindToEventProperty` 是绑事件委托(OnClicked 这类),不是属性绑定。想让 Widget 跟着数据自动刷新,只能走"外部主动 Push 新值"模式:给 Widget 蓝图写一个 `SetXXX(Value)` 函数,数据源变化时显式调用它。
+- **跨蓝图调用自定义 Function 时,"self/target 参数排在第几位"没有固定规律,不能死记硬背**——同样是"这个函数只有一个数据参数+一个 self pin"的形状,`ProgressBar.SetPercent(value, self)` 是 value 在前,而 `WBP_HealthBar.SetHealthPercent(self, value)` 却是 self 在前。**每次都用 `write_graph_dsl` 先按直觉顺序试一次,报错信息里会明确说"是把谁的输出接到了 self 上"(比如 `Could not connect pin ReturnValue to self`),照着报错把参数顺序倒过来重试一次基本就能过。**
+- **加了 UMG 内容后,某些 `Class|X|GetY` 类型的变量名解析可能改变**——本轮在给 GridManager 加新断言时,`Class|GridSlot|GetRow`(之前在 TryAttack 里读出来能用的写法)突然报 `Could not connect pin Output to self`,因为 UMG 的 `UGridSlot` 类也有一个 `Row` 属性,新增 Widget 资产后这个名字的解析多了一个候选、指向变了。**同名属性存在多类歧义时,一律用能唯一定位到目标类的显式写法**(比如 `Class|BPTile|GetRow`),不要偷懒抄旧代码里的写法。
+- **`(if (Utilities|IsValid X) ...)` 这种用法没问题,但把 `(Utilities|IsValid X)` 当纯表达式嵌到别的函数调用参数位置里(比如 `(SomeFunc (Utilities|IsValid X))`)会导致图编译通过、但运行时执行流程在那条语句后"静默卡死"**——后续所有语句(包括最后的收尾 Print)全部不执行,Output Log 不留任何报错。根因推测是 `IsValid` 底层是个带 True/False 两个 exec 输出的分支节点(`K2Node_IsValid`),不是纯函数,只有直接当 `if` 的条件语句写才能被正确处理成分支合并;嵌套用法会生成出图但连不上后续 exec 链路。**只在 `(if (Utilities|IsValid X) 真分支 (else 假分支))` 这种独立语句形式里用它。**
+- **`AssetTools.save_assets([])`("存所有 dirty 资产")连关卡文件(.umap)一起存**——如果为了测试临时改过某个 Actor 实例属性(比如本轮的 `bRunRegressionTestsOnBeginPlay` 开关),中途任何一次 `save_assets([])` 都会把这个临时改动顺带落盘。**改完临时属性、测试完之后,先确认改回原值(`get_properties` 验证一遍),再执行任何后续的 `save_assets` 调用**,不要假设"不主动存关卡=不会被存"。
+
 ## 请求用户回传时的省 token 原则
 
 - **默认不要求整张 EventGraph** —— 只要新加的那几个节点 + 它们连接的邻居节点。整图回传只在"怀疑有旧节点/其他事件干扰"时才要。

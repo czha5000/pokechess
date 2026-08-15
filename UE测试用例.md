@@ -15,8 +15,8 @@
 - [x] 循环到末尾后 wraparound 回到第一个单位
 
 ## 攻击(Step5,进行中)
-- [x] 点我方(不移动)→ 点相邻敌方 → 攻击链路执行(Print 验证过一次,数值 -30,因 HP 默认值未设导致,链路本身通)
-- [ ] HP/Atk/Def/MaxHP 的 Class Defaults 数值已设置为合理测试值
+- [x] 点我方(不移动)→ 点相邻敌方 → 攻击链路执行(早期 Print 验证时数值 -30,是因为 HP 默认值当时未设,链路本身通;Class Defaults 补上后见下一条)
+- [x] HP/Atk/Def/MaxHP 的 Class Defaults 数值已设置为合理测试值(2026-08-15 核实:HP=MaxHP=20,Atk=10,Def=5,Spd=6,MoveRange=5,AtkRange=2)
 - [ ] 攻击后 HP 按 `max(0, Atk-Def)` 正确变化(占位公式版)
 - [ ] 换成真实公式 `max(1, round(Atk×9/(9+Def)))` 后数值正确
 - [x] 超出 AtkRange 的敌方点击 → 无效果(根因是 SpawnUnit/BP_Tile 移动都没写逻辑坐标 Col/Row,修复后实测通过)
@@ -24,6 +24,6 @@
 - [ ] 移动和攻击两个模式不会互相干扰(重新设计后测试)
 
 ## 待补(第6/7步)
-- [ ] 血条 UI 跟随 HP 变化
+- [ ] 血条 UI 跟随 HP 变化(2026-08-15 已实现:`WBP_HealthBar` + `BP_Unit.HealthBarComponent`/`UpdateHealthBar`,`Setup` 时初始化满血、`TryAttack` 扣血后调用更新。已用 MCP 直接读取 PIE 里的活对象确认——`HealthBarComponent`/`HealthBarWidget` 非空、`Space=World`、`DrawSize=(100,14)`、`Percent` 与 HP/MaxHP 吻合(20/20→1.0)。**但截图肉眼确认没做成**(相机取景一直对不准格子,放弃了),**待人工 Play 实测**:①单位头顶应该能看到一条血条;②点我方攻击敌方后,敌方血条应该实时缩短。)
 - [ ] 一方全灭 → 胜负弹窗
 - [ ] 敌方 AI 自动移动+攻击
