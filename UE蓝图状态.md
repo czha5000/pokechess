@@ -89,7 +89,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - **SpawnUnit(TileIndex: Int, bAlly: Bool) → SpawnedUnit: BP_Unit**(2026-08-15 加了返回值,原来是 void):`Tiles[TileIndex]` → 取该 Tile 的世界坐标 `+ (0,0,50)` → `SpawnActorFromClass(BP_Unit)` → `Setup(bAlly)` → **`Set Col`/`Set Row`(读 `Tiles[TileIndex]` 自己的 Col/Row 写回新单位)** → `return` 新生成的单位引用。修复前只摆了世界坐标,没写逻辑坐标,导致新单位 Col/Row 恒为默认值0;新增返回值是为了让 `RunRegressionTests` 能直接拿到spawn出来的单位引用,不用另外写"按坐标反查单位"的辅助函数。**⚠ 加返回值后,`EventGraph.EventBeginPlay` 里原有的 4 个 SpawnUnit 调用节点因为签名变了变成 stale(编译报 "Could not find a pin for the parameter SpawnedUnit"),用 delete_node+create_node 逐个重建才修复,详见 `UE节点备忘录.md`。**
 - **RunRegressionTests()**(2026-08-15 新增)/**Assert(Condition: Bool, TestName: String)**(2026-08-15 新增,内部用):自动回归测试入口,见本文件末尾专门一节。
 - **CheckVictoryCondition()**(2026-08-15 新增):若 `bGameOver` 已是 true 直接跳过(防重复弹窗)。否则 `GetAllActorsOfClass(BP_Unit)` → For Each,按 `Side` 分别标记"我方还有人活着"/"敌方还有人活着"两个临时变量 → 我方全灭 → `Set bGameOver=true` + `ShowGameOverPopup(false)`;敌方全灭 → `Set bGameOver=true` + `ShowGameOverPopup(true)`。**只在有单位真正死亡时调用一次**(接在 `TryAttack` 的 `DestroyActor` 后面),不是每次攻击都查一遍。
-- **ShowGameOverPopup(bVictory: Bool)**(2026-08-15 新增):`ConstructObjectfromClass(WBP_GameOver)` → `ShowResult(bVictory)` → `AddToViewport`。每次调用都会 `ConstructObjectfromClass` 一个新实例——目前只会被 `CheckVictoryCondition` 调用一次(靠 `bGameOver` 挡重复),没做"复用同一个实例"的优化,够用就没优化。
+- **ShowGameOverPopup(bVictory: Bool)**(2026-08-15 新增,**中途改过一次设计**):`bVictory=true` → `ConstructObjectfromClass(WBP_GameOver)` → `AddToViewport`;`false` → `ConstructObjectfromClass(WBP_GameOverDefeat)` → `AddToViewport`。**不再调用任何"运行时改文字/改颜色"的函数**——原方案是造一个共享 Widget + `ShowResult(bVictory)` 在运行时 `SetText`/`SetColorAndOpacity`,结果 `ConstructObjectfromClass` 造出来的实例的 `bIsVariable` 控件树绑定(`ResultText`)还没初始化,运行时报 `Accessed None`,文字/颜色都设不上,只有背景遮罩能看见(遮罩色是设计时默认值,不走运行时代码,不受影响)。改成两个"文字颜色都在设计时烤死"的独立 Widget 类,`ShowGameOverPopup` 只负责选造哪个类,完全不碰运行时才存在的控件树绑定,问题消失。详见 `UE节点备忘录.md`。每次调用都会 `ConstructObjectfromClass` 一个新实例——目前只会被 `CheckVictoryCondition` 调用一次(靠 `bGameOver` 挡重复),没做"复用同一个实例"的优化,够用就没优化。
 - **TryAttack(Defender: BP_Unit)**(本轮新建,已编译通过):
   ```
   Get SelectedUnit(self) → IsValid? →True→
@@ -162,16 +162,22 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ---
 
-## WBP_GameOver (`/Game/UI/WBP_GameOver.WBP_GameOver_C`,2026-08-15 新增)
+## WBP_GameOver / WBP_GameOverDefeat(`/Game/UI/`,2026-08-15 新增,2026-08-15 拆成两个类)
 
-### 结构
-`RootCanvas`(CanvasPanel,根)→ `BackgroundBorder`(Border,锚点撑满全屏 `(0,0)-(1,1)`,`BrushColor` 半透明黑 `(0,0,0,0.6)`,内容水平/垂直都居中)→ `ResultText`(TextBlock,`bIsVariable=true`,字号 72,初始文本空字符串)。
+> 两个几乎一样的 Widget:`WBP_GameOverDefeat` 是 `AssetTools.duplicate` 复制 `WBP_GameOver` 出来的,唯一区别是 `ResultText` 的设计时默认文本/颜色不一样。**不要合并回一个共享类**——见下面"为什么拆成两个"。
 
-### 函数
-- **ShowResult(bVictory: Bool)**:`bVictory=true` → `ResultText.SetText("VICTORY")` + 绿色 `(0.2,0.9,0.2)`;`false` → `SetText("DEFEAT")` + 红色 `(0.9,0.15,0.15)`。**文本先用英文占位**,没有确认项目里有没有配 CJK 字体(默认 Roboto 字体大概率不含中文字形,直接写中文会变成方块),真要换成"胜利"/"失败"之类的中文,得先确认字体资源。
+### 结构(两个类相同)
+`RootCanvas`(CanvasPanel,根)→ `BackgroundBorder`(Border,锚点撑满全屏 `(0,0)-(1,1)`,`BrushColor` 半透明黑 `(0,0,0,0.6)`,内容水平/垂直都居中)→ `ResultText`(TextBlock,`bIsVariable=true`,字号 72)。
+- `WBP_GameOver`:`ResultText` 设计时默认文本 `"VICTORY"`,颜色绿 `(0.2,0.9,0.2,1)`。
+- `WBP_GameOverDefeat`:`ResultText` 设计时默认文本 `"DEFEAT"`,颜色红 `(0.9,0.15,0.15,1)`。
+
+**文本先用英文占位**,没有确认项目里有没有配 CJK 字体(默认 Roboto 字体大概率不含中文字形,直接写中文会变成方块),真要换成"胜利"/"失败"之类的中文,得先确认字体资源。
+
+### 为什么拆成两个类,而不是一个类 + 运行时 `SetText`
+最初做的是一个共享 `WBP_GameOver` + `ShowResult(bVictory)` 函数,运行时调 `SetText`/`SetColorAndOpacity` 去改文字。结果背景遮罩能看见,文字死活不出来,查出来是 `ConstructObjectfromClass`(`Game|ConstructObjectfromClass`,走的是裸 `NewObject`,不是引擎正规的 `Create Widget`/`WidgetBlueprintLibrary::Create` 流程)生成的实例,**`bIsVariable` 控件树绑定(`ResultText` 这个变量指向哪个实际控件)当时还没建立**——`AddToViewport` 也救不了,先 `AddToViewport` 再 `ShowResult` 一样报 `Accessed None trying to read ResultText`。目前 MCP 这边的工具找不到"正规 Create Widget"节点(`find_node_types` 查不到,`UserInterface|Create`/`Widget|Create` 之类都不存在),所以绕不开这个初始化缺口。**背景遮罩之所以一直能看见,是因为它的颜色是设计时默认值,渲染不需要经过任何运行时 Blueprint 代码**——这个思路才是最终方案:两种结局各做一个独立类,文字颜色全部烤进设计时默认值,`ShowGameOverPopup` 只挑造哪个类,完全不在运行时碰 `bIsVariable` 绑定,问题消失。
 
 ### 用法
-只被 `BP_GridManager.ShowGameOverPopup` 调用:`ConstructObjectfromClass` 现场生成一个实例(不是像血条那样每个单位常驻一份)→ `ShowResult` → `AddToViewport`(Screen Space 全屏浮层,不是像血条那样挂在某个 Actor 身上的 World Space 组件)。
+只被 `BP_GridManager.ShowGameOverPopup` 调用:按 `bVictory` 选 `ConstructObjectfromClass(WBP_GameOver 或 WBP_GameOverDefeat)` 现场生成一个实例(不是像血条那样每个单位常驻一份)→ `AddToViewport`(Screen Space 全屏浮层,不是像血条那样挂在某个 Actor 身上的 World Space 组件)。
 
 ---
 

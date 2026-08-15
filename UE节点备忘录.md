@@ -71,6 +71,16 @@
 - **DSL 里没有"可变的循环计数器/累加器"原语**——`bind` 只是给某个节点的输出取个名字,不能在 `for` 循环里被反复重新赋值当计数器用。需要"遍历一堆东西、累加/标记状态"这种逻辑时,老老实实用**Function 的局部变量**(`add_variable(...,graph=<该函数的graph引用>)` 建局部 bool/int 变量),循环体内用 `Variables|Default|SetX`/`GetX` 读写它,和用类成员变量的语法完全一样,只是作用域局部于这个 Function。本轮 `CheckVictoryCondition` 用两个局部 bool(`AllyAliveTmp`/`EnemyAliveTmp`)分别标记"循环过程中有没有见到我方/敌方单位"就是这个模式。
 - **`Class|X|SetY` 这类"设置某个 Widget 属性"的自定义/包装函数,同一个函数在不同 Widget 类型上参数顺序也可能不一样**,不止是"self 在前/在后"这么简单——`Class|ProgressBar|SetPercent` 是 `(value, target)`,`Class|Text|SetColorandOpacity` 也是 `(value, target)`,但 `Class|WBPHealthBar|SetHealthPercent`(自定义函数,不是引擎内置的)是 `(target, value)`。**引擎内置的 Widget 方法(Class|<UMG类名>|...)大概率是 `(value..., target)`;自己用 `add_function_graph` 建的自定义函数,self/target pin 位置看它是第几个加的参数,没有通用规律,每次都用报错信息反推**(参考本文件"跨蓝图调用自定义 Function"那条)。
 
+## 重要陷阱:`ConstructObjectfromClass` 造出来的 Widget,`bIsVariable` 控件树绑定不生效(2026-08-15,胜负弹窗 bug)
+
+**现象**:`Game|ConstructObjectfromClass` 造一个 Widget Blueprint 实例,`AddToViewport` 后背景/默认样式能正常显示,但只要运行时调用任何"读/改某个 `bIsVariable` 子控件"的函数(比如 `ResultText.SetText(...)`),就会报 `Accessed None trying to read (real) property <控件名>`——这个子控件变量在运行时是 `None`。
+
+**根因**:UMG 里勾了"Is Variable"的子控件(比如 `ResultText`),这个变量指向"控件树里具体哪个控件实例"这件事,不是造对象的时候自动就有的,而是要靠正规的 `Create Widget`(`UWidgetBlueprintLibrary::Create`)流程里的 `Initialize()` 去建立绑定。`Game|ConstructObjectfromClass` 走的是裸 `NewObject`,不会触发这一步。**先 `AddToViewport` 再调用依赖 `bIsVariable` 的函数也没用**——`AddToViewport` 不会补上这个初始化(本轮实测过,顺序换了照样报错)。
+
+**已知限制**:目前这套 MCP 工具的 `find_node_types`/`create_node` 找不到正规的 "Create Widget" 节点(试过 `UserInterface|Create`、`Widget|Create`、`Game|Create` 等各种猜测都不存在),所以**目前没有已知办法通过 MCP 正确初始化一个"运行时会被调用改内容"的 Widget 实例**。
+
+**当前绕过方案**:如果 Widget 的内容是"有限的几种固定状态"(比如胜利/失败只有两种),**把每种状态做成一个独立的 Widget Blueprint,子控件的文字/颜色全部烤进设计时默认值,不在运行时调用任何碰 `bIsVariable` 绑定的函数**——`ConstructObjectfromClass` + `AddToViewport` 只负责"选造哪个类、扔上屏",不做任何运行时改控件内容的操作。设计时默认值(比如 Border 的背景色)不受这个 bug 影响,因为它们不经过运行时代码,是渲染时直接读的类默认数据。**如果以后确实需要"运行时动态改内容的 Widget"(比如内容是从变量拼出来的字符串,没法枚举成有限几种),这个坑还没有已知解法,得先想办法找到真正的 Create Widget 节点或者其他初始化手段,不要重蹈覆辙。**
+
 ## 通用陷阱:整数除法截断(2026-08-15,血条百分比 bug)
 
 `(/ a b)` 里 `a`、`b` 都是 Integer 时,DSL/蓝图的除法节点做的是**整数除法**,不会因为下游 pin 要 Float 就自动升格成浮点除法——`15/20` 算出来是 `0`,不是 `0.75`。这个坑在"两个整数变量算比例"的场景特别容易中招(血条百分比、进度条、任何 `当前值/最大值` 的场景),而且**编译不报错、运行不报错、单纯数值不对**,很难从代码本身看出来,得靠"实际数值 approximately 0" 这种现象反推。**只要是拿两个 Integer 变量算"比例"、"百分比"这类需要精度的结果,必须显式 `Math|Conversions|ToFloat(Integer)` 转换后再做除法**,不要依赖隐式转换。回归测试里判断这类值时,除了"变了"(`< 原值`)也要顺手判断"没被腰斩成 0"(`> 0`),否则测试会把这个 bug 放过去(本轮真实踩过:`T6` 断言写成"< 1.0"没抓到,加了个"> 0.0"的 `T6b` 才抓到)。
