@@ -22,6 +22,8 @@
 
 **2026-08-13 追加验证:`BlueprintTools` 图级别编辑已验证可用**(修复 `BP_Tile` 的 `Set SelectedUnit` 断线 bug,见 `UE蓝图状态.md`)。完整链路:`list_graphs` 定位图 → `read_graph_dsl` 看整体结构(排查用)→ `find_nodes(title=...)` 按标题定位具体节点 → `get_node_infos` 读节点的输入/输出 pin 明细(哪些接了、接到哪、类型是什么)→ `connect_pins(output_pin, input_pin)` 接线 → `compile_blueprint` 编译验证(失败会直接抛出报错文本,成功返回 null)→ `save_assets` 落盘。**结论:小范围、定位明确的图编辑(接一根线、改一个节点)可以直接走 MCP,不必再退回剪贴板协议**;但大范围新增节点/重构 Function 内部逻辑仍建议走剪贴板协议(`ue-blueprint-paste-gen` skill 生成的粘贴块经过连线完整性校验,MCP 这条路径目前没有等价的"整体校验"能力,节点越多手工逐个接线出错概率越高)。
 
+**2026-08-15 追加**:`BlueprintTools` 实际比本节原先记录的丰富得多——除 `find_nodes`/`get_node_infos`/`connect_pins`/`compile_blueprint` 外,还有 `read_graph_dsl`/`write_graph_dsl`(S-表达式 DSL,整图读写,配 `get_graph_dsl_docs` 查语法)、`create_node`/`break_pins`/`find_node_types`/`get_node_type_pins`/`add_function_graph`/`add_function_param` 等。经本轮实测(新建 `BP_GridManager.IsTileOccupied` 函数并接入 `ShowRange`):**全新 Function 直接用 `write_graph_dsl` 整体生成可靠;修改现有、内部含 Macro 节点(如 `ForEachLoop`)的 Function 不要把 `read_graph_dsl` 的文本直接回写**(反编译对 Macro 内部逻辑可能失真),改用 `create_node`+`connect_pins`+`break_pins` 只新增/改动目标节点——本质上还是"小范围定位明确的改动"这条准则,只是现在"小范围"里已经能包含"新增几个节点、插入一段 exec 链路"这种量级,不必再退回剪贴板协议。踩坑细节见 `UE节点备忘录.md` 的"MCP `BlueprintTools` 实测细节"一节。
+
 **写之前主动查编译状态**:`.uasset` 自上次 git 提交起字节没变,不代表它是"健康"的——蓝图编译校验只在被触发重新编译时才跑(`load_level`、Play、或显式 `compile_blueprint`),错误可能潜伏很久不暴露。新会话接手或做任何改动前,建议先对相关蓝图跑一遍 `compile_blueprint` 确认现状干净,不要假设"没 diff = 没问题"。
 
 **MCP 写操作的安全习惯**(比剪贴板+人工审查风险更高,因为没有人在中间审一遍):
