@@ -79,6 +79,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | Tiles | Array\<BP_Tile\> | - |
 | SelectedUnit | BP_Unit | D935E037425A56EF9140B3AD499B0189 |
 | bRunRegressionTestsOnBeginPlay | Boolean | (2026-08-15 新增,默认 false,Instance Editable) | 回归测试开关,见本文件末尾"自动回归测试"一节 |
+| bGameOver | Boolean | (2026-08-15 新增,默认 false) | 胜负是否已判定过,防止一方全灭后每多杀一个单位就重复弹一次胜负窗 |
+| bAllyAliveTmp / bEnemyAliveTmp | Boolean | (2026-08-15 新增,`CheckVictoryCondition` 的局部变量) | 循环累加用的临时标记,不代表长期状态,不用关心它们平时的值 |
 
 ### 函数
 - **ClearHighlights**(GUID `0F31C30A44B85167E0CE73A25A1D95FC`):For Each Tiles → `SetHighlight(False)`
@@ -86,6 +88,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - **IsTileOccupied(Col: Int, Row: Int) → Bool**(2026-08-15 新增,MCP 直接图编辑,`create_node`/`connect_pins` 逐节点搭建,未走 DSL 整函数重写):`GetAllActorsOfClass(BP_Unit)` → For Each → 若某单位的 `Col`/`Row` 同时等于参数 → `return true`;循环结束 `return false`。用途:阻止 `ShowRange` 把已被任意单位(我方或敌方)占用的格子标记为可移动目标,修复"单位能移动到和敌人重叠的格子"的 bug。
 - **SpawnUnit(TileIndex: Int, bAlly: Bool) → SpawnedUnit: BP_Unit**(2026-08-15 加了返回值,原来是 void):`Tiles[TileIndex]` → 取该 Tile 的世界坐标 `+ (0,0,50)` → `SpawnActorFromClass(BP_Unit)` → `Setup(bAlly)` → **`Set Col`/`Set Row`(读 `Tiles[TileIndex]` 自己的 Col/Row 写回新单位)** → `return` 新生成的单位引用。修复前只摆了世界坐标,没写逻辑坐标,导致新单位 Col/Row 恒为默认值0;新增返回值是为了让 `RunRegressionTests` 能直接拿到spawn出来的单位引用,不用另外写"按坐标反查单位"的辅助函数。**⚠ 加返回值后,`EventGraph.EventBeginPlay` 里原有的 4 个 SpawnUnit 调用节点因为签名变了变成 stale(编译报 "Could not find a pin for the parameter SpawnedUnit"),用 delete_node+create_node 逐个重建才修复,详见 `UE节点备忘录.md`。**
 - **RunRegressionTests()**(2026-08-15 新增)/**Assert(Condition: Bool, TestName: String)**(2026-08-15 新增,内部用):自动回归测试入口,见本文件末尾专门一节。
+- **CheckVictoryCondition()**(2026-08-15 新增):若 `bGameOver` 已是 true 直接跳过(防重复弹窗)。否则 `GetAllActorsOfClass(BP_Unit)` → For Each,按 `Side` 分别标记"我方还有人活着"/"敌方还有人活着"两个临时变量 → 我方全灭 → `Set bGameOver=true` + `ShowGameOverPopup(false)`;敌方全灭 → `Set bGameOver=true` + `ShowGameOverPopup(true)`。**只在有单位真正死亡时调用一次**(接在 `TryAttack` 的 `DestroyActor` 后面),不是每次攻击都查一遍。
+- **ShowGameOverPopup(bVictory: Bool)**(2026-08-15 新增):`ConstructObjectfromClass(WBP_GameOver)` → `ShowResult(bVictory)` → `AddToViewport`。每次调用都会 `ConstructObjectfromClass` 一个新实例——目前只会被 `CheckVictoryCondition` 调用一次(靠 `bGameOver` 挡重复),没做"复用同一个实例"的优化,够用就没优化。
 - **TryAttack(Defender: BP_Unit)**(本轮新建,已编译通过):
   ```
   Get SelectedUnit(self) → IsValid? →True→
@@ -95,7 +99,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
       新HP = Max(Defender.HP - 伤害, 0)
       Set Defender.HP = 新HP
       → **Defender.UpdateHealthBar()(2026-08-15 新增,MCP `create_node`/`connect_pins` 插入,紧接在 Set HP 之后)**
-      → LessEqual(新HP, 0) →True→ K2_DestroyActor(Defender)
+      → LessEqual(新HP, 0) →True→ K2_DestroyActor(Defender) → **CheckVictoryCondition()(2026-08-15 新增,紧接在 DestroyActor 后面)**
       → (两分支汇合) → ClearHighlights(self) → Set SelectedUnit=None
   ```
   非 self 变量(Defender 的 Col/Row/Def/HP)全部走 `MemberParent + SelfContextInfo=NotSelfContext` 三件套,详见 `UE节点备忘录.md`。
@@ -155,6 +159,19 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### 用法
 每个 `BP_Unit` 在 `UserConstructionScript` 里各自 `ConstructObjectfromClass` 出一份独立实例,挂在自己的 `HealthBarComponent`(WidgetComponent,World Space)上,不是共享同一个 Widget。
+
+---
+
+## WBP_GameOver (`/Game/UI/WBP_GameOver.WBP_GameOver_C`,2026-08-15 新增)
+
+### 结构
+`RootCanvas`(CanvasPanel,根)→ `BackgroundBorder`(Border,锚点撑满全屏 `(0,0)-(1,1)`,`BrushColor` 半透明黑 `(0,0,0,0.6)`,内容水平/垂直都居中)→ `ResultText`(TextBlock,`bIsVariable=true`,字号 72,初始文本空字符串)。
+
+### 函数
+- **ShowResult(bVictory: Bool)**:`bVictory=true` → `ResultText.SetText("VICTORY")` + 绿色 `(0.2,0.9,0.2)`;`false` → `SetText("DEFEAT")` + 红色 `(0.9,0.15,0.15)`。**文本先用英文占位**,没有确认项目里有没有配 CJK 字体(默认 Roboto 字体大概率不含中文字形,直接写中文会变成方块),真要换成"胜利"/"失败"之类的中文,得先确认字体资源。
+
+### 用法
+只被 `BP_GridManager.ShowGameOverPopup` 调用:`ConstructObjectfromClass` 现场生成一个实例(不是像血条那样每个单位常驻一份)→ `ShowResult` → `AddToViewport`(Screen Space 全屏浮层,不是像血条那样挂在某个 Actor 身上的 World Space 组件)。
 
 ---
 

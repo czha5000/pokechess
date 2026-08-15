@@ -25,5 +25,5 @@
 
 ## 待补(第6/7步)
 - [x] 血条 UI 跟随 HP 变化(2026-08-15 完整实现并人工 Play 验收通过:`WBP_HealthBar` + `BP_Unit.HealthBarComponent`/`UpdateHealthBar`,`Setup` 时初始化满血、`TryAttack` 扣血后调用更新。过程中修了两个真实 bug——①Transform 类型 pin 不支持字符串默认值导致血条位置一直是 (0,0,0)、旋转也没面向固定相机,看起来是一条细线;②HP/MaxHP 整数相除截断成 0,导致随便掉一滴血就整条全红。两个都已修复,`RunRegressionTests` T5/T6a/T6b 三条断言覆盖。)
-- [ ] 一方全灭 → 胜负弹窗
+- [ ] 一方全灭 → 胜负弹窗(2026-08-15 已实现:`BP_GridManager.CheckVictoryCondition` 挂在 `TryAttack` 的死亡分支后面,`WBP_GameOver` 全屏半透明遮罩 + 居中大字 "VICTORY"/"DEFEAT"(先用英文占位,没确认项目字体支不支持中文)。**只做了自动回归测试覆盖不到的部分,没做自动化验证**——把一方场上所有单位都打死太容易误伤正常游玩用的初始单位,风险大于收益,所以没往 `RunRegressionTests` 里加。**待人工 Play 实测**:①连续攻击同一个敌方单位到死(占位公式 `max(0,Atk-Def)`,Atk=10 Def=5,20血打4刀死)看死亡瞬间会不会弹 "DEFEAT"/"VICTORY";②确认弹窗只弹一次,不会每死一个多余的单位就重复弹。)
 - [ ] 敌方 AI 自动移动+攻击
