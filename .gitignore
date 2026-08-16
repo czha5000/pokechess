@@ -14,3 +14,5 @@ Thumbs.db
 # balance 脚本运行时输出(过程性数据,不入库)
 balance/scan_progress.txt
 balance/scan_single.txt
+__pycache__/
+*.pyc

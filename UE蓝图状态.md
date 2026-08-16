@@ -14,14 +14,14 @@
 | Row | Integer | 989E623C43F9417073E99FA096C78C35 | |
 | MoveRange | Integer | 未知 | 默认 4 |
 | Side | Boolean | 735371B54A6EEBD5326EEDB5B6A97AFE | true=我方,false=敌方 |
-| MaxHP | Integer | 未知 | |
-| HP | Integer | 7E7CE5CF43871663225F4B9260614168 | ⚠ Class Defaults 当前值未确认,测试打出 -30 疑似默认 0 |
-| Atk | Integer | 5630A3C3448BD43A03C96DA37CDA3333 | |
-| Def | Integer | 1B57114147085BA71CDBC081B6E015F3 | |
-| Spd | Integer | 未知 | |
+| MaxHP | Integer | 未知 | Step5b 建议 Class Defaults=30 |
+| HP | Integer | 7E7CE5CF43871663225F4B9260614168 | ⚠ Defaults 未确认(曾测出 -30/疑似 0);Step5b 建议=30 |
+| Atk | Integer | 5630A3C3448BD43A03C96DA37CDA3333 | Step5b 建议 Defaults=12 |
+| Def | Integer | 1B57114147085BA71CDBC081B6E015F3 | Step5b 建议 Defaults=4 |
+| Spd | Integer | 未知 | Step5b 建议 Defaults=7(暂不参与伤害) |
 | AtkType | Integer | 未知 | 占位,未接入属性克制表 |
 | EnemyMat | Material | - | |
-| AtkRange | Integer | 未知 | 默认 1,**已建但逻辑还没接入判断** |
+| AtkRange | Integer | 未知 | 默认 1,已接入 TryAttack 距离判断 |
 
 ### 函数
 - **Setup(bAlly: Bool)**:`Set Side = bAlly` → Branch(Side) → False 分支 `Mesh.SetMaterial(0, M_Enemy)`
@@ -41,7 +41,7 @@
 2. ~~AtkRange 没接入判断~~ ✅ 已解决:`TryAttack` 用曼哈顿距离 `LessEqual(distance, SelectedUnit.AtkRange)` 判断,超出范围无效果。**实测验证通过**——过程中发现并修复了两个更深层的坑,见问题8。
 3. **移动/攻击状态未分离** —— `BP_Tile.ActorOnClicked` 的移动逻辑和这里的攻击逻辑共用同一个 `GridManager.SelectedUnit`,没有明确的"移动模式 vs 攻击模式"状态机,存在误触风险。仍未解决,需要重新设计。
 4. **HP/Atk/Def 等 Class Defaults 具体数值未核实** —— 需要打开 BP_Unit → Class Defaults 面板确认。
-5. 伤害公式仍是占位版 `max(0, Atk-Def)`(用户明确认可"可以无伤,合理"),要换成真实 `max(1, round(Atk×DEF_K/(DEF_K+Def)))`,DEF_K=9(已从 config.js 核实)——留作后续步骤。
+5. 伤害公式仍是占位版 `max(0, Atk-Def)` —— **Step5b 进行中**:换成 `max(1, round(Atk×DEF_K/(DEF_K+Def)))`,DEF_K=9;推荐抽 `CalcDamage` 纯函数再让 TryAttack 调用(清单:`ue/STEP5b_DEF_K操作清单.md`)。
 6. `BP_Unit` 里 `Col`/`Row` 的 MemberGuid 已在本轮确认:Col=`EC5111B2499BDFC8487A6CB7A0531A60`,Row=`989E623C43F9417073E99FA096C78C35`(此前"未知"已更新,见上方变量表)。
 7. ~~`K2_DestroyActor` 的 Target 没接 `Defender`~~ ✅ 已修复:曾经因为这条手动线漏接,导致死亡分支触发时销毁的是 `GridManager` 自己(而不是被打死的敌方单位),表现为攻击几次后地图彻底失效(`GetAllActorsOfClass(BP_GridManager)` 返回空数组)。现已手动补上 `Defender → Destroy.Target` 的连线,验证正常。**这是本轮 TryAttack 手动连线清单里最容易漏、后果最严重的一条,以后生成同类 Function 时要在交付清单里特别提醒检查。**
 8. ~~攻击距离判断形同虚设(Dist 恒为 0 或恒为固定值)~~ ✅ 已修复,根因是**逻辑坐标 Col/Row 从未真正被写入过**,分两处:
@@ -49,7 +49,7 @@
    - `BP_Tile.ActorOnClicked`:移动逻辑只做了 `SetActorLocation`(挪世界坐标)+ `ClearHighlights`,文档里记的"更新 SelectedUnit.Col/Row"这一步实际上从没实现过。已修复:`ClearHighlights` 之后补上从本格读 `Col`/`Row` 写入 `SelectedUnit` 的两个 `Set` 节点。
    - **教训(已写入节点备忘录)**:视觉位置(世界坐标)和逻辑位置(Col/Row 整数变量)是两套独立数据,挪动/生成 Actor 只会同步视觉位置,逻辑坐标必须显式手动同步,UE 不会自动帮你对齐。
 
-**Step5(攻击+伤害公式)核心链路已跑通并验证**:点我方→点相邻敌方→伤害生效→HP≤0 正确移除目标(不再误伤 GridManager);AtkRange 范围判断经实测确认生效(超范围不掉血,范围内正常掉血)。仍是占位公式 `max(0, Atk-Def)`,真实 DEF_K 公式和 Class Defaults 数值设置留作后续。
+**Step5a 核心链路已跑通**:点我方→点相邻敌方→伤害生效→HP≤0 正确移除目标;AtkRange 实测生效。**Step5b(DEF_K 公式 + Class Defaults)尚未在编辑器落地**——Cloud 会话已备好操作清单与粘贴子图,等人类 Compile/Play 回传 PASS/FAIL 后再把本快照里的公式描述改成已验证状态。
 
 ---
 
@@ -68,18 +68,19 @@
 - **ClearHighlights**(GUID `0F31C30A44B85167E0CE73A25A1D95FC`):For Each Tiles → `SetHighlight(False)`
 - **ShowRange(Unit: BP_Unit)**(GUID `365A39F74D91FB2F1BEFE78294302FF7`):ClearHighlights → `Set SelectedUnit=Unit` → For Each Tiles → 曼哈顿距离 ≤ `Unit.MoveRange` 且 ≠0 → `SetHighlight(True)`(⚠不查占位、不是BFS,已知简化)
 - **SpawnUnit(TileIndex: Int, bAlly: Bool)**:`Tiles[TileIndex]` → 取该 Tile 的世界坐标 `+ (0,0,50)` → `SpawnActorFromClass(BP_Unit)` → `Setup(bAlly)` → **`Set Col`/`Set Row`(本轮新增,读 `Tiles[TileIndex]` 自己的 Col/Row 写回新单位)**。修复前只摆了世界坐标,没写逻辑坐标,导致新单位 Col/Row 恒为默认值0。
-- **TryAttack(Defender: BP_Unit)**(本轮新建,已编译通过):
+- **TryAttack(Defender: BP_Unit)**(已编译通过;伤害段 Step5b 待换):
   ```
   Get SelectedUnit(self) → IsValid? →True→
     曼哈顿距离(SelectedUnit.Col/Row vs Defender.Col/Row, 用 Max(x,-x) 组合出 Abs)
     → LessEqual(distance, SelectedUnit.AtkRange) →True→
-      伤害 = Max(SelectedUnit.Atk - Defender.Def, 0)          [占位公式]
+      伤害 = Max(SelectedUnit.Atk - Defender.Def, 0)          [⚠ 占位;Step5b → CalcDamage(Atk,Def)]
       新HP = Max(Defender.HP - 伤害, 0)
       Set Defender.HP = 新HP
-      → LessEqual(新HP, 0) →True→ K2_DestroyActor(Defender)
+      → LessEqual(新HP, 0) →True→ K2_DestroyActor(Defender)  [Target 必须是 Defender]
       → (两分支汇合) → ClearHighlights(self) → Set SelectedUnit=None
   ```
   非 self 变量(Defender 的 Col/Row/Def/HP)全部走 `MemberParent + SelfContextInfo=NotSelfContext` 三件套,详见 `UE节点备忘录.md`。
+- **CalcDamage(Atk, Def)→Damage**(Step5b 待建,纯函数):`max(1, round(Atk×DEF_K/(DEF_K+Def)))`,DEF_K=9;粘贴子图 `ue/paste/CalcDamage_subgraph.txt`。
 
 ---
 

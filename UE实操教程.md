@@ -7,13 +7,16 @@
 
 ## 📍 续接区(开新对话先看这里)
 - **怎么续**:新对话里把本文件或 `UE学习笔记.md` 发给我,或说「继续UE」。我读续接区+笔记就知道进度。
-- **当前进度**:M0/M1/M2 ✅。移动范围 A–D ✅。切片第3步(多单位+敌我)✅含点击过滤。**切片第4步 BP_TurnManager 行动序 ✅**——按生成顺序(我我敌敌)循环,N 键切换,当前单位高亮;真正按 Spd 排序留作后续优化(不阻塞)。
-- **下一步动作**:切片第5步**攻击+伤害公式**。已对照 web `combat.js`/`types.js`/`config.js` 核实当前真实数值(不是本文件旧笔记里那版简化公式):
-  - 当前伤害公式(v0.68+,乘算防御衰减):`d = max(1, round(Atk × 技能倍率 × 属性克制 × (DEF_K/(DEF_K+Def+掩体))))`,再叠 LOS 遮挡×0.8、地形/侧翼/遗物等乘算项。
-  - 关键常量(已从 config.js/state.js 核实):`DEF_K=9`、`LOS_HIT=20`、`LOS_DMG=0.80`、`FLANK_MULT=1.30`、`CRITX=3`、`DOUBLE_GAP=4`。
-  - UE 切片版简化到:`d = max(1, round(Atk × (DEF_K/(DEF_K+Def))))`,先不带技能倍率/属性克制/命中率/暴击/掩体/地形/遗物——这些留作对表前的补齐项(与切片一贯"先跑通再补真实度"的做法一致)。
-  - 18 属性克制表(展平 DataTable)本步先不做,等基础伤害流程跑通再单独排半天。
-- **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`——**任何新会话接手前先读那份**。简述:`UE蓝图状态.md`(变量/函数/GUID快照)、`UE节点备忘录.md`(踩坑记录+验证过的函数名)、`UE测试用例.md`(验收清单),三份配套文档每次改动后同步更新;复杂逻辑做成独立 Function 整体替换,不在 EventGraph 里打补丁;默认只要新增节点+邻居回传,不要整图。
+- **当前进度**:M0/M1/M2 ✅。移动范围 A–D ✅。切片第3步(多单位+敌我)✅含点击过滤。**切片第4步 BP_TurnManager 行动序 ✅**。**切片第5步攻击链路 ✅**(占位公式 `max(0,Atk-Def)` + AtkRange + Destroy 已实测);**Step5b 真实 DEF_K 公式 + Class Defaults ⬜ 进行中**——人类操作清单见 `ue/STEP5b_DEF_K操作清单.md`。
+- **下一步动作(Step5b,你在编辑器里做)**:
+  1. 设 `BP_Unit` Class Defaults:`HP/MaxHP=30, Atk=12, Def=4, AtkRange=1`(详见清单 §1)。
+  2. 在 `BP_GridManager` 新建纯函数 `CalcDamage(Atk,Def)→Damage`:`max(1, round(Atk×9/(9+Def)))`。可手搭,或粘贴 `ue/paste/CalcDamage_subgraph.txt`(生成器:`ue/tools/paste_gen.py`)。
+  3. `TryAttack` 删掉占位 `Atk-Def`,改为调 `CalcDamage`;临时 Print 伤害值。
+  4. 按 `UE测试用例.md` Step5b 表回报 PASS/FAIL(关键对照:`Atk12/Def4 → 伤害8`;`Atk5/Def20 → 伤害2` 而不是旧公式的 0)。
+  - Web 完整公式仍含招倍率/克制/LOS 等,本步**故意不做**;18 属性表继续缓。
+  - **不做**:移动/攻击状态机、血条、胜负、敌方 AI(那是第6/7步)。
+- **环境限制(2026-08-16)**:Cloud Agent **连不上**本机 Unreal MCP(`127.0.0.1:8000`)。本步走剪贴板/人工节点;`ue-blueprint-paste-gen` 原 skill 也不在 Cloud 环境,已用仓库内 `ue/tools/paste_gen.py` 顶上 pin 注册表校验。
+- **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`。配套:`UE蓝图状态.md` / `UE节点备忘录.md` / `UE测试用例.md`;改完必须同步。
 
 ---
 
@@ -88,7 +91,7 @@
 
 **3. 多单位 + 敌我** 🔨生成✅ / 点击限制⬜:BP_Unit 有 `Side` + `Setup(Ally)` 换 `M_Enemy`。GridManager `SpawnUnit` 在 Completed 后生成 index 30/41(我方)+52/63(敌方)。Spawn 必须 **Always Spawn, Ignore Collisions** + Z+50。仍缺:HP/Atk/Def/Spd 等战斗变量;ActorOnClicked 按 Side 过滤。
 **4. 速度行动序(回合)** ✅:`BP_TurnManager`——BeginPlay 收集全部单位存 TurnOrder(按生成顺序,非真 Spd 排序,留作后续优化),CurrentIndex 循环推进(N 键,取模 wraparound),StartTurn 高亮当前单位。
-**5. 攻击 + 伤害公式** 🔨 进行中:选单位→高亮**攻击范围**(射程)→点敌人→扣血。已对照 web `combat.js` 核实真实公式为**乘算防御衰减** `d = max(1, round(攻×招倍率×克制×(DEF_K/(DEF_K+防+掩体))))`(DEF_K=9),而非本文件旧版加法公式——UE 切片第一版简化到 `d = max(1, round(攻×(DEF_K/(DEF_K+防))))`,不含招倍率/克制/命中/暴击,后续再补。**18 属性克制表**:web `types.js` 的 CHART 是稀疏表(只列非 1 倍关系),DataTable 需要行结构——要先**展平**:每行 = 攻属性,18 个 float 列 = 对每种防属性的倍率(缺省填 1)。这步有实际工作量,单独留半天,别指望"导入"一键完成,本步暂缓。
+**5. 攻击 + 伤害公式** 🔨 链路✅ / 真实公式 Step5b ⬜:点我方→点邻格敌方→扣血→HP≤0 Destroy 已通(占位 `Atk-Def`)。Step5b 换成 `d = max(1, round(Atk×DEF_K/(DEF_K+Def)))`(DEF_K=9),操作见 `ue/STEP5b_DEF_K操作清单.md`。不含招倍率/克制/命中/暴击/LOS。**18 属性克制表**继续缓(CHART 稀疏→DataTable 需展平)。
 **6. 血条 + 死亡 + 胜负**:单位头顶 **Widget 血条**(UMG);HP≤0 移除;一方全灭 → 弹"胜/负"。
 **7. 敌方简单 AI**:敌方回合自动走向最近我方并攻击。
 → 做完 = **一场 2v2 能从头打到分胜负**,垂直切片完成。

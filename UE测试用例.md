@@ -12,14 +12,16 @@
 - [x] N 键 → CurrentIndex 按生成顺序(我我敌敌)循环推进,当前单位高亮切换
 - [x] 循环到末尾后 wraparound 回到第一个单位
 
-## 攻击(Step5,进行中)
+## 攻击(Step5a ✅ / Step5b ⬜)
 - [x] 点我方(不移动)→ 点相邻敌方 → 攻击链路执行(Print 验证过一次,数值 -30,因 HP 默认值未设导致,链路本身通)
-- [ ] HP/Atk/Def/MaxHP 的 Class Defaults 数值已设置为合理测试值
-- [ ] 攻击后 HP 按 `max(0, Atk-Def)` 正确变化(占位公式版)
-- [ ] 换成真实公式 `max(1, round(Atk×9/(9+Def)))` 后数值正确
-- [x] 超出 AtkRange 的敌方点击 → 无效果(根因是 SpawnUnit/BP_Tile 移动都没写逻辑坐标 Col/Row,修复后实测通过)
-- [x] HP≤0 → 单位从场上移除(DestroyActor)——修复了 Target 未接 Defender、误伤 GridManager 自己的 bug 后确认正常
-- [ ] 移动和攻击两个模式不会互相干扰(重新设计后测试)
+- [ ] **Step5b** HP/Atk/Def/MaxHP Class Defaults = 30/12/4/30(见操作清单)
+- [x] 攻击后 HP 按占位 `max(0, Atk-Def)` 变化过(历史验证;换公式后本条作废)
+- [ ] **Step5b** Defaults=Atk12/Def4 时单次伤害 Print=**8**, HP 30→22
+- [ ] **Step5b** 邻格连打 4 次 → 第 4 次 Destroy 敌方
+- [ ] **Step5b** 临时 Atk5/Def20 → 伤害 Print=**2**(若为 0 说明仍是旧占位公式)
+- [x] 超出 AtkRange 的敌方点击 → 无效果(Col/Row 写入修复后实测通过)
+- [x] HP≤0 → DestroyActor(Defender) 正确,不再误伤 GridManager
+- [ ] 移动和攻击两个模式不会互相干扰(状态机重构后测,非本步)
 
 ## 待补(第6/7步)
 - [ ] 血条 UI 跟随 HP 变化

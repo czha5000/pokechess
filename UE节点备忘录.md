@@ -23,7 +23,15 @@
 | Engine.KismetMathLibrary | Percent_IntInt | 显示成 "NO_OP" 是显示 bug,功能正常(取模) |
 | Engine.KismetMathLibrary | **Max**(不是 Max_IntInt!) | 整数取最大值,真实函数名就是 `Max` |
 | Engine.KismetMathLibrary | LessEqual_IntInt | 整数 ≤ 比较,已在 TryAttack 里验证可用 |
+| Engine.KismetMathLibrary | Conv_IntToFloat | Step5b CalcDamage 用(粘贴块已生成,**编辑器内尚未实测**) |
+| Engine.KismetMathLibrary | Multiply_FloatFloat / Add_FloatFloat / Divide_FloatFloat | 同上,待实测 |
+| Engine.KismetMathLibrary | Round | float→int 四舍五入;若粘贴后节点静默消失,手搜 Round 重建 |
 | (自身蓝图函数) | K2_DestroyActor | `FunctionReference=(MemberName="K2_DestroyActor",bSelfContext=True)`,self pin 类型填 `/Script/CoreUObject.Class'/Script/Engine.Actor'` 即可,子类自动兼容,不用精确到具体蓝图类 |
+
+## Cloud 环境补充(2026-08-16)
+
+- 原 `ue-blueprint-paste-gen` skill **不在** Cloud Agent 技能列表里;仓库内替代:`ue/tools/paste_gen.py`(pin 注册表 + LinkedTo 校验)→ 输出 `ue/paste/*.txt`。
+- Unreal MCP 只绑本机 `127.0.0.1:8000`,Cloud VM 无法直连;大图改动继续剪贴板/人工,小改动等你本机开着编辑器再走 MCP。
 
 ## 已知踩过的坑(不要重犯)
 
