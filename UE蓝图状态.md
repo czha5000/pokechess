@@ -103,7 +103,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - **ShowAttackRange(Unit: BP_Unit)**(2026-08-15 新增,红色攻击范围高亮;**同日两次修复改了语义,2026-08-16 又改了一次半径公式**):
   - **v1(已废弃)**:`GetAllActorsOfClass(BP_Unit)` → For Each,若 `Side` 和 `Unit` 不同 → 算曼哈顿距离(`ManhattanDistance`)→ ≤ `Unit.AtkRange` → 找到该敌方单位所在的 `Tile` → `SetAttackHighlight(True)`。**问题**:只高亮"当前恰好在射程内的敌方单位所在格",如果点击那一刻没有敌人正好落在范围内,就完全不会有任何红格子出现——这正是用户反馈"看不到攻击范围"的根本原因(不是渲染/材质问题,是"该亮的格子这次根本没被判定为该亮")。
   - **v2(2026-08-15 第二次修复)**:改成和 `ShowRange` 同构的"范围本身"高亮,不再依赖敌人是否恰好在场:`For Each Tiles` → 曼哈顿距离(`Unit.Col/Row` → `Tile.Col/Row`)在 `1..Unit.AtkRange` 之间(`<=AtkRange 且 >0`,排除自己脚下那格)→ `SetAttackHighlight(True)`。也就是不管有没有敌人,只要点自己单位就会立刻围绕它显示一圈红格子,和 `ShowRange` 的黄色移动范围逻辑对称,符合用户说的"移动=黄,攻击=红"的直观预期。
-  - **v3(当前版本,2026-08-16 第三次修复,改了语义)**:用户明确反馈"红色高亮应该是移动范围的最外围,也就是最远能打哪里,而不是当下位置的攻击范围"——v2 的半径只算 `Unit` **当前站的格子**能打多远,没考虑"先移动再攻击"这个战术意图。改成半径 `1..(Unit.MoveRange + Unit.AtkRange)`(仍然以 `Unit` 当前 Col/Row 为圆心算曼哈顿距离,只是上限从 `AtkRange` 换成 `MoveRange+AtkRange`),代表"移动到射程边缘后最远能打到的格子"。**已知简化**:红圈仍然是从当前位置算的固定半径圆,不是"先精确算可达移动格集合、再对每个可达格子分别画攻击范围再取并集"的精确战术威胁区(那样需要真实寻路,当前移动本身就是曼哈顿距离占位、不绕障碍物,见 `ShowRange` 已知简化),半径相加是这套简化寻路下的等价近似。改动仅涉及"半径怎么算"这一处比较条件,`ManhattanDistance` 调用和其它逻辑都没动;实现细节(踩过的孤立节点识别坑)见 `UE节点备忘录.md` 坑11。**已知简化(v2 遗留,v3 未变)**:调用顺序是先 `ShowRange`(黄)后 `ShowAttackRange`(红),如果某格子同时落在移动范围和攻击范围内,会被红色覆盖(材质槽只有一个,后调用的赢),目前没有做双色叠加或优先级区分——v3 半径变大后,移动范围内的格子基本必然也落在新的攻击范围内,所以移动范围的黄色高亮实际上**几乎全部会被红色盖掉**,这是本次改动的直接副作用,和用户"红色=最远能打哪里"的描述一致(红色本就该覆盖到比黄色更大的范围),不算 bug,但人工 Play 验收时会看到"点自己之后几乎看不到黄色、大片都是红色",属于预期表现,不要误判成回归。
+  - **v3(2026-08-16 第三次修复,改了语义)**:用户明确反馈"红色高亮应该是移动范围的最外围,也就是最远能打哪里,而不是当下位置的攻击范围"——v2 的半径只算 `Unit` **当前站的格子**能打多远,没考虑"先移动再攻击"这个战术意图。改成半径 `1..(Unit.MoveRange + Unit.AtkRange)`(仍然以 `Unit` 当前 Col/Row 为圆心算曼哈顿距离,只是上限从 `AtkRange` 换成 `MoveRange+AtkRange`),代表"移动到射程边缘后最远能打到的格子"。改动仅涉及"半径怎么算"这一处比较条件,`ManhattanDistance` 调用和其它逻辑都没动;实现细节(踩过的孤立节点识别坑)见 `UE节点备忘录.md` 坑11。**副作用(v3 当时的已知简化,v4 已解决,见下)**:因为半径变大,移动范围内的格子必然也落在新的攻击范围内,调用顺序又是先黄后红,红色会把黄色整体盖掉。
+  - **v4(当前版本,2026-08-16 同日第四次修复,用户继续反馈"移动范围和攻击范围重合时优先显示移动范围")**:在 `<=(MoveRange+AtkRange)` 的基础上再加一个下界条件 `> MoveRange`(不再是 `>0`),也就是红色只覆盖"超出移动范围、但在移动+攻击总范围内"的**环形**区域,移动范围本身(1..MoveRange)完全让给黄色,不再被红色覆盖。这才是真正对应用户"移动范围优先"的诉求——v3 只是把半径变大了,没有解决"谁盖谁"的问题;v4 才是从"哪些格子归红色管"这个源头把两者错开,不需要考虑材质槽覆盖顺序了。**回归测试联动**:`RunRegressionTests` 的 T8 用例原本把测试敌人摆在 `Tiles[1]`(离 `Tiles[0]` 曼哈顿距离 1,在默认 `MoveRange=5` 以内),v4 上线后这个位置按新规则不该再被判定为攻击范围,T8 从 PASS 变 FAIL——已经把测试敌人挪到 `Tiles[7]`(离 `Tiles[0]` 距离 7,`MoveRange(5) < 7 <= MoveRange+AtkRange(7)`,正好落在新的环形区域里),连带把断言检查的格子从 `Tiles[1]` 改成 `Tiles[7]`,重跑 11 条断言全部 PASS。
   - 由 `BP_TurnManager.StartTurn` 和 `BP_Unit.ActorOnClicked`(点自己单位重新选中时)两处调用,`ShowRange` 之后紧接着调用,`ClearHighlights` 已同步扩展会同时清 `AtkHighlighted`。⚠ 建 Col/Row 相关的跨对象取值节点踩过坑:`Class|BPTile|GetCol`/`Class|GridSlot|GetRow` 这类"类名写错"的别名(历史遗留、`read_graph_dsl` 解码出来的)不能直接抄去用在 `BP_Unit` 引用上,必须显式写 `Class|BPUnit|GetCol`/`Class|BPUnit|GetRow`(类名和实际目标类一致)才能通过 `write_graph_dsl` 正确建出节点,细节记进了 `UE节点备忘录.md`。
 - **ShowRange(Unit: BP_Unit)**(GUID `365A39F74D91FB2F1BEFE78294302FF7`):ClearHighlights → `Set SelectedUnit=Unit` → For Each Tiles → 曼哈顿距离 ≤ `Unit.MoveRange` 且 ≠0 **且 `NOT IsTileOccupied(Tile.Col, Tile.Row)`**(2026-08-15 新增,见下方 `IsTileOccupied`)→ `SetHighlight(True)`(⚠不是BFS,已知简化;占位检查已补,BFS 仍未做)
 - **IsTileOccupied(Col: Int, Row: Int) → Bool**(2026-08-15 新增,MCP 直接图编辑,`create_node`/`connect_pins` 逐节点搭建,未走 DSL 整函数重写):`GetAllActorsOfClass(BP_Unit)` → For Each → 若某单位的 `Col`/`Row` 同时等于参数 → `return true`;循环结束 `return false`。用途:阻止 `ShowRange` 把已被任意单位(我方或敌方)占用的格子标记为可移动目标,修复"单位能移动到和敌人重叠的格子"的 bug。
@@ -217,6 +218,67 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
   - 由 `BP_TurnManager.StartTurn` 每次调用时驱动刷新(见上方 `StartTurn`),覆盖"顺序变化"(每轮 `BuildTurnOrder` 重排)和"当前高亮变化"(每次 `StartTurn` 移动到下一个单位)两种场景。
   - ⚠ 已知简化:没有实现 web 版"已经行动过的单位变暗"这个视觉状态(`slot < CurIdx` 的语义上等价于"已行动",但当前 `RefreshOrder` 没有第三种颜色区分它和"还没轮到"的单位)——逻辑上数据都在(`slot`/`CurIdx` 都能拿到),只是没加这一条颜色分支,后续要加的话直接在 `RefreshOrder` 的颜色判断里插一个 `slot < CurIdx` 的 `elif` 即可。
   - ⚠ **2026-08-15 追加防御**:`slot < Units.Length` 分支里,读 `Spd`/`Side`/`SetText` 之前先包了一层 `Utilities|IsValid`(对 `Units[slot]`)——一方全灭前的最后一轮,`TurnOrder` 里可能还留着"这一帧刚被 `TryAttack` `DestroyActor` 掉"的单位引用,直接读它的属性会报 `not valid (pending kill or garbage)`(实测复现过)。`Is Not Valid` 分支复用外层"槽位隐藏"那个 `SetVisibility(Collapsed)` 调用,不用另外接一遍。**同时把 `BP_TurnManager.StartTurn` 里 `RefreshOrder` 调用的位置从"最前面"挪到了 `bGameOver` 检查之后**——双保险,游戏结束后 `StartTurn` 哪怕又被调用一次也不会再碰 `RefreshOrder`。
+
+---
+
+## 行动菜单系统(2026-08-16 新增:移动后弹"攻击/待命/撤销"三选一)
+
+> 用户反馈"移动完之后没有明确的结束回合方式,只能靠攻击命中才能推进回合"——之前只有攻击命中才会 `EndTurn`,单纯移动后卡住没有出口。这轮加了一个移动后弹出的操作菜单,同时补上"撤销本回合移动"的能力(需要先记住回合开始时的位置)。**全部通过 MCP 增量 `create_node`/`connect_pins`(EventGraph 部分)+ `write_graph_dsl` 整函数(全新空函数部分)搭建,新函数无孤立节点残留问题。**
+
+### BP_Unit 新增变量(用于"撤销"回退)
+| 名字 | 类型 | 说明 |
+|---|---|---|
+| StartCol | Integer | 本回合开始时的 Col,`BP_TurnManager.StartTurn` 轮到该单位时(我方分支)快照写入 |
+| StartRow | Integer | 同上,Row |
+| StartLocation | Vector | 同上,`GetActorLocation` 快照的世界坐标,撤销时直接 `SetActorLocation` 回这个值,不用反查 Tile |
+
+写入时机:`StartTurn` 我方分支里,紧跟在 `Set bHasMoved=false` 之后、`ShowRange` 之前(见上方 `BP_TurnManager.StartTurn` 词条)。
+
+### BP_TurnManager 新增变量
+| 名字 | 类型 | 说明 |
+|---|---|---|
+| ActionMenuComponent | WidgetComponent | 挂 `WBP_ActionMenu` 的组件,和 `OrderBarComponent` 完全同构(`UserConstructionScript` 里 `AddWidgetComponent`,只用来触发 `bIsVariable` 绑定初始化,自身渲染在 `EventBeginPlay` 里永久隐藏),真正显示走下面的 `ActionMenuWidget.AddToViewport` |
+| ActionMenuWidget | WBP_ActionMenu (Object) | 菜单 Widget 实例。`EventBeginPlay` 里 `AddToViewport` + `SetPositionInViewport((500,400))` 之后立即 `SetVisibility(Collapsed)` 隐藏,`ShowActionMenu`/`HideActionMenu` 切换它的 Visibility 来显示/隐藏(和 `OrderBar` 那种"永远显示"不同,这个默认隐藏,按需弹出) |
+| PendingActionUnit | BP_Unit (Object) | 当前菜单对应的单位——弹菜单前由调用方(`BP_Tile.ActorOnClicked`)写入,`HideActionMenu` 时清空 |
+
+### BP_TurnManager 新增函数(均为全新空函数,`write_graph_dsl` 整函数写入,无孤立节点风险)
+- **ShowActionMenu()**:`ActionMenuWidget.SetVisibility(Visible)` → `GetPlayerController(0)` → `SetInputModeGameAndUI`。**调用前提**:调用方必须先设置好 `PendingActionUnit`,这个函数本身不接收参数(`add_function_param` 不支持 Object 类型参数,只能走"先设变量、再调用"这个既有约定)。切到 Game+UI 输入模式是为了让 UMG 按钮真的能收到鼠标点击——项目里 3D Actor 点击(`bEnableClickEvents`)靠的是纯 Game 模式下的场景拾取,默认不会路由到屏幕 UI,这是让弹窗按钮可点的必要步骤(**未做过真人 Play 验证,是本轮最大的不确定项**,见下方"待人工验收")。
+- **HideActionMenu()**:`ActionMenuWidget.SetVisibility(Collapsed)` → `SetInputModeGameOnly`(切回纯游戏输入,恢复正常的 3D 点击)→ `Set PendingActionUnit=None`。
+- **StandbyAction()**:`HideActionMenu()` → `EndTurn()`——对应"待命"按钮,不攻击直接结束回合。
+- **UndoAction()**:`Utilities|IsValid(PendingActionUnit)` →
+  - Valid → `SetActorLocation(PendingActionUnit, PendingActionUnit.StartLocation)` → `Set PendingActionUnit.Col=StartCol` → `Set PendingActionUnit.Row=StartRow` → `Set PendingActionUnit.bHasMoved=false`(**撤销后允许重新移动**,不是"什么都不能做了")→ `Grid.ClearHighlights()` → `HideActionMenu()`
+  - Not Valid → 直接 `HideActionMenu()`(防御,理论上不会触发)
+
+### BP_Unit.ActorOnClicked / BP_Tile.ActorOnClicked 联动(触发点)
+`BP_Tile.ActorOnClicked` 的移动分支,`Set SelectedUnit.bHasMoved=true` 之后(见上方 `BP_Tile.ActorOnClicked` 词条)新增:`GetAllActorsOfClass(BP_TurnManager)[0]` → `Set TurnManager.PendingActionUnit = SelectedUnit` → `TurnManager.ShowActionMenu()` → 再走原有的 `ClearHighlights`(黄/红高亮和菜单同时清/弹,不冲突——`ClearHighlights` 清的是 Tile 材质,菜单是独立的 Widget)。
+
+### 交互流程(设计,未经人工 Play 验证)
+点自己单位(轮到、未移动)→ 黄/红高亮 → 点高亮格移动 → 高亮清除,菜单弹出("攻击"/"待命"/"撤销")→
+- **攻击**:菜单隐藏(`HideActionMenu`),不做别的——玩家接着直接点场上敌方单位,走的还是 `BP_Unit.ActorOnClicked` 里原有的 `TryAttack` 链路(点击流程完全没变,菜单只是"让开路"而已)。**没有做"选攻击技能"这一步**——当前游戏里全场只有一种普通攻击(`TryAttack`),没有技能数据模型,做一个只有单选项的技能菜单纯属多此一举;等真的有多技能时再回来加。
+- **待命**:结束回合,`CurrentIndex` 推进、`StartTurn` 走到下一个单位。
+- **撤销**:位置和 `bHasMoved` 都回退到本回合开始时的状态,相当于这个回合还没开始过,可以重新选择移动方向(或者再点自己→再撤销,理论上可以反复横跳,不算 bug,撤销本来就该是无代价的)。
+
+### 待人工 Play 验收(MCP 无法验证的部分)
+1. **弹窗按钮是否真的能被点击**——`SetInputModeGameAndUI` 是否真的让 UMG 按钮收到点击,还是仍然被 3D 场景拾取"吃掉"了点击事件,这是纯输入路由问题,MCP 工具集没有模拟鼠标点击任意 UI 元素的能力,`SlateInspectorToolset.Click` 只能点已知 Slate 控件 ref,不能验证"这次点击到底被谁处理了"。如果按钮点了没反应,大概率是这个输入模式切换没生效或者顺序不对。
+2. 弹窗的屏幕位置(`(500,400)`,像素坐标,没有根据分辨率或单位屏幕位置动态调整)是否挡住了棋盘或者位置别扭。
+3. "撤销"后重新移动、"待命"后回合正确推进到下一个单位、"攻击"后菜单消失且点击敌方依旧能正常触发攻击——这三条都需要人工连续走一遍完整流程确认。
+4. 敌方单位没有走这套菜单流程(它们的移动由 `RunEnemyTurn` 自动完成,不经过 `BP_Tile.ActorOnClicked`),理论上不受影响,但建议顺手确认一下敌方回合别被新逻辑误伤。
+
+---
+
+## WBP_ActionMenu (`/Game/UI/WBP_ActionMenu.WBP_ActionMenu_C`,2026-08-16 新增)
+
+> 移动后弹出的操作菜单。项目里第一个带**交互按钮**的 Widget(之前的 `WBP_OrderBar`/`WBP_HealthBar`/`WBP_GameOver` 都是纯展示,没有需要接收点击的控件)。
+
+### 结构
+`MenuBox`(VerticalBox,根)→ 3 个 `Button`(`Btn_Attack`/`Btn_Standby`/`Btn_Undo`,均 `bIsVariable=true`,用于绑定 `OnClicked`)→ 每个 Button 各挂一个子 `TextBlock`(`Txt_Attack`="攻击"/`Txt_Standby`="待命"/`Txt_Undo`="撤销",纯设计时默认文字,`bIsVariable=false`,不需要运行时改,直接绕开了 `bIsVariable`/`ConstructObjectfromClass` 那一整套坑)。
+
+### 事件(EventGraph,`UMGToolSet.BindToEventProperty` 自动生成的 `ComponentBoundEvent` 节点,逐个手工接了后续逻辑)
+- `OnClicked(Btn_Attack)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.HideActionMenu()`
+- `OnClicked(Btn_Standby)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.StandbyAction()`
+- `OnClicked(Btn_Undo)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.UndoAction()`
+
+三个都是同一套"查 TurnManager 再调用"的写法,和项目里 `BP_Unit`/`BP_Tile` 一直在用的跨蓝图调用惯例一致,没有给 Widget 单独存一份 TurnManager 引用变量。
 
 ---
 
