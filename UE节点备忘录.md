@@ -201,6 +201,28 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 ### 附带修复:攻击技能选择在"原地攻击"(不走行动菜单)路径下会读到上一个单位的残留值
 `BP_TurnManager.PendingSkillIsElemental`(记录玩家选了"普通攻击"还是"元素技能")只在点行动菜单按钮(`SelectSkillAndAttack`)时才会写入,原地攻击(不移动、不经过菜单)直接点敌人时,`BP_Unit.ActorOnClicked` 依然会读这个变量传给 `TryAttack.bUseSkill2`——如果没有归零,读到的是**上一个单位**、**上一次**选的值,而不是"这个单位这次没做任何选择,应该默认普通攻击"。修法:在 `StartTurn` 我方分支重置 `bHasMoved=false` 的同一处,顺手加一行 `SetPendingSkillIsElemental(false)`,保证每个单位轮到自己时这个选择清零成"默认普通攻击",除非本回合真的移动后又在菜单里选了元素技能。
 
+## 陷阱合集:反击系统 + 攻击预测 UI 开发实录(2026-08-16)
+
+### 坑26(重要,真实数值 bug):`write_graph_dsl` 里,一条数据链路只要最终喂给了某个"属性 Setter"(比如 `Class|BPUnit|SetHP`)的值 pin,哪怕这条链路已经拆成好几个独立的 `bind` 语句、完全没有内联嵌套,链路里任何一次**带 exec pin 的非纯函数调用**(比如 `ComputeSkillDamage`,内部有随机数+分支)都可能被**悄悄复制成两份独立调用**——一份在 if 分支外面提前算好喂给 Setter,另一份在 if 分支里面按原样重新调一次(通常是为了别的用途,比如打印)。两份调用各自独立掷骰子,结果可能完全不同。
+本轮写 `ResolveCounterAttack` 时,原始写法是:
+```
+(if (and ...)
+  (bind _dmg (CallFunction|ComputeSkillDamage ...))
+  (bind _newhp (Math|Integer|Max(Integer) (- (GetHP _countertarget) _dmg) 0))
+  (Class|BPUnit|SetHP _newhp _countertarget)
+  ...
+  (Development|PrintString ... _dmg ...))
+```
+`read_graph_dsl` 读回来发现:`ComputeSkillDamage` 被调用了两次,一次在 if **外面**(全局作用域)算出 `_returnvalue`/`_returnvalue_1` 喂给 `SetHP`,另一次在 if **里面**单独为 `PrintString` 重新调用一次算出 `_damage`——**两次独立掷骰,SetHP 用的伤害值和打印出来的伤害值完全可能对不上**,而且哪怕 counter-attacker 已经死亡/不在射程内(if 条件为假),外层那次调用依然会执行、白白消耗一次随机数。**改成完全拆分成独立语句(每一步一个 `bind`,不做任何算术包裹)之后,这个复制 bug 依然原样复现**,说明问题根源不是"嵌套导致的意外求值顺序",而是 `write_graph_dsl` 对"最终流向某个 Setter 值 pin 的表达式"有一种类似"提前预计算/物化"的内部处理逻辑,会在这个过程中重新生成一份独立的调用链,而不是复用已经 `bind` 好的节点。
+**唯一验证有效的修法**:在需要复用的非纯调用结果和它的消费者之间,插入一次**真正的 exec 语句**(用 `Variables|Default|SetXxx(表达式)` 把结果存进一个局部/成员变量),强制在这个精确的 exec 时间点完成一次求值并"物化"成一个具体的值;之后所有需要用这个结果的地方,一律通过 `Variables|Default|GetXxx` 读这个变量,不要再直接引用原来的 `bind` 名字或让原表达式本身流向任何 Setter。这次给 `ResolveCounterAttack` 加了一个 `CounterDmgTmp`(Int)局部变量,`SetCounterDmgTmp (ComputeSkillDamage ...)` 后再全部读 `GetCounterDmgTmp`,`read_graph_dsl` 验证只剩一次调用,数值正确。**这是坑3(纯函数被错误当同一节点复用导致读到旧值)的镜像问题**——坑3是"该分开的被合并了",这次是"该合并的被拆开复制了",但两者的修法完全一样(都是靠显式 `Set` 强制物化一次快照),以后遇到"图看起来对、数值却对不上"的诡异情况,无论是"复用"还是"复制"方向,都先怀疑这条路。
+**补充观察**:同一轮写的 `ShowAttackForecast` 里,`(bind _damage (CallFunction|PreviewSkillDamage ...)) (Variables|Default|SetFcDmg _damage)` 这种"先 bind 再直接 Set,中间不做任何算术包裹"的写法,`read_graph_dsl` 验证**没有**复制成两份——这暗示触发复制的条件可能更接近"表达式在流向 Setter 之前经过了额外的纯运算符包裹(`Max`/`-` 等)",而不是任何间接引用都会触发。但鉴于成本很低、后果很严重(游戏数值静默出错),**以后凡是"非纯函数调用的结果需要喂给任何 Setter 或者被多处使用"的场景,一律无条件走 Set-then-Get 快照模式,不再赌"这次会不会触发"。**
+
+### 坑27:`create_node` 建"调用另一个蓝图自定义函数"节点失败时,不要死磕 `CallFunction|` 前缀,直接换 `Class|<类名>|<函数名>` + `declaring_class`(坑22 的进一步确认)
+本轮再次在两个新场景下复现了坑22的规律:`BP_TurnManager.EventBeginPlay` 里插入 `ApplyStartingRelics()` 调用时,`create_node("CallFunction|ApplyStartingRelics")` 报 `does not exist`,换成 `create_node("Class|BPGridManager|ApplyStartingRelics", declaring_class=BP_GridManager)` 一次成功;`BP_Unit.EventGraph` 里插入 `TurnManager.ShowAttackForecast()`/`SetPendingAttackTarget()` 调用时同样如此。**规矩已经稳定复现三次,可以确认为通用规律**:`create_node` 建自身蓝图内部函数用 `CallFunction|`,建**另一个蓝图**的自定义函数一律直接用 `Class|<目标类名>|<函数名>` + 显式 `declaring_class`,不要再浪费一次 `CallFunction|` 尝试。
+
+### 已知测试脚动:加入命中率后,`RunRegressionTests` 的 T5/T6a 偶尔会假性 FAIL(~5% 概率),不是真回归
+`ComputeSkillDamage` 内部会真的掷骰子判定命中(基础攻击 95% 命中),`RunRegressionTests` 里 T5(`TryAttack_DamagesDefender_HP`)和 T6a(`HealthBar_DecreasesAfterDamage`)都是靠一次性的 `TryAttack` 调用断言"HP 确实下降了"——如果那一次刚好掷出了 MISS(约 5% 概率),攻击不造成伤害,这两条断言就会假性 FAIL,`Output Log` 里能看到 `MISS`(而不是某种真实错误)紧跟在失败的测试前面。**排查步骤**:T5/T6a FAIL 时,先查一下失败那次运行的 log 里紧邻的是不是 `MISS` 字样——如果是,直接重跑一遍regression即可,不是代码退化。这是给战斗系统加入随机数之后必然引入的测试不确定性,目前没有对 `RunRegressionTests` 做"保证命中"的特殊旁路,可以接受(重跑成本很低)。
+
 ## 通用陷阱:整数除法截断(2026-08-15,血条百分比 bug)
 
 `(/ a b)` 里 `a`、`b` 都是 Integer 时,DSL/蓝图的除法节点做的是**整数除法**,不会因为下游 pin 要 Float 就自动升格成浮点除法——`15/20` 算出来是 `0`,不是 `0.75`。这个坑在"两个整数变量算比例"的场景特别容易中招(血条百分比、进度条、任何 `当前值/最大值` 的场景),而且**编译不报错、运行不报错、单纯数值不对**,很难从代码本身看出来,得靠"实际数值 approximately 0" 这种现象反推。**只要是拿两个 Integer 变量算"比例"、"百分比"这类需要精度的结果,必须显式 `Math|Conversions|ToFloat(Integer)` 转换后再做除法**,不要依赖隐式转换。回归测试里判断这类值时,除了"变了"(`< 原值`)也要顺手判断"没被腰斩成 0"(`> 0`),否则测试会把这个 bug 放过去(本轮真实踩过:`T6` 断言写成"< 1.0"没抓到,加了个"> 0.0"的 `T6b` 才抓到)。

@@ -313,6 +313,42 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ---
 
+## 反击系统 + 攻击预测 UI(2026-08-16 新增,对齐火焰纹章式反击 + 网页版伤害预测面板)
+
+> 用户反馈"每次攻击都会有被攻击者的反击,和火焰纹章一致。同时UI中加上预计本次攻击对对方的伤害、对自己的伤害等信息,类似网页版的效果"。先用后台 Agent 调研了网页版 `js/core/combat.js`/`js/ui/panels.js` 的反击条件和预测面板实现,对齐后再动手。
+
+### 反击(BP_GridManager 新增)
+- **CounterDefenderRef**(Object 变量,BP_Unit):`ResolveCounterAttack()` 读取的"这次谁来反击"临时引用,`TryAttack` 调用前显式 `Set`(因为 `add_function_param` 不支持 Object 参数,老办法)。
+- **ResolveCounterAttack()**(无参数):读 `CounterDefenderRef`(反击发起者)和 `SelectedUnit`(原攻击者,现在是反击目标)→ 判定反击条件(**HP>0 且 距离<=反击者自己的 AtkRange**,与网页版 `combat.js` 的判定条件一致)→ 若成立,反击永远用**普通攻击**(`bUseSkill2=false`,和网页版"反击只用基础招式,不用装备的技能"一致)算一次独立的 `ComputeSkillDamage`(自己的命中判定,可能 MISS,也可能把原攻击者打死)→ 扣血、刷血条、死亡检测(`DestroyActor`+`CheckVictoryCondition`)。**踩了本轮最危险的坑**:第一版实现里 `ComputeSkillDamage` 被 `write_graph_dsl` 悄悄复制成两次独立调用(两次独立掷骰子),导致"应用到 HP 上的伤害"和"打印出来的伤害"可能对不上——已用"Set 到局部变量再统一 Get"的快照模式修复,细节和更通用的教训见 `UE节点备忘录.md` 坑26。
+- **TryAttack** 新增调用点:原来"防御方存活"分支(`Branch3.else`,即 `newHP>0` 那条路)末尾,`ClearHighlights` 之前,插入 `Set CounterDefenderRef=Defender` → `ResolveCounterAttack()`。因为是接在"存活"分支上,**未命中的主攻击(MISS,defender HP 没变但明显 >0)也会触发反击判定**——这正是设计意图(火纹里"你打空了,对方还是能反击"),不是 bug。
+- 由于 `TryAttack` 现在是双方都可能扣血的函数,原本的敌方 AI(`RunEnemyTurn`)攻击玩家单位时,**玩家单位现在也会自动反击敌方**,这是免费获得的正确行为(不需要额外改 `RunEnemyTurn`)。
+
+### 攻击预测(BP_GridManager 新增,均为"预览用、不掷骰子、不产生副作用"的纯计算函数)
+- **PreviewSkillDamage(bUseSkill2, AttackerAtk, AttackerAtkType, DefenderDef, DefenderAtkType) → Damage: Int**:和 `ComputeSkillDamage` 用同一套倍率/属性克制/DEF_K 公式,但**跳过命中判定**,直接按"assumed 命中"算出伤害数值,用于 UI 预览显示。
+- **GetSkillHitChance(bUseSkill2) → HitChance: Int**:普通攻击 95,元素技能 90,单纯把这两个常量暴露成一个小函数方便调用方读取,不用各处硬编码。
+
+### 攻击预测 UI 交互流程(取代原来"点敌人直接攻击"的一步到位设计)
+`BP_Unit.ActorOnClicked` 的敌方分支(2026-08-16 重写,删除了原来直接调 `TryAttack`+检查 `SelectedUnit` 有效性来决定是否 `EndTurn` 的旧逻辑)现在是:`Set TurnManager.PendingAttackTarget=self` → `TurnManager.ShowAttackForecast()`。真正的攻击执行挪到了玩家在预测面板里点"确认攻击"之后才发生。
+
+### BP_TurnManager 新增
+| 名字 | 类型/签名 | 说明 |
+|---|---|---|
+| `PendingAttackTarget` | Object 变量(BP_Unit) | 玩家点击的、还没确认攻击的敌方单位 |
+| `ForecastComponent`/`ForecastWidget` | WidgetComponent / WBP_AttackForecast | 和 `ActionMenuComponent`/`ActionMenuWidget` 完全同构的挂载方式(`UserConstructionScript` 建组件仅用于触发 `bIsVariable` 初始化,真正显示走 `EventBeginPlay` 里的 `AddToViewport`,默认 `Collapsed`,屏幕坐标同样是 `(500,400)`——和行动菜单不会同时显示,共用坐标不冲突) |
+| `ShowAttackForecast()` | 函数,无参数 | 读 `Grid.SelectedUnit`(攻击方)和 `PendingAttackTarget`(防御方),先做距离/`AtkRange` 判断,**不在攻击范围内则什么都不做**(保留旧版"点了没反应,得挪近了再点"的行为);在范围内则:调用 `Grid.PreviewSkillDamage`/`GetSkillHitChance` 算主攻击的预计伤害+命中率,拼成字符串塞进 `ForecastWidget.SetAtkForecast`;再判断反击条件(距离<=防御方自己的 `AtkRange`),成立则同样算一遍反击预测塞进 `SetCounterForecast`,不成立则显示"无反击";最后 `SetVisibility(Visible)` 弹出面板。**同样用了 Set-then-Get 快照模式**避免坑26 的重复调用问题。 |
+| `ConfirmAttack()` | 函数,无参数 | 隐藏预测面板 → `Grid.TryAttack(PendingAttackTarget, PendingSkillIsElemental)`(这时才真正掷骰子结算,含反击)→ 检查 `Grid.SelectedUnit` 是否还有效,无效说明攻击真的发生了 → `EndTurn()`(逻辑上和旧版"点敌人直接判断是否结束回合"完全一致,只是往后挪了一步,靠玩家点确认触发) |
+| `CancelAttackForecast()` | 函数,无参数 | 只隐藏面板,不做任何攻击相关的事,`SelectedUnit`/`PendingSkillIsElemental` 都不受影响,玩家可以重新点别的敌人或者重新考虑 |
+
+### WBP_AttackForecast(`/Game/UI/WBP_AttackForecast.WBP_AttackForecast_C`,全新 Widget)
+`ForecastBox`(VerticalBox,根)→ `Txt_AtkDmg`/`Txt_CounterDmg`(TextBlock,`bIsVariable=true`,运行时动态改文字)→ `Btn_Confirm`("确认攻击")/`Btn_Cancel`("取消")(Button,`bIsVariable=true`,各挂一个静态 `TextBlock` 标签)。两个公开函数 `SetAtkForecast(Msg: String)`/`SetCounterForecast(Msg: String)` 内部各自把字符串转 `Text`(`Utilities|Text|ToText(String)`)后 `SetText` 到对应 TextBlock——和 `WBP_HealthBar.SetHealthPercent` 一样走"外部主动 Push"模式,不用属性 Binding。`EventGraph` 两个 `OnClicked` 事件分别调 `TurnManager.ConfirmAttack()`/`CancelAttackForecast()`。
+
+### 已知简化 / 待人工 Play 验收
+1. 预测面板的伤害数字是"假设命中"的确定值,不会因为随机数而在面板上跳动——这是刻意对齐网页版效果(网页版 `showForecast` 同样是 dry-run,不掷骰子),真正的随机结果要点"确认攻击"之后才在 `Output Log`(`HIT dmg=`/`MISS`/`COUNTER dmg=`)和 HP 变化里体现。
+2. **自动回归测试新增了一点点不确定性**:`ComputeSkillDamage` 现在会真的掷骰子,`RunRegressionTests` 的 T5/T6a 大约有 5% 概率因为 MISS 假性 FAIL(重跑即可,不是回归),见 `UE节点备忘录.md` 对应记录。
+3. **待验收**:①点敌方是否正确弹出预测面板而不是直接攻击;②面板上的"预计伤害"数字是否和实际点确认后的 `Output Log` 数量级吻合(允许因为随机数不同而不完全相等,但克制/反克制的倍率关系应该能从数字大小差异看出来);③防御方在射程内时是否显示"预计反击"信息,超出射程时是否显示"无反击";④点"确认攻击"后是否正常结算(含反击),点"取消"后是否能重新选择/不影响后续操作;⑤敌方 AI 攻击玩家单位时,玩家单位是否会自动反击(不需要任何 UI 交互,`TryAttack` 内部自动处理)。
+
+---
+
 ## WBP_ActionMenu (`/Game/UI/WBP_ActionMenu.WBP_ActionMenu_C`,2026-08-16 新增;同日追加第 4 个按钮见下)
 
 > 移动后弹出的操作菜单。项目里第一个带**交互按钮**的 Widget(之前的 `WBP_OrderBar`/`WBP_HealthBar`/`WBP_GameOver` 都是纯展示,没有需要接收点击的控件)。
