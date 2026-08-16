@@ -335,12 +335,16 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 |---|---|---|
 | `PendingAttackTarget` | Object 变量(BP_Unit) | 玩家点击的、还没确认攻击的敌方单位 |
 | `ForecastComponent`/`ForecastWidget` | WidgetComponent / WBP_AttackForecast | 和 `ActionMenuComponent`/`ActionMenuWidget` 完全同构的挂载方式(`UserConstructionScript` 建组件仅用于触发 `bIsVariable` 初始化,真正显示走 `EventBeginPlay` 里的 `AddToViewport`,默认 `Collapsed`,屏幕坐标同样是 `(500,400)`——和行动菜单不会同时显示,共用坐标不冲突) |
-| `ShowAttackForecast()` | 函数,无参数 | 读 `Grid.SelectedUnit`(攻击方)和 `PendingAttackTarget`(防御方),先做距离/`AtkRange` 判断,**不在攻击范围内则什么都不做**(保留旧版"点了没反应,得挪近了再点"的行为);在范围内则:调用 `Grid.PreviewSkillDamage`/`GetSkillHitChance` 算主攻击的预计伤害+命中率,拼成字符串塞进 `ForecastWidget.SetAtkForecast`;再判断反击条件(距离<=防御方自己的 `AtkRange`),成立则同样算一遍反击预测塞进 `SetCounterForecast`,不成立则显示"无反击";最后 `SetVisibility(Visible)` 弹出面板。**同样用了 Set-then-Get 快照模式**避免坑26 的重复调用问题。 |
-| `ConfirmAttack()` | 函数,无参数 | 隐藏预测面板 → `Grid.TryAttack(PendingAttackTarget, PendingSkillIsElemental)`(这时才真正掷骰子结算,含反击)→ 检查 `Grid.SelectedUnit` 是否还有效,无效说明攻击真的发生了 → `EndTurn()`(逻辑上和旧版"点敌人直接判断是否结束回合"完全一致,只是往后挪了一步,靠玩家点确认触发) |
-| `CancelAttackForecast()` | 函数,无参数 | 只隐藏面板,不做任何攻击相关的事,`SelectedUnit`/`PendingSkillIsElemental` 都不受影响,玩家可以重新点别的敌人或者重新考虑 |
+| `ShowAttackForecast()` | 函数,无参数 | 读 `Grid.SelectedUnit`(攻击方)和 `PendingAttackTarget`(防御方),先做距离/`AtkRange` 判断,**不在攻击范围内则什么都不做**(保留旧版"点了没反应,得挪近了再点"的行为);在范围内则:调用 `Grid.PreviewSkillDamage`/`GetSkillHitChance` 算主攻击的预计伤害+命中率,拼成字符串塞进 `ForecastWidget.SetAtkForecast`;紧接着 `SetHpForecast` 显示双方当前 HP 和**假设命中后的敌方剩余 HP**(`Max(敌HP-预计伤害, 0)`),并附带 `Atk vs Def` 方便手算;再判断反击条件(距离<=防御方自己的 `AtkRange`),成立则同样算一遍反击预测塞进 `SetCounterForecast`,不成立则显示"无反击";最后 `SetVisibility(Visible)` 弹出面板,并把 `Btn_Confirm` 设回 Visible。**同样用了 Set-then-Get 快照模式**避免坑26 的重复调用问题。HP 行必须插在 `SetAtkForecast` 之后、反击预览 `SetFcDmg` **之前**,否则 `FcDmg` 会被反击伤害覆盖,剩余 HP 会算错。 |
+| `ConfirmAttack()` | 函数,无参数 | 隐藏预测面板 → **IsValid(PendingAttackTarget)** 才 `Grid.TryAttack(...)`(否则打印 `ConfirmAttack skipped: no target`,不结算)→ 检查 `Grid.SelectedUnit` 是否还有效,无效说明攻击真的发生了 → `Set bAttackTargeting=false` → `EndTurn()` |
+| `CancelAttackForecast()` | 函数,无参数 | 隐藏预测面板 → 清空 `PendingAttackTarget` → `bAttackTargeting=false` → **重新弹出行动菜单**。选了技能还没最终确认时,点面板「取消」或点自己已移动的单位,都可以放弃本次进攻。 |
+| `PendingSkillRowName` | Name | 本次要用的 `DT_Skills` 行名(`basic`/`heavy`/`ember`/`aqua`/`vine`)。`SelectSkillAndAttack` 同时写到 TurnManager 和 GridManager。 |
+| `FcSavedSkillRow` | Name | `ShowAttackForecast` 算反击预览前,把 Grid 的技能行名暂存于此,算完还原,避免确认时变成 `basic`。 |
+| `bAttackTargeting` | Bool | 已选技能、正在选敌/看预测。`SelectSkillAndAttack` 置 true。 |
+| `SelectSkillAndAttack(bElemental, SkillIndex)` | 函数 | `SkillIndex` 0..4 对应上面 5 个技能;Index=0 时仍可用旧的 `bElemental` 回退。写行名 → 隐藏菜单 → 弹出预测面板提示选敌("Select an enemy target" / "Cancel abandons this attack"),**同时把 `Btn_Confirm` Collapsed**,避免还没点敌人就确认。 |
 
 ### WBP_AttackForecast(`/Game/UI/WBP_AttackForecast.WBP_AttackForecast_C`,全新 Widget)
-`ForecastBox`(VerticalBox,根)→ `Txt_AtkDmg`/`Txt_CounterDmg`(TextBlock,`bIsVariable=true`,运行时动态改文字)→ `Btn_Confirm`("确认攻击")/`Btn_Cancel`("取消")(Button,`bIsVariable=true`,各挂一个静态 `TextBlock` 标签)。两个公开函数 `SetAtkForecast(Msg: String)`/`SetCounterForecast(Msg: String)` 内部各自把字符串转 `Text`(`Utilities|Text|ToText(String)`)后 `SetText` 到对应 TextBlock——和 `WBP_HealthBar.SetHealthPercent` 一样走"外部主动 Push"模式,不用属性 Binding。`EventGraph` 两个 `OnClicked` 事件分别调 `TurnManager.ConfirmAttack()`/`CancelAttackForecast()`。
+`ForecastBox`(VerticalBox,根)→ **`Txt_HpInfo`(2026-08-16 新增,排在最上面,16pt 黄字,`bIsVariable=true`)** → `Txt_AtkDmg`/`Txt_CounterDmg`(TextBlock,`bIsVariable=true`,运行时动态改文字)→ `Btn_Confirm`("确认攻击")/`Btn_Cancel`("取消")(Button,`bIsVariable=true`,各挂一个静态 `TextBlock` 标签)。三个公开函数 `SetHpForecast(Msg)` / `SetAtkForecast(Msg)` / `SetCounterForecast(Msg)` 内部各自把字符串转 `Text` 后 `SetText` 到对应 TextBlock——和 `WBP_HealthBar.SetHealthPercent` 一样走"外部主动 Push"模式,不用属性 Binding。`SetHpForecast` 用的是 `Widget|SetText(Text)`(TextBlock),不要抄 `Class|Factory|SetText`(会误建成 Factory 的 `bText` Bool setter)。HP 行示例:`敌HP 20/20 -> 13 | 我HP 20/20 | Atk10 vs Def5`(箭头后面是假设本次攻击命中后的敌方剩余 HP)。`EventGraph` 两个 `OnClicked` 事件分别调 `TurnManager.ConfirmAttack()`/`CancelAttackForecast()`。
 
 ### 已知简化 / 待人工 Play 验收
 1. 预测面板的伤害数字是"假设命中"的确定值,不会因为随机数而在面板上跳动——这是刻意对齐网页版效果(网页版 `showForecast` 同样是 dry-run,不掷骰子),真正的随机结果要点"确认攻击"之后才在 `Output Log`(`HIT dmg=`/`MISS`/`COUNTER dmg=`)和 HP 变化里体现。
@@ -354,13 +358,18 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 > 移动后弹出的操作菜单。项目里第一个带**交互按钮**的 Widget(之前的 `WBP_OrderBar`/`WBP_HealthBar`/`WBP_GameOver` 都是纯展示,没有需要接收点击的控件)。
 
 ### 结构
-`MenuBox`(VerticalBox,根)→ 4 个 `Button`(`Btn_Attack`/`Btn_Skill2`/`Btn_Standby`/`Btn_Undo`,均 `bIsVariable=true`,用于绑定 `OnClicked`)→ 每个 Button 各挂一个子 `TextBlock`(`Txt_Attack`="普通攻击"〔2026-08-16 由"攻击"改名〕/`Txt_Skill2`="元素技能"〔2026-08-16 新增〕/`Txt_Standby`="待命"/`Txt_Undo`="撤销",纯设计时默认文字,`bIsVariable=false`,不需要运行时改,直接绕开了 `bIsVariable`/`ConstructObjectfromClass` 那一整套坑)。`Btn_Skill2` 用 `UMGToolSet.AddWidget(childIndex=1)` 插在 `Btn_Attack` 和 `Btn_Standby` 之间。
+`MenuBox`(VerticalBox,根)→ 7 个 `Button`(`Btn_Attack`/`Btn_Skill2`/`Btn_Skill3`/`Btn_Skill4`/`Btn_Skill5`/`Btn_Standby`/`Btn_Undo`)。技能按钮标签(设计时文字):普通攻击 / 重击 / 火花 / 水枪 / 藤鞭。待命、撤销不变。
 
-### 事件(EventGraph,`UMGToolSet.BindToEventProperty` 自动生成的 `ComponentBoundEvent` 节点,逐个手工接了后续逻辑)
-- `OnClicked(Btn_Attack)`(2026-08-16 改写,原来是 `HideActionMenu`):`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.SelectSkillAndAttack(bElemental=false)`
-- `OnClicked(Btn_Skill2)`(2026-08-16 新增):`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.SelectSkillAndAttack(bElemental=true)`
-- `OnClicked(Btn_Standby)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.StandbyAction()`
-- `OnClicked(Btn_Undo)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.UndoAction()`
+### 事件
+- `Btn_Attack` → `SelectSkillAndAttack(false, 0)` → `basic`(mult 0.9 / hit 95 / Normal)
+- `Btn_Skill2` → `SelectSkillAndAttack(false, 1)` → `heavy`(mult 1.6 / hit 80 / Normal,更容易空刀)
+- `Btn_Skill3` → `SelectSkillAndAttack(false, 2)` → `ember`(mult 1.4 / hit 90 / Fire)
+- `Btn_Skill4` → `SelectSkillAndAttack(false, 3)` → `aqua`(mult 1.4 / hit 90 / Water)
+- `Btn_Skill5` → `SelectSkillAndAttack(false, 4)` → `vine`(mult 1.4 / hit 90 / Grass)
+- `Btn_Standby` → `StandbyAction()`
+- `Btn_Undo` → `UndoAction()`
+
+这 5 个技能是切片里挑的、效果能看出来差异的固定套装(**不是每只单位独立随机抽牌**)。灼烧等 inflict 仍然不算。
 
 四个都是同一套"查 TurnManager 再调用"的写法,和项目里 `BP_Unit`/`BP_Tile` 一直在用的跨蓝图调用惯例一致,没有给 Widget 单独存一份 TurnManager 引用变量。⚠ `Btn_Attack`/`Btn_Skill2` 这两个事件是用 `write_graph_dsl` **只改这两个事件、不提 Standby/Undo** 的方式写入的,实测确认这种"部分事件重写"不会影响同一 EventGraph 里其它未提及的事件(`Btn_Standby`/`Btn_Undo` 原样保留,没有被清空或重复),但调用 `SelectSkillAndAttack` 时 `create_node` 反复报 "does not exist",改用 `write_graph_dsl` 直接写 DSL 文本才成功创建——具体原因见 `UE节点备忘录.md` 坑22。
 
@@ -444,6 +453,44 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 ⚠ T7a/b/c 测的是**直接调用 `RunEnemyTurn`**,刻意绕开了 `BP_TurnManager.StartTurn` 这个真正的游戏内入口——这也是为什么 `StartTurn` 那个"整条 exec 链路从 `FunctionEntry` 起就断流"的 bug(见上面 `BP_TurnManager.StartTurn` 一节)完全没被这三条断言捕捉到。目前还没有一条断言覆盖"`StartTurn` 本身的分支是否真的可达",这类"入口函数的 exec 链路是否连通"目前只能靠 `get_node_infos` 人工核对,是这套回归测试机制现在的一个已知盲区。
 
 测试自带清理:结束前会 `ClearHighlights` + `DestroyActor` 掉两个临时生成的测试单位,不会污染同一 PIE 会话里后续的人工测试。
+
+## 数据层 C++（2026-08-16）
+
+- 模块:`Source/MyProject/`（`FSkillRow` / `FRelicRow` / `FTypeChartRow` 在 `CombatTables.h`；公式在 `CombatFormula.h/.cpp`）
+- 资产:`/Game/Data/DT_Skills`（31 行）、`/Game/Data/DT_Relics`（24 行），已保存
+- CSV 源:`Saved/Import/DT_Skills.csv`、`DT_Relics.csv`（`js/data/export_ue_csv.js`）；克制草稿 `js/data/ue_import/DT_TypeChart.csv`
+- 切片启用行（`bEnabledInSlice=true`）:技能 `basic/ember/aqua/vine`（另有 `heavy` 可选手选）；遗物 `power_band/steel_will/hunter_lens/iron_hide/elem_core`
+- `ember` 表内保留 `inflictKind=burn` / `inflictChance=30`，`bUseInflictInSlice=false`（切片不算灼烧）
+- `ApplyStartingRelics` 读 `DT_Relics` 里 `bEnabledInSlice` 行，累加 Atk/Def 到单位，并缓存 `RelicHitAdd` / `RelicDmgMultAlways` / `RelicDmgMultElem` / `RelicDmgTakenMult`
+- **2026-08-16 扣血修复**:`ComputeSkillDamage` 里 `ResolveTableDamage` 的 exec 原先没接到 Return 上,确认攻击时伤害输出一直是 0(预测面板仍有数字)。已把查表成功 / RowNotFound / 表无效三条路都接到 `ResolveTableDamage` 再 Return。Output Log 应出现 `HIT dmg=` 或 `MISS`。
+- **2026-08-16 Defender Accessed None**:`TryAttack` 的 `bDefenderIsPlayer` 误接到 GridManager **成员** `Defender`(从未赋值,恒为 None),而不是函数参数。已在函数入口 `Set Defender = 参数`,并把 `GetSide` 改接到参数 pin。
+- **2026-08-16 同日再修(确认攻击仍刷 Accessed None Defender)**:两层叠加。①`BP_GridManager` 里有两个**签名过期**的 `ComputeSkillDamage` 调用(缺 `bAttackerIsPlayer`/`bDefenderIsPlayer` pin),导致蓝图**编译失败**,PIE 一直跑旧字节码,成员 `Defender` 仍是 None。已删除 `TryAttack.CallFunction_32` 和 `ResolveCounterAttack.CallFunction_2` 两个孤立旧节点,GridManager 重新编译通过。②选技能后预测面板会立刻显示「确认攻击」,此时 `PendingAttackTarget` 还是 None,点确认就会把 None 传进 `TryAttack`。已在 `TryAttack` 入口对参数做 `IsValid`(失败则打印 `TryAttack skipped: Defender is None` 并返回);`ConfirmAttack` 同样先检查目标;`SelectSkillAndAttack` 会把 `Btn_Confirm` 藏起来,点中敌人、`ShowAttackForecast` 算出数字后再显示确认按钮。
+
+## 伤害公式改到 C++（2026-08-16，预览=结算）
+
+原因:确认攻击「一打就死」。预览还在用蓝图硬编码 0.9/1.4 + `GetTypeMultiplier_0`(火打草 ×2),结算走技能表(heavy 1.6 / ember 1.4)+ 克制 ×2 + 元素核心 ×1.15。同一套 Atk12/Def5 下,火打草可以到约 22,MaxHP 20 会被秒。
+
+现在预览和结算都只调 `UCombatFormula::CalculateSkillDamageValue`。蓝图三个函数签名**故意不改**(避免旧 CallFunction pin 过期),内部变成薄包装:
+
+| 蓝图函数 | C++ | 唯一差别 |
+|---|---|---|
+| `ComputeSkillDamage` | `CalculateSkillDamageValue(..., bRollHit=true)` | 确认/反击:掷 0..99,MISS 伤害=0,并 Print `HIT dmg=` / `MISS` |
+| `PreviewSkillDamage` | 同一个函数,`bRollHit=false` | 假设命中,不掷骰,面板数字不跳 |
+| `GetSkillHitChance` | `UCombatFormula::GetSkillHitChance` | 只查命中率。行名一律读 Grid.`PendingSkillRowName`(不再用 `bUseSkill2` 猜 ember/basic) |
+
+公式:`max(1, round(Atk × SkillMult × TypeMult × 9/(9+Def) × RelicMults))`。查不到技能行则 Mult=0.9 / Hit=95 / TypeId=0。遗物 Atk/Def 加成已经在 `ApplyStartingRelics` 写进单位属性,C++ **不会再加一遍** RelicAtkAdd,只吃乘区。
+
+**属性克制默认关**(`BP_GridManager.bUseTypeChartInSlice=false` → TypeMult 恒 1.0)。配置对照见 `属性克制配置.md`。打开开关会再用四属性三角,20 血可能再次被秒,先手算再勾。
+
+`ShowAttackForecast` 反击预览会把 Grid.`PendingSkillRowName` 临时改成 `basic`,算完立刻用 `FcSavedSkillRow` 还原。不还原的话,点确认会打出普通攻击而不是刚选的技能。主攻击预览已显式传 `bAttackerIsPlayer=true`;反击预览传 `bAttackerIsPlayer=false` / `bDefenderIsPlayer=true`(吃铁甲皮受伤乘区)。
+
+手算对照(Atk=12 已含力量头带,Def=5,克制关,元素核心对 TypeId≠0 再 ×1.15):
+
+- basic 0.9:`round(12×0.9×9/14)=7`
+- ember/aqua/vine 1.4:`round(12×1.4×9/14×1.15)=12`
+- heavy 1.6:`round(12×1.6×9/14)=12`(heavy 的 TypeId=0,不吃元素核心)
+
+验收:面板预计伤害必须等于确认后 Output Log 的 `HIT dmg=`(MISS 时确认扣 0,面板仍显示假设命中值,这是设计)。
 
 ### 以后怎么扩展
 

@@ -1,0 +1,25 @@
+﻿---,DisplayName,Arch,bCurse,AtkAdd,DefAdd,SpdAdd,MaxHpAdd,LckAdd,ShieldAdd,MaxHpPct,HitAdd,CritAdd,DmgMult,DmgTakenMult,Thorns,HitFix,CapAdd,ExpMult,Cond,EffectKind,UePhase,bAlreadyInUE,bEnabledInSlice
+power_band,力量头带,out,False,2,0,0,0,0,0,0,0,0,1,1,0,0,0,1,,statMod,1,True,True
+steel_will,钢之意志,def,False,0,2,0,0,0,0,0,0,0,1,1,0,0,0,1,,statMod,1,True,True
+swift_boots,迅捷之靴,pos,False,0,0,2,0,0,0,0,0,0,1,1,0,0,0,1,,statMod,1,False,False
+giant_belt,巨力腰带,def,False,0,0,0,8,0,0,0,0,0,1,1,0,0,0,1,,statMod,1,False,False
+lucky_coin,幸运币,out,False,0,0,0,0,4,0,0,0,0,1,1,0,0,0,1,,statMod,1,False,False
+glass_cannon,玻璃大炮,out,False,5,-2,0,0,0,0,0,0,0,1,1,0,0,0,1,,statMod,1,False,False
+heavy_shield,重盾,def,False,0,0,0,0,0,10,0,0,0,1,1,0,0,0,1,,statMod,2,False,False
+blood_thirst,嗜血渴望,curse,True,9,0,0,-4,0,0,0,0,0,1,1,0,0,0,1,,statMod,1,False,False
+hunter_lens,猎手之瞳,out,False,0,0,0,0,0,0,0,12,0,1,1,0,0,0,1,,hitAdd,1,False,True
+sharp_scope,瞄准镜,out,False,0,0,0,0,0,0,0,0,15,1,1,0,0,0,1,,critAdd,2,False,False
+iron_hide,铁甲皮,def,False,0,0,0,0,0,0,0,0,0,1,0.85,0,0,0,1,,dmgTakenMult,1,False,True
+arrogance,傲慢面具,curse,True,0,0,0,0,0,0,0,0,0,1.35,1,0,0,-1,1,,dmgMult,1,False,False
+berserk_pact,狂乱契约,curse,True,0,-1,0,0,0,0,0,0,0,1.5,1,0,0,0,1,,dmgMult+statMod,1,False,False
+abyss_eye,深渊之眼,curse,True,0,0,0,0,-4,0,0,25,0,1,1,0,0,0,1,,hitAdd+statMod,1,False,False
+glass_heart,玻璃之心,curse,True,0,0,0,0,0,0,-0.12,0,45,1,1,0,0,0,1,,critAdd+statMod,2,False,False
+elem_core,元素核心,out,False,0,0,0,0,0,0,0,0,0,1.15,1,0,0,0,1,skillType != normal,dmgMult_if,1,False,True
+brute_core,蛮力核心,out,False,0,0,0,0,0,0,0,0,0,1.15,1,0,0,0,1,skillType == normal,dmgMult_if,1,False,False
+thorn_mail,荆棘甲,def,False,0,0,0,0,0,0,0,0,0,1,1,4,0,0,1,,thorns,2,False,False
+spike_shell,尖刺壳,def,False,0,0,0,0,0,0,0,0,0,1,1,6,0,0,1,,thorns,2,False,False
+thorn_crown,荆棘王冠,curse,True,0,0,0,0,0,0,0,0,0,1,1.12,9,0,0,1,,thorns+dmgTakenMult,2,False,False
+exp_necklace,经验项链,collect,False,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1.3,,expMult,2,False,False
+gold_idol,黄金神像,collect,False,0,0,0,0,0,0,0,0,0,1,1,0,0,0,1.5,,expMult,2,False,False
+tamer_flute,驯兽笛,collect,False,0,0,0,0,0,0,0,0,0,1,1,0,0,0.2,1,,capAdd,2,False,False
+gambler_die,赌徒骰,curse,True,0,0,0,0,0,0,0,0,0,1,1,0,92,0,1,,hitFix,1,False,False
