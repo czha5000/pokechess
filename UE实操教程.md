@@ -26,6 +26,11 @@
   - **顺带实现**:新增 `BP_GridManager.ShowAttackRangeCurrent()`,移动落地后立刻围绕新位置画一圈纯 `AtkRange` 红色高亮(不再是移动前那种 `MoveRange+AtkRange` 的"最远预览"语义),解决"移动后仍要显示攻击范围"。
   - **"撤销后不能再行动"这条本轮没有直接修**:`UndoAction` 本身不碰 `SelectedUnit`,理论上不受这次根因影响,重新点自己单位只依赖 `bHasMoved`(已重置)和轮次判断——如果人工验收后依旧复现,大概率是独立的输入路由问题(坑19),需要下一轮单独排查,不要假设已经顺带修好。
   - 11 条自动回归断言重跑全 PASS。详见 `UE蓝图状态.md`"根因修复"一节、`UE节点备忘录.md` 坑20/21、`UE测试用例.md`"行动菜单"一节。**待人工 Play 重新验收上述三条。**
+- **2026-08-16 用户反馈"基本OK,下一步做技能和relic"**:web 版原始技能/遗物系统规模很大(40+ 技能、30+ 遗物、18 属性克制表、roguelike 三选一 UI),用 `AskUserQuestion` 让用户选定第一版范围——**最小闭环**:每个单位固定 2 个技能(不做学习/选择系统)、命中率+四选一属性克制(Fire/Water/Grass 三角+Normal中立)这套运算链路跑通、2 个硬编码的纯数值遗物(不做三选一奖励界面)。已实现并验收:
+  - `BP_Unit.AtkType`(此前占位未使用)正式启用为元素属性;`BP_GridManager` 新增 `GetTypeMultiplier_0`(属性克制表)、`ComputeSkillDamage`(选技能+掷命中骰+算克制+算伤害,只吃纯 Int/Bool 参数规避跨类取值坑)、`ApplyStartingRelics`(战斗开始给我方 Atk/Def 各 +2);`TryAttack` 新增 `bUseSkill2` 参数,旧调用点(`RunEnemyTurn`)不改动即用默认值 false,保持敌方 AI 只用普攻的简化。
+  - `WBP_ActionMenu` 从 3 按钮扩到 4 个:"攻击"拆成"普通攻击"/"元素技能",各自把选择写进 `BP_TurnManager.PendingSkillIsElemental` 再隐藏菜单。
+  - **本轮踩了两个新坑,价值较高**:①`create_node` 建"调用另一个蓝图自定义函数"的节点,必须用 `Class|<类名>|<函数名>` 前缀 + `declaring_class`,`CallFunction|` 前缀只对自身蓝图内部函数有效(哪怕 `find_node_types` 精确搜出来的就是 `CallFunction|` 形式,一样建不出来);②给新 Function 写含 `(return X)` 的函数体之前,必须先 `add_function_param(input_param=false)` 显式声明输出参数,否则编译不报错但函数其实是 void——第一版 `GetTypeMultiplier` 就踩了这个,靠 `find_nodes` 主动核实"有没有 `K2Node_FunctionResult` 节点"才发现。详见 `UE节点备忘录.md` 坑22-24。
+  - 11 条自动回归断言全 PASS,实测日志确认 `HIT dmg=6` 和公式手算吻合。**待人工 Play 验收**:菜单两个技能按钮、克制/反克制的伤害差异、命中率偶尔 MISS、遗物生效后属性变化,见 `UE测试用例.md`"技能与遗物"一节。
 - **下一步方向待定**:切片已完成,下一阶段是"补真实度"(数值对表)还是"扩内容"(更多单位/关卡)需要和用户对齐后再定,不要自己假设方向。
 - **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`——**任何新会话接手前先读那份**。简述:`UE蓝图状态.md`(变量/函数/GUID快照)、`UE节点备忘录.md`(踩坑记录+验证过的函数名)、`UE测试用例.md`(验收清单),三份配套文档每次改动后同步更新;复杂逻辑做成独立 Function 整体替换,不在 EventGraph 里打补丁;默认只要新增节点+邻居回传,不要整图。
 

@@ -259,7 +259,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### 交互流程(设计,未经人工 Play 验证)
 点自己单位(轮到、未移动)→ 黄/红高亮 → 点高亮格移动 → 高亮清除,菜单弹出("攻击"/"待命"/"撤销")→
-- **攻击**:菜单隐藏(`HideActionMenu`),不做别的——玩家接着直接点场上敌方单位,走的还是 `BP_Unit.ActorOnClicked` 里原有的 `TryAttack` 链路(点击流程完全没变,菜单只是"让开路"而已)。**没有做"选攻击技能"这一步**——当前游戏里全场只有一种普通攻击(`TryAttack`),没有技能数据模型,做一个只有单选项的技能菜单纯属多此一举;等真的有多技能时再回来加。
+- **普通攻击 / 元素技能**(2026-08-16 由单一"攻击"按钮拆分为两个,见下方"技能与遗物系统"一节):点其中一个 → `TurnManager.SelectSkillAndAttack(bElemental)` 记下这次要用哪个技能、隐藏菜单——玩家接着直接点场上敌方单位,走的还是 `BP_Unit.ActorOnClicked` 里原有的 `TryAttack` 链路,只是现在会把选中的技能带过去。
 - **待命**:结束回合,`CurrentIndex` 推进、`StartTurn` 走到下一个单位。
 - **撤销**:位置和 `bHasMoved` 都回退到本回合开始时的状态,相当于这个回合还没开始过,可以重新选择移动方向(或者再点自己→再撤销,理论上可以反复横跳,不算 bug,撤销本来就该是无代价的)。
 
@@ -271,19 +271,59 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ---
 
-## WBP_ActionMenu (`/Game/UI/WBP_ActionMenu.WBP_ActionMenu_C`,2026-08-16 新增)
+## 技能与遗物系统(2026-08-16 新增,用户明确要求"最小闭环"——2-3个固定技能+命中率+属性克制+2个纯数值遗物,不做数据驱动/技能选择UI/遗物三选一)
+
+> 用户反馈"下一步是做技能和relic",鉴于 web 版原始系统(`js/data/skills.js`/`js/data/relics.js`)有 40+ 技能(含异常状态/AOE/击退)、30+ 遗物(十几种不同钩子)、完整 18 属性克制表、roguelike 三选一奖励 UI,规模远超现有 UE 切片能承载,用 `AskUserQuestion` 让用户选定范围:**每个单位固定 2 个技能(不做学习/选择系统)+ 命中率/属性克制这套运算链路跑通 + 2 个硬编码的纯数值遗物,不做三选一奖励界面**。
+
+### BP_Unit.AtkType 从占位变量正式启用
+`AtkType`(Integer,此前"占位,未接入属性克制表")现在代表元素属性:`0=Normal / 1=Fire / 2=Water / 3=Grass`(只做四选一的火→草→水→火三角克制,不是 web 版 18 属性)。每个单位固定拥有**两个技能**(不是数据表,直接硬编码在 `ComputeSkillDamage` 里):
+- **普通攻击**(`bUseSkill2=false`):`mult=0.9`,`hit=95%`,属性视为 `Normal`(不参与克制)。
+- **元素技能**(`bUseSkill2=true`):`mult=1.4`,`hit=90%`,属性 = 该单位自己的 `AtkType`。
+
+### BP_GridManager 新增函数
+- **GetTypeMultiplier_0(AtkType, DefType) → Mult: Float**(原名 `GetTypeMultiplier`,`remove_function_graph`+`add_function_graph` 重建时被自动加了 `_0` 后缀,DSL 里对应 type_id 是 `GetTypeMultiplier0`,不带下划线,同坑5/坑1 记录的命名规律):四选一三角克制——`Fire→Grass`/`Grass→Water`/`Water→Fire` = 2.0 倍,反向(`Fire→Water`/`Water→Grass`/`Grass→Fire`)= 0.5 倍,同属性互克 = 0.5 倍,只要一方是 `Normal`(0)就恒为 1.0 倍(不参与克制)。**第一版实现有真实 bug 且编译不报错**:直接写多分支 `(return X)` 函数体,没有先声明输出参数,导致函数编译成"看起来对但其实是 void"——细节和修法见 `UE节点备忘录.md` 坑24,这是本轮最危险的一个坑,不主动核实"函数是否真的有返回值 pin"根本发现不了。
+- **ComputeSkillDamage(bUseSkill2, AttackerAtk, AttackerAtkType, DefenderDef, DefenderAtkType) → Damage: Int**:封装"选技能参数 → 掷命中骰 → 算克制倍率 → 算伤害"整条链路,**故意设计成只吃纯 Int/Bool 参数、不在内部做任何跨类 Col/Row 之类的取值**,规避了坑20 记录的"局部变量二次取撞名属性"问题。内部用 3 个**局部变量**(`SkillMultTmp`/`HitChanceTmp`/`SkillTypeTmp`,`add_variable` 建在这个 Function 自己的 graph 上,函数返回后自动丢弃)先按 `bUseSkill2` 选好这次用哪个技能的参数,再 `Math|Random|RandomIntegerinRange(0,99)` 掷骰,`< HitChanceTmp` 才算命中:
+  - **命中**:`Damage = Max(1, Round(AttackerAtk × SkillMult × GetTypeMultiplier0(SkillType, DefenderAtkType) × 9/(9+DefenderDef)))`,顺手 `PrintString("HIT dmg=X")` 方便调试确认。
+  - **未命中**:`Damage = 0`,`PrintString("MISS")`,**不做"最低伤害1点"的兜底**——miss 就是纯粹没伤害,这是和"命中但伤害算出来是1"刻意区分开的两种结果。
+  - 由 `TryAttack` 唯一调用,验证过实测日志 `HIT dmg=6`(默认 `Atk=10/Def=5/Normal vs Normal`,`10×0.9×1.0×9/14≈6.43→round 6`,和公式手算吻合)。
+- **ApplyStartingRelics()**(无参数):`For Each GetAllActorsOfClass(BP_Unit)`,只处理 `Side=true`(我方)的单位,`Set Atk = Atk+2` 且 `Set Def = Def+2`——硬编码代表两件遗物"力量头带"(全队攻击+2)+"钢之意志"(全队防御+2)一起生效,不做"选哪个"的三选一界面,也不做遗物的数据结构(没有 `RELICS` 数组这种东西,加成直接写死在这个函数体里)。由 `BP_TurnManager.EventBeginPlay` 在 `Set Grid` 之后、`BuildTurnOrder()` 之前调用一次(全局只生效一次,不会重复叠加),对 `RunRegressionTests` 里另外单独 `SpawnUnit` 出来的测试单位没有影响(那条路径不经过 `EventBeginPlay`)。
+
+### BP_GridManager.TryAttack 改动
+- 新增输入参数 `bUseSkill2: Bool`(`add_function_param` 支持 bool,不受"不能加 Object 参数"的限制,见坑17)。
+- 原来"进入射程判定为真"分支里直接调 `SetHP` 的那段,改成先插入一次 `ComputeSkillDamage(bUseSkill2, SelectedUnit.Atk, SelectedUnit.AtkType, Defender.Def, Defender.AtkType)` 调用,再把结果接到原来的 `HP - 伤害` 那个减法节点上——**原来内联在 `TryAttack` 里的那一整条"ToFloat→DEF_K 公式→Round→Max(...,1)"节点链没有删除,只是断开了数据连接,变成纯数据孤立节点(不在 exec 链路上,不会被执行,也不会被误连)**,这是刻意的低风险选择(删除需要确认哪些节点被其它地方共享,风险大于收益),后续如果要清理图可以参考 `UE节点备忘录.md` 坑11 的判活方法。
+- **已有调用点**(`BP_Unit.ActorOnClicked` 敌方分支、`BP_GridManager.RunEnemyTurn`)因为 `bUseSkill2` 是新增的**输入**参数(不是输出参数,不受"改签名后旧调用点报 pin 找不到"那条坑的影响),两处旧调用在没有改动的情况下都编译通过、自动用了默认值 `false`——`RunEnemyTurn` 就此保持"敌方 AI 只用普通攻击"的简化(没有给 AI 加选技能的决策逻辑,是刻意的最小闭环取舍);`BP_Unit.ActorOnClicked` 则新增了一条 `TurnManager.PendingSkillIsElemental` 取值 → 接到 `bUseSkill2` pin,让玩家在菜单里选的技能真正生效(见下方 `BP_TurnManager` 一节)。
+
+### BP_TurnManager 新增
+| 名字 | 类型/签名 | 说明 |
+|---|---|---|
+| `PendingSkillIsElemental` | Bool 变量 | 记录玩家在行动菜单里选的是"普通攻击"还是"元素技能",`SelectSkillAndAttack` 写入,`BP_Unit.ActorOnClicked` 攻击时读出 |
+| `SelectSkillAndAttack(bElemental: Bool)` | 函数 | `Set PendingSkillIsElemental=bElemental` → `HideActionMenu()`——两个技能按钮共用这一个函数,只是传的 `bElemental` 不同 |
+
+`EventBeginPlay` 新增一步:`Set Grid` 之后立即 `Class|BPGridManager|ApplyStartingRelics(Grid)`,再走原来的 `BuildTurnOrder()`。⚠ 这一步最初想用"整体 `write_graph_dsl` 重写 `EventBeginPlay`,原文本插一行"的省事做法,结果在完全没碰过的旧代码行 `Rendering|SetVisibility "Collapsed" _actionmenuwidget` 上报类型不兼容——改用 `create_node`(`type_id="Class|BPGridManager|ApplyStartingRelics"`,必须带 `declaring_class`,`CallFunction|` 前缀对跨蓝图函数不认)+ `connect_pins` 精确插入到 `SetGrid.then` 和 `BuildTurnOrder` 调用之间才成功,细节见 `UE节点备忘录.md` 坑22/坑23。
+
+### 待人工 Play 验收(本轮新增,MCP 侧只验证到"11 条回归断言 PASS + 日志能看到 `HIT dmg=6`",没有真人点鼠标走过完整流程)
+1. 移动后菜单是否正确显示"普通攻击"/"元素技能"两个按钮(而不是旧的单个"攻击")。
+2. 点"元素技能"再点一个属性构成克制关系的敌人(比如我方 Fire 打敌方 Grass),伤害是否明显更高;打反向克制(Fire 打 Water)伤害是否明显更低。
+3. 命中率是否真的会导致偶尔 MISS(5%/10% 概率,不掉血,`Output Log` 能看到 `MISS` 字样)——这是设计内行为,不要误判成 bug。
+4. 战斗一开始(`BeginPlay`)我方单位属性面板/血条对应的 `Atk`/`Def` 是否比 Class Default(`Atk=10`/`Def=5`)高 2 点(遗物生效的直接证据,目前没有专门的 UI 展示"当前拥有哪些遗物",只能通过数值变化间接确认)。
+5. 敌方 AI 攻击应该仍然只用普通攻击效果(没有元素技能加成),这是已知的简化,不是遗漏。
+
+---
+
+## WBP_ActionMenu (`/Game/UI/WBP_ActionMenu.WBP_ActionMenu_C`,2026-08-16 新增;同日追加第 4 个按钮见下)
 
 > 移动后弹出的操作菜单。项目里第一个带**交互按钮**的 Widget(之前的 `WBP_OrderBar`/`WBP_HealthBar`/`WBP_GameOver` 都是纯展示,没有需要接收点击的控件)。
 
 ### 结构
-`MenuBox`(VerticalBox,根)→ 3 个 `Button`(`Btn_Attack`/`Btn_Standby`/`Btn_Undo`,均 `bIsVariable=true`,用于绑定 `OnClicked`)→ 每个 Button 各挂一个子 `TextBlock`(`Txt_Attack`="攻击"/`Txt_Standby`="待命"/`Txt_Undo`="撤销",纯设计时默认文字,`bIsVariable=false`,不需要运行时改,直接绕开了 `bIsVariable`/`ConstructObjectfromClass` 那一整套坑)。
+`MenuBox`(VerticalBox,根)→ 4 个 `Button`(`Btn_Attack`/`Btn_Skill2`/`Btn_Standby`/`Btn_Undo`,均 `bIsVariable=true`,用于绑定 `OnClicked`)→ 每个 Button 各挂一个子 `TextBlock`(`Txt_Attack`="普通攻击"〔2026-08-16 由"攻击"改名〕/`Txt_Skill2`="元素技能"〔2026-08-16 新增〕/`Txt_Standby`="待命"/`Txt_Undo`="撤销",纯设计时默认文字,`bIsVariable=false`,不需要运行时改,直接绕开了 `bIsVariable`/`ConstructObjectfromClass` 那一整套坑)。`Btn_Skill2` 用 `UMGToolSet.AddWidget(childIndex=1)` 插在 `Btn_Attack` 和 `Btn_Standby` 之间。
 
 ### 事件(EventGraph,`UMGToolSet.BindToEventProperty` 自动生成的 `ComponentBoundEvent` 节点,逐个手工接了后续逻辑)
-- `OnClicked(Btn_Attack)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.HideActionMenu()`
+- `OnClicked(Btn_Attack)`(2026-08-16 改写,原来是 `HideActionMenu`):`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.SelectSkillAndAttack(bElemental=false)`
+- `OnClicked(Btn_Skill2)`(2026-08-16 新增):`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.SelectSkillAndAttack(bElemental=true)`
 - `OnClicked(Btn_Standby)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.StandbyAction()`
 - `OnClicked(Btn_Undo)`:`GetAllActorsOfClass(BP_TurnManager)[0]` → `TurnManager.UndoAction()`
 
-三个都是同一套"查 TurnManager 再调用"的写法,和项目里 `BP_Unit`/`BP_Tile` 一直在用的跨蓝图调用惯例一致,没有给 Widget 单独存一份 TurnManager 引用变量。
+四个都是同一套"查 TurnManager 再调用"的写法,和项目里 `BP_Unit`/`BP_Tile` 一直在用的跨蓝图调用惯例一致,没有给 Widget 单独存一份 TurnManager 引用变量。⚠ `Btn_Attack`/`Btn_Skill2` 这两个事件是用 `write_graph_dsl` **只改这两个事件、不提 Standby/Undo** 的方式写入的,实测确认这种"部分事件重写"不会影响同一 EventGraph 里其它未提及的事件(`Btn_Standby`/`Btn_Undo` 原样保留,没有被清空或重复),但调用 `SelectSkillAndAttack` 时 `create_node` 反复报 "does not exist",改用 `write_graph_dsl` 直接写 DSL 文本才成功创建——具体原因见 `UE节点备忘录.md` 坑22。
 
 ---
 
