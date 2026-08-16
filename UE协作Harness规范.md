@@ -14,7 +14,7 @@
 
 ### 0.1 现状:MCP 实时连接(主通道)
 
-项目从 UE 5.8 起自带官方 "Unreal MCP" 插件,已在 `MyProject 5.8` 里启用(`ModelContextProtocol` + `AllToolsets`),编辑器开着时自动在 `http://127.0.0.1:8000/mcp` 起 HTTP server,Claude Code 通过项目根目录的 `.mcp.json` 自动发现并连接,工具以 `mcp__unreal-mcp__*` 出现(可能是 deferred 工具,先用 `ToolSearch` 加载)。
+项目从 UE 5.8 起自带官方 "Unreal MCP" 插件,已在 `MyProject 5.8` 里启用(`ModelContextProtocol` + `AllToolsets`),编辑器开着时自动在 `http://127.0.0.1:8001/mcp` 起 HTTP server(端口改为 8001 以躲避本机其他服务冲突,需在 `EditorPerProjectUserSettings.ini` 设 `ServerPortNumber=8001`),Claude Code 通过项目根目录的 `.mcp.json` 自动发现并连接,工具以 `mcp__unreal-mcp__*` 出现(可能是 deferred 工具,先用 `ToolSearch` 加载)。
 
 **已验证可用的能力**(2026-08-13,`mcp-ue-linked-patterson.md` plan 步骤6/7):
 - **读**:`SceneTools.find_actors`/`get_current_level` 读关卡里的 actor 列表;`ObjectTools.get_properties`/`get_class`/`list_properties` 读变量值、Class Defaults、CDO(注意 Class 本身的 refPath 读不到实例属性,要用 `Default__<ClassName>` 这个 CDO 路径)。
@@ -92,5 +92,5 @@
 - 仍然成立的限制:
   - `.uasset`/`.umap` 是二进制,直接文本 diff/review 看不出实质内容变了什么,只能靠 `UE蓝图状态.md` 这类结构化快照 + 编辑器里 Play 测试来验证语义正确性。
   - Blueprint 图逻辑(EventGraph/Function 内部)的直接 MCP 编辑路径(`BlueprintTools`)**小范围改动已验证可用**(接线、改单个节点);大范围新增/重构仍建议走剪贴板协议,见第 0.1/0.2 节。
-  - MCP server 只认本机连接(`127.0.0.1:8000`,无鉴权),编辑器必须开着、server 必须在跑,否则自动回落到剪贴板协议。
+  - MCP server 只认本机连接(`127.0.0.1:8001`,无鉴权),编辑器必须开着、server 必须在跑,否则自动回落到剪贴板协议。
 - 剪贴板文本的技术细节(哪些字段必须写、常见坑)记录在 `UE节点备忘录.md`,不在本文件重复。

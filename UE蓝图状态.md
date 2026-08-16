@@ -43,18 +43,29 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### EventGraph
 - BeginPlay / ActorBeginOverlap / Tick:模板残留,**Disabled,不用管**
-- **ActorOnClicked**(核心逻辑,已重构):
+- **ActorOnClicked**(核心逻辑,已重构;**2026-08-15 加了"只有轮到的单位才能点"门槛 + 攻击命中后自动结束回合;同日再追加 ShowAttackRange 重触发修复**):
   ```
   Event → Branch(Side)
-    True(点我方) → GetAllActorsOfClass(GridManager)[0] → ShowRange(Unit=self)
-    False(点敌方) → GetAllActorsOfClass(GridManager)[0] → TryAttack(Defender=self)   [调用 GridManager 的独立 Function]
+    True(点我方) → 取 TurnManager.TurnOrder[CurrentIndex] → 是否等于 self?
+        是 → GetAllActorsOfClass(GridManager)[0] → ShowRange(Unit=self) → ShowAttackRange(Unit=self)
+        否 → 什么都不做(不是你的回合,点了也没用)
+    False(点敌方) → GetAllActorsOfClass(GridManager)[0] → TryAttack(Defender=self)
+        → 再读一次 Grid.SelectedUnit,`IsValid`?
+            Is Not Valid(TryAttack 内部命中后会把 SelectedUnit 清成 None)→ 说明这次真打中了 → TurnManager.EndTurn()
+            Is Valid(还是原来那个值,说明超出射程/没选中单位,TryAttack 内部什么都没做)→ 不结束回合,允许玩家挪近了再点
   ```
-  旧的内联攻击链(GetSelectedUnit/Atk/Def/HP 一堆节点堆在这里)已删除,逻辑整体搬进了 `BP_GridManager.TryAttack`。
+  **2026-08-15 bug 修复(共两处,叠加导致"完全看不到攻击范围")**:
+  1. **触发时机问题**:此前 `ShowAttackRange` 只在 `BP_TurnManager.StartTurn` 里调用一次,玩家移动后再点回自己单位(重新触发 `ActorOnClicked` → `ShowRange`)时不会重新刷新攻击范围红色高亮。修复:在 `ShowRange` 调用后紧接着插入一个新节点 `K2Node_CallFunction_16 = Class|BPGridManager|ShowAttackRange(self=GridManager引用, Unit=self)`,复用已有的 `K2Node_GetArrayItem_4`(GridManager引用)和 `K2Node_Self_1`(self)两个输出做扇出,`then` 接回原来 `ShowRange.then` 指向的 `IfThenElse_3`。
+  2. **判定语义问题(真正的根因)**:第一处修复后用户实测仍然"看不到高亮",排查发现 `ShowAttackRange` 内部逻辑当时是"只高亮当前恰好有敌人站在射程内的格子"——如果点击那一刻没有敌人正好落在范围内,压根不会有任何格子被标记,材质/渲染链路本身没问题(用 `get_property_input` 对比过 `M_AtkHighlight` 和已验证能正常显示的 `M_Highlight`,BaseColor 连线结构完全一致)。改成"以单位当前位置为圆心,曼哈顿距离 1~AtkRange 内的格子一律高亮",不再依赖敌人是否在场,和移动范围黄色高亮同构。详见 `BP_GridManager.ShowAttackRange` 词条。
+  
+  两次改动后回归测试 T8(`T8_ShowAttackRange_HighlightsEnemyInRange`)重跑均 PASS,9 条用例全绿,确认没有引入回归。**注意:回归测试只验证了 `AtkHighlighted` 布尔标记被正确置位,"点击后屏幕上真的看得到红色格子"这一步仍需要用户在编辑器里手动 Play 验收**,因为当前 MCP 工具集没有鼠标点击模拟能力(`SlateInspectorToolset.Click` 只能点 Slate UI 控件的 ref,不支持按 3D 视口坐标点选 world actor)。
+
+  旧的内联攻击链(GetSelectedUnit/Atk/Def/HP 一堆节点堆在这里)已删除,逻辑整体搬进了 `BP_GridManager.TryAttack`。**"攻击是否真的命中"这个判断没有改 `TryAttack` 的函数签名(没加返回值/参数)**,而是复用了它本来就有的副作用——命中时会把 `SelectedUnit` 清成 `None`,没命中(超范围)则什么都不碰,所以在调用方读一次 `SelectedUnit` 的 `IsValid` 状态就能反推"是否真的打了一下",不用碰 `TryAttack` 内部、也不会影响 `RunEnemyTurn` 里那次独立的 `TryAttack` 调用(敌方回合的结束逻辑本来就在 `StartTurn` 里单独处理,两条路径互不干扰)。
 
 ### 已知问题(更新于本轮 TryAttack 重构后)
 1. ~~HP 无下限~~ ✅ 已解决:`TryAttack` 内部用 `Max(HP-伤害, 0)` clamp,且 `newHP≤0 → K2_DestroyActor(Defender)`。
 2. ~~AtkRange 没接入判断~~ ✅ 已解决:`TryAttack` 用曼哈顿距离 `LessEqual(distance, SelectedUnit.AtkRange)` 判断,超出范围无效果。**实测验证通过**——过程中发现并修复了两个更深层的坑,见问题8。
-3. **移动/攻击状态未分离** —— `BP_Tile.ActorOnClicked` 的移动逻辑和这里的攻击逻辑共用同一个 `GridManager.SelectedUnit`,没有明确的"移动模式 vs 攻击模式"状态机,存在误触风险。仍未解决,需要重新设计。
+3. **移动/攻击状态未分离** —— `BP_Tile.ActorOnClicked` 的移动逻辑和这里的攻击逻辑共用同一个 `GridManager.SelectedUnit`,没有明确的"移动模式 vs 攻击模式"状态机,存在误触风险。仍未解决,需要重新设计。~~**"任意时刻可以点任意我方单位"这部分已经解决**——见上方 `ActorOnClicked` 的 TurnOrder 门槛,现在只有轮到的单位能被点出移动范围。~~
 4. **HP/Atk/Def 等 Class Defaults 具体数值未核实** —— 需要打开 BP_Unit → Class Defaults 面板确认。
 5. 伤害公式仍是占位版 `max(0, Atk-Def)`(用户明确认可"可以无伤,合理"),要换成真实 `max(1, round(Atk×DEF_K/(DEF_K+Def)))`,DEF_K=9(已从 config.js 核实)——留作后续步骤。
 6. `BP_Unit` 里 `Col`/`Row` 的 MemberGuid 已在本轮确认:Col=`EC5111B2499BDFC8487A6CB7A0531A60`,Row=`989E623C43F9417073E99FA096C78C35`(此前"未知"已更新,见上方变量表)。
@@ -84,6 +95,10 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### 函数
 - **ClearHighlights**(GUID `0F31C30A44B85167E0CE73A25A1D95FC`):For Each Tiles → `SetHighlight(False)`
+- **ShowAttackRange(Unit: BP_Unit)**(2026-08-15 新增,红色攻击范围高亮;**同日两次修复,第二次改了语义**):
+  - **v1(已废弃)**:`GetAllActorsOfClass(BP_Unit)` → For Each,若 `Side` 和 `Unit` 不同 → 算曼哈顿距离(`ManhattanDistance`)→ ≤ `Unit.AtkRange` → 找到该敌方单位所在的 `Tile` → `SetAttackHighlight(True)`。**问题**:只高亮"当前恰好在射程内的敌方单位所在格",如果点击那一刻没有敌人正好落在范围内,就完全不会有任何红格子出现——这正是用户反馈"看不到攻击范围"的根本原因(不是渲染/材质问题,是"该亮的格子这次根本没被判定为该亮")。
+  - **v2(当前版本,2026-08-15 第二次修复)**:改成和 `ShowRange` 同构的"范围本身"高亮,不再依赖敌人是否恰好在场:`For Each Tiles` → 曼哈顿距离(`Unit.Col/Row` → `Tile.Col/Row`)在 `1..Unit.AtkRange` 之间(`<=AtkRange 且 >0`,排除自己脚下那格)→ `SetAttackHighlight(True)`。也就是不管有没有敌人,只要点自己单位就会立刻围绕它显示一圈红格子,和 `ShowRange` 的黄色移动范围逻辑对称,符合用户说的"移动=黄,攻击=红"的直观预期。**已知简化**:调用顺序是先 `ShowRange`(黄)后 `ShowAttackRange`(红),如果某格子同时落在移动范围和攻击范围内,会被红色覆盖(材质槽只有一个,后调用的赢),目前没有做双色叠加或优先级区分,先记录着,后续如果要做"移动+攻击范围并存"的双色提示再回来改。
+  - 由 `BP_TurnManager.StartTurn` 和 `BP_Unit.ActorOnClicked`(点自己单位重新选中时)两处调用,`ShowRange` 之后紧接着调用,`ClearHighlights` 已同步扩展会同时清 `AtkHighlighted`。⚠ 建 Col/Row 相关的跨对象取值节点踩过坑:`Class|BPTile|GetCol`/`Class|GridSlot|GetRow` 这类"类名写错"的别名(历史遗留、`read_graph_dsl` 解码出来的)不能直接抄去用在 `BP_Unit` 引用上,必须显式写 `Class|BPUnit|GetCol`/`Class|BPUnit|GetRow`(类名和实际目标类一致)才能通过 `write_graph_dsl` 正确建出节点,细节记进了 `UE节点备忘录.md`。
 - **ShowRange(Unit: BP_Unit)**(GUID `365A39F74D91FB2F1BEFE78294302FF7`):ClearHighlights → `Set SelectedUnit=Unit` → For Each Tiles → 曼哈顿距离 ≤ `Unit.MoveRange` 且 ≠0 **且 `NOT IsTileOccupied(Tile.Col, Tile.Row)`**(2026-08-15 新增,见下方 `IsTileOccupied`)→ `SetHighlight(True)`(⚠不是BFS,已知简化;占位检查已补,BFS 仍未做)
 - **IsTileOccupied(Col: Int, Row: Int) → Bool**(2026-08-15 新增,MCP 直接图编辑,`create_node`/`connect_pins` 逐节点搭建,未走 DSL 整函数重写):`GetAllActorsOfClass(BP_Unit)` → For Each → 若某单位的 `Col`/`Row` 同时等于参数 → `return true`;循环结束 `return false`。用途:阻止 `ShowRange` 把已被任意单位(我方或敌方)占用的格子标记为可移动目标,修复"单位能移动到和敌人重叠的格子"的 bug。
 - **SpawnUnit(TileIndex: Int, bAlly: Bool) → SpawnedUnit: BP_Unit**(2026-08-15 加了返回值,原来是 void):`Tiles[TileIndex]` → 取该 Tile 的世界坐标 `+ (0,0,50)` → `SpawnActorFromClass(BP_Unit)` → `Setup(bAlly)` → **`Set Col`/`Set Row`(读 `Tiles[TileIndex]` 自己的 Col/Row 写回新单位)** → `return` 新生成的单位引用。修复前只摆了世界坐标,没写逻辑坐标,导致新单位 Col/Row 恒为默认值0;新增返回值是为了让 `RunRegressionTests` 能直接拿到spawn出来的单位引用,不用另外写"按坐标反查单位"的辅助函数。**⚠ 加返回值后,`EventGraph.EventBeginPlay` 里原有的 4 个 SpawnUnit 调用节点因为签名变了变成 stale(编译报 "Could not find a pin for the parameter SpawnedUnit"),用 delete_node+create_node 逐个重建才修复,详见 `UE节点备忘录.md`。**
@@ -99,7 +114,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
   Get SelectedUnit(self) → IsValid? →True→
     曼哈顿距离(SelectedUnit.Col/Row vs Defender.Col/Row, 用 Max(x,-x) 组合出 Abs)
     → LessEqual(distance, SelectedUnit.AtkRange) →True→
-      伤害 = Max(SelectedUnit.Atk - Defender.Def, 0)          [占位公式]
+      伤害 = Max(1, Round(SelectedUnit.Atk × (DEF_K/(DEF_K+Defender.Def))))          [2026-08-15 换成 DEF_K 衰减公式,DEF_K=9,见下方说明,旧的 Max(Atk-Def,0) 占位公式已删]
       新HP = Max(Defender.HP - 伤害, 0)
       Set Defender.HP = 新HP
       → **Defender.UpdateHealthBar()(2026-08-15 新增,MCP `create_node`/`connect_pins` 插入,紧接在 Set HP 之后)**
@@ -107,6 +122,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
       → (两分支汇合) → ClearHighlights(self) → Set SelectedUnit=None
   ```
   非 self 变量(Defender 的 Col/Row/Def/HP)全部走 `MemberParent + SelfContextInfo=NotSelfContext` 三件套,详见 `UE节点备忘录.md`。
+  - ⚠ **2026-08-15 伤害公式升级**:占位版 `max(0, Atk-Def)` 换成 web 版同款的**乘算防御衰减**公式 `max(1, round(Atk × DEF_K/(DEF_K+Def)))`(`DEF_K=9`,已从 `config.js` 核实)。**不含**技能倍率/属性克制/命中率/暴击/掩体/地形/遗物等乘算项——这些是 web 版真实公式的其余部分,切片阶段明确不做,清单里写的就是"简化到这一步"。实现上 `Atk`/`Def` 都是 Integer,要先 `ToFloat` 转成浮点做除法(`DEF_K/(DEF_K+DefFloat)`)再乘 `AtkFloat`,最后 `Math|Float|Round` 转回 Integer、`Max(...,1)` 兜底最低伤害。旧的 `SubDmg`/`MaxDmg` 两个节点已删除,新链路直接接到 `SubHP`(算新 HP)的输入。用默认数值 `Atk=10, Def=5` 验算:`max(1, round(10×9/14)) = max(1, round(6.43)) = 6`(旧公式是 `10-5=5`,数值有变化,符合预期)。
 
 ---
 
@@ -122,6 +138,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### 函数
 - **SetHighlight(bOn: Bool)**(GUID `37B4C77B45B3D11565DAEAB67664CF28`):Branch(bOn) → 切材质 + `Set Highlighted=bOn`
+- **SetAttackHighlight(bOn: Bool)**(2026-08-15 新增,攻击范围红色高亮):和 `SetHighlight` 完全同构,只是换了一套变量:`AtkHighlighted`(Bool)+`AtkHighlightMat`(Material Interface,Class Default=`/Game/Maps/M_AtkHighlight`,红色 `(1,0.08,0.08)`)。`bOn=false` 时两个高亮函数都切回同一个 `NormalMat`,不会互相打架——因为移动高亮和攻击高亮在设计上互斥(前者排除被占用格,后者只落在被敌方占用的格上)。
 
 ### EventGraph
 - ActorOnClicked → Branch(self.Highlighted) → True:`GetAllActorsOfClass(GridManager)[0]` → `Get SelectedUnit` → `Set Actor Location`(SelectedUnit,本格世界坐标 + Z50)→ `ClearHighlights` → **`Set SelectedUnit.Col`/`Set SelectedUnit.Row`(本轮新增,读本格 self.Col/self.Row 写回 SelectedUnit)** → (链路到此结束)
@@ -140,18 +157,58 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | TurnOrder | Array\<BP_Unit\> | 50FBE1244A4A45BC1414749E1EF218A6 |
 | CurrentIndex | Integer | 3B1A62544CD5B63712E35FA8E05B6534 |
 | Grid | BP_GridManager | 0089C34F4A6557D940AA998478BF680F |
+| SortKeysTmp | Array\<Integer\> | (2026-08-15 新增,`BuildTurnOrder` 排序用的临时并行数组,和 `TurnOrder` 逐位对应) |
+| MaxIdxTmp | Integer | (2026-08-15 新增,`BuildTurnOrder` 选择排序内层循环的"当前最大值下标"局部状态) |
+| OrderBarComponent | WidgetComponent | (2026-08-15 新增,Screen Space,承载 `WBP_OrderBar`) |
+| OrderBarWidget | WBP_OrderBar | (2026-08-15 新增,`ConstructObjectfromClass` 出来的行动顺序条实例) |
 
 ### 函数
-- **StartTurn**(GUID `B1B2BD0C4A80D0C6355B6A862565F459`,**2026-08-15 改过,加了敌方 AI 分支和死亡单位跳过;同日又修过一次真实的接线 bug,见下**):取 `TurnOrder[CurrentIndex]` →
-  - `Utilities|IsValid` 宏(`Is Valid`/`Is Not Valid` 两条 exec 出口)判断该单位是否还有效(比如已经被 `TryAttack` 杀死但 `TurnOrder` 数组从没刷新过,里面还留着死单位的引用)。
+- **StartTurn**(GUID `B1B2BD0C4A80D0C6355B6A862565F459`,**2026-08-15 改过,加了敌方 AI 分支和死亡单位跳过;同日又修过一次真实的接线 bug,见下;同日又加了 `bGameOver` 门槛和行动顺序条刷新,见下**):
+  - **入口先查 `Grid.bGameOver`**(2026-08-15 新增,**同日又把它挪到了整个函数最前面,见下**):`true` → 什么都不做,直接结束(不再往下推进回合)。**根因**:一方全灭后,`CheckVictoryCondition` 只负责弹窗和置位 `bGameOver`,回合循环本身从来没人检查过这个变量,导致继续 `StartTurn`→`RunEnemyTurn`→`FindNearestUnit0` 在已经没有对方单位的情况下找不到目标返回 `None`,后续 `MoveUnitTowardTarget`/`TryAttack` 拿这个 `None` 硬用,级联报一长串 `Accessed None`(实测复现过,`Output Log` 刷屏)。
+  - **`false` 分支调用 `OrderBarWidget.RefreshOrder(TurnOrder, CurrentIndex)`**(2026-08-15 新增)刷新行动顺序条,再走原有逻辑。⚠ **最初把这一步放在了 `bGameOver` 检查前面**,导致游戏结束后如果还有最后一次 `StartTurn` 触发,`RefreshOrder` 会拿到刚被 `TryAttack` `DestroyActor` 的单位引用读属性,报 `not valid (pending kill or garbage)`(实测复现)——**已改成 `bGameOver` 检查在最前面,`RefreshOrder` 挪进 `false` 分支里**,游戏结束后彻底不会再碰它(`RefreshOrder` 自己也加了 `IsValid` 防御,见 `WBP_OrderBar` 一节,双保险)。
+  - 取 `TurnOrder[CurrentIndex]` → `Utilities|IsValid` 宏(`Is Valid`/`Is Not Valid` 两条 exec 出口)判断该单位是否还有效(比如已经被 `TryAttack` 杀死但 `TurnOrder` 数组从没刷新过,里面还留着死单位的引用)。
   - `Is Not Valid` → 直接 `EndTurn`,跳过这个位置。
   - `Is Valid` → 按 `Side` 分支:`true`(我方)→ `Grid.ShowRange(Unit=该单位)`,和以前一样等玩家点鼠标;`false`(敌方)→ `Grid.RunEnemyTurn(Unit=该单位)` 自动移动+可能攻击,然后**立刻自己调用 `EndTurn`**(不需要玩家做任何操作)。如果连续多个敌方单位挨着,会同一帧内递归 `StartTurn→EndTurn→StartTurn...` 一路自动跑完,直到轮到下一个我方单位才停下来等点击。
   - ⚠ **2026-08-15 修过的真实 bug**:最初的接线中,`Utilities|IsValid` 宏的两条 exec 出口(`Is Valid`/`Is Not Valid`)完全没接到任何东西上——是一条彻底的死路。真正驱动 `Branch` 节点的,是另一个完全独立、从未连过 `IsValid` 结果的 `NOTBoolean` 节点,其输入 `A` 也没有任何连线,用的是字面量默认值 `false`,于是 `NOT(false)=true` 恒真。结果是:`FunctionEntry` 执行到 `IsValid` 宏就直接断流,`Branch`/`ShowRange`/`RunEnemyTurn`/`EndTurn` 全部不可达——**意味着这次改动上线后,连最基本的"点我方单位高亮范围"都会失效**,而不仅仅是敌方 AI 没生效。用 `get_node_infos` 逐个检查 `Branch` 节点的 `execute`/`Condition` 输入的 `connected_pins` 才发现(两处都是空数组)。修法:删掉这个 `NOTBoolean` 驱动的 `Branch` 和它的常量比较节点,把 `IsValid` 宏的 `Is Valid`/`Is Not Valid` 两条 exec 出口直接接到原本 `Branch` then/else 之后的两段逻辑(Side 分支 / `EndTurn`)上,重新编译 + 跑回归测试(T1–T7c 九条断言全 PASS)确认没连带破坏别的东西。**教训:`IsValid` 相关的接线,`compile_blueprint` 编译通过 + regression test 局部 PASS(这次 T7a/b/c 测的是直接调用 `RunEnemyTurn`,没走 `StartTurn` 整条链路)都不能证明整条 exec 链路真的可达,必须用 `get_node_infos` 顺着 `FunctionEntry` 往下每个节点核对一遍。**详见 `UE节点备忘录.md`。
-- **EndTurn**:`CurrentIndex = (CurrentIndex+1) % TurnOrder.Length` → `StartTurn`
+- **BuildTurnOrder()**(2026-08-15 新增,对应 web 版 `turn.js` 的 `startRound`):`Grid.GetAllActorsOfClass(BP_Unit)`(死亡单位已被 `TryAttack` `DestroyActor`,天然只剩存活的)→ 每个单位算 `key = Spd*1000 + RandomIntegerInRange(0,999)` 存进 `SortKeysTmp`(和 `TurnOrder` 逐位对应)→ 对 `TurnOrder`/`SortKeysTmp` 做选择排序(按 `SortKeysTmp` 降序,`TurnOrder`/`SortKeysTmp` 同步 `SwapArrayElements`)→ `CurrentIndex=0`。**"Spd 降序 + 同速随机 tiebreak"被压缩成单一数值键排序**:只要随机分量固定在 `[0,999]`、乘数是 1000,不同 `Spd` 的单位永远不会因为随机分量而排序颠倒(`Spd=6` 的最大 key 是 6999,`Spd=7` 的最小 key 是 7000),同 `Spd` 的单位则完全由随机分量决定顺序——不用另写 tie-break 分支。由 `EventBeginPlay` 和 `EndTurn`(每轮结束、`CurrentIndex` 超出数组长度时)调用,对应 web 版"每回合重新排序"的行为。
+- **EndTurn**:`CurrentIndex+1`;若超出 `TurnOrder.Length` → 调 `BuildTurnOrder()`(重新排序+清零索引,一轮结束);否则正常 `Set CurrentIndex` → 都会接 `StartTurn`。
 
 ### EventGraph
-- BeginPlay → Delay(0.2s)→ `GetAllActorsOfClass(BP_Unit)` → `Set TurnOrder` → `GetAllActorsOfClass(BP_GridManager)[0]` → `Set Grid` → `StartTurn`
-- 行动序目前是**生成顺序**(我我敌敌),不是真 Spd 排序,已知简化,待补 Sort。
+- BeginPlay → Delay(0.2s)→ `GetAllActorsOfClass(BP_GridManager)[0]` → `Set Grid` → `BuildTurnOrder()`(2026-08-15 替换了原来的"直接 `GetAllActorsOfClass(BP_Unit)` → `Set TurnOrder`",见上方 `BuildTurnOrder`)→ `StartTurn`
+- ~~行动序目前是生成顺序,不是真 Spd 排序,已知简化~~ ✅ **2026-08-15 已解决**:见 `BuildTurnOrder`。
+
+### UserConstructionScript(2026-08-15 新增,行动顺序条 UI)
+`AddComponent|UserInterface|AddWidgetComponent`(self=`self`,`bManualAttachment=false`)→ `Set OrderBarComponent` → `SetDrawSize(500,40)` → `ConstructObjectfromClass(WBP_OrderBar_C)` → `Set OrderBarWidget` → **`SetWidget(comp, widget)`** → **`SetWidgetSpace(comp, "Screen")`**(⚠ 顺序很关键,见下方踩坑记录)→ **`SetVisibility(comp, false)` → `AddToViewport(widget)` → `SetPositionInViewport(widget, (40,40))`**(2026-08-15 追加,见下方"行动顺序条看不见"踩坑)。
+
+⚠ **2026-08-15 踩坑(第一版方案,实测仍然看不见)**:`WidgetComponent`(哪怕 Screen Space)挂在 `BP_TurnManager` 这种"没有明确摆放位置"的 Actor 上,渲染位置是"把这个 Actor 的世界坐标投影到屏幕"决定的,不是真正意义上"固定在屏幕角落"的 HUD;`BP_TurnManager` 摆在 `(-360,-360,0)`,和实际摄像机(`BoardCam`,大概在 `(500,-773,1052)` 朝向棋盘)的取景框对不上。第一版方案是"借 `WidgetComponent.SetWidget` 触发初始化,再对同一个实例调用 `AddToViewport` 挂到屏幕固定位置",但**这一整套调用当时放在了 `UserConstructionScript`(构造脚本)里**,实测截图确认屏幕左上角仍然空白,什么都没有。
+
+⚠ **真正的根因和最终方案(2026-08-15)**:`AddToViewport` 在 `UserConstructionScript` 里调用不生效——构造脚本在编辑器/构造期就会跑,不保证这时候游戏 Viewport 已经就绪,`AddToViewport` 大概率静默失败。对比已经验证能正常显示的胜负弹窗:它的 `AddToViewport` 是在 `CheckVictoryCondition`(真正的游戏逻辑,`BeginPlay` 之后很久)里触发的。**把 `Rendering|SetVisibility(comp,false)`(隐藏 WidgetComponent 本身的渲染)/`AddToViewport`/`SetPositionInViewport` 这三步从 `UserConstructionScript` 挪到 `EventGraph.EventBeginPlay`**(`Delay(0.2s)` 之后、`BuildTurnOrder` 之前)之后,实测截图确认屏幕左上角正常显示出"6666"。**`WidgetComponent.SetWidget→AddWidgetComponent→SetWidget→SetWidgetSpace` 这套"借组件触发初始化"的逻辑仍然留在 `UserConstructionScript` 里没动**——只是"真正显示"这三步挪到了 `BeginPlay`。**教训:`WidgetComponent`/`ConstructObjectfromClass` 相关的初始化可以在 Construction Script 里做,但 `AddToViewport` 这种"挂到游戏 Viewport"的操作必须放到 `BeginPlay`(或更晚)的真实游戏逻辑里,不能指望构造脚本阶段游戏 Viewport 已经可用。**
+⚠ **附带观察:`AddToViewport` 会让已经初始化好的 Widget 的 `WidgetTree` 子对象编号往上跳一级**(比如从 `WidgetTree_0` 变成 `WidgetTree_1`),推测 `AddToViewport` 内部对"首次挂载到 Viewport 的 Widget"会重新走一遍类似 `Initialize()`/`RebuildWidget()` 的流程,导致子控件短暂回到设计时默认值——**这是无害的**,后续任何一次 `RefreshOrder` 调用都会把内容覆盖回正确值,不需要额外处理,只是排查时如果发现"刚查的时候是对的,过一会又变回默认文字"不要慌,等下一次数据刷新就好了。
+
+⚠ **2026-08-15 踩坑:`SetWidgetSpace` 必须在 `SetWidget` 之后调用,不能在之前**——最初按"先配置组件属性、再挂 Widget"的直觉顺序写(`AddWidgetComponent → SetWidgetSpace(Screen) → SetDrawSize → ConstructObjectfromClass → SetWidget`),结果 `WBP_OrderBar` 内部所有 `bIsVariable` 子控件(8 个 `TextBlock`)运行时全是 `None`,和胜负弹窗那次踩过的"`ConstructObjectfromClass` 不触发 `bIsVariable` 绑定初始化"是同一类坑——但这次连**血条那套"`WidgetComponent`+`SetWidget`能绕开这个坑"的经验都不管用了**。对比 `BP_Unit` 里跑通的血条写法(`ConstructObjectfromClass → AddWidgetComponent → SetWidget → SetWidgetSpace`(不传参,默认 World)→ `SetDrawSize`),唯一关键差异是 **`SetWidget` 排在 `SetWidgetSpace` 前面**。把顺序换成"先 `SetWidget` 再 `SetWidgetSpace(Screen)`"之后,`get_properties` 读子控件全部变成有效引用,问题消失。**教训:`WidgetComponent` 相关的初始化时序,`SetWidget` 必须是第一个调用的"内容相关"函数,`SetWidgetSpace`/`SetDrawSize` 这类纯外观属性设置放在 `SetWidget` 之后更安全——具体机制未知,但两次独立踩坑（血条能用的写法 vs 这次不能用的写法）指向同一个变量。**
+⚠ **同一轮踩坑:外科手术式改接线时,`connect_pins` 只负责"接上新线",不会自动断开某个节点原有的 exec 输出**——为了把 `SetWidgetSpace` 挪到链路末尾,只把"新的两头"接上(`VariableSet_1→CallFunction_7`、`CallFunction_8→CallFunction_5`),但漏了断开 `CallFunction_5` 自己原来还连着 `CallFunction_7` 的旧线,结果拼出一个环(`CallFunction_7→...→CallFunction_8→CallFunction_5→CallFunction_7→...`),`compile_blueprint` 直接跑成死循环(`Runaway loop detected (over 1,000,000 iterations)`,MCP 调用后台跑了 2 分钟没返回)。**教训:凡是"移动一个节点在 exec 链路里的位置"(不是单纯新增),先用 `get_node_infos` 看清楚该节点原有的所有 exec 连接,该断的用 `break_pins` 显式断掉,不要假设"接新线会自动挤掉旧线"——这只对同一个输出 pin 的场景成立(一个 exec 输出 pin 确实只能接一个下家,新连接会顶掉旧的),对"这个节点的输出还连着别处"完全不成立。**
+
+---
+
+## WBP_OrderBar (`/Game/UI/WBP_OrderBar.WBP_OrderBar_C`,2026-08-15 新增)
+
+> 行动顺序条,对应 web 版 `board.js` 的 `renderOrderBar`。挂在 `BP_TurnManager` 的 `OrderBarComponent`(Screen Space `WidgetComponent`)上,不是 `AddToViewport`。
+
+### 结构
+`OrderBox`(HorizontalBox,根)→ 8 个 `TextBlock`(`Slot0Text`..`Slot7Text`,全部 `bIsVariable=true`,设计时占位文字"Text Block")。**固定 8 个槽位,不做运行时动态增删子控件**——`RefreshOrder` 只改这 8 个已存在控件的文字/颜色/可见性,不调用任何"造一个新 Widget 实例塞进容器"的操作,彻底避开 `ConstructObjectfromClass` 的动态子 Widget 初始化坑(和自己拼接"每个单位一个独立 chip 实例"比,牺牲了"超过 8 个单位就显示不全"这个上限,换来不用再踩一次 bIsVariable 坑)。
+
+### 变量
+| 名字 | 类型 | 说明 |
+|---|---|---|
+| SlotTexts | Array\<TextBlock\> | `RefreshOrder` 每次调用时 `Clear` + 8 次 `Add` 重新填,把 `Slot0Text`..`Slot7Text` 收进一个数组方便循环处理,不用手写 8 段近乎重复的分支 |
+
+### 函数
+- **RefreshOrder(Units: Array\<BP_Unit\>, CurIdx: Int)**:遍历槽位 0-7 —
+  - `slot < Units.Length` → 该槽 `Visibility=Visible`,`Text=ToText(Spd)`,颜色:`slot==CurIdx` → 黄色高亮(当前行动);否则按 `Side` 分蓝(我方)/红(敌方)。
+  - `slot >= Units.Length` → `Visibility=Collapsed`(隐藏多余槽位)。
+  - 由 `BP_TurnManager.StartTurn` 每次调用时驱动刷新(见上方 `StartTurn`),覆盖"顺序变化"(每轮 `BuildTurnOrder` 重排)和"当前高亮变化"(每次 `StartTurn` 移动到下一个单位)两种场景。
+  - ⚠ 已知简化:没有实现 web 版"已经行动过的单位变暗"这个视觉状态(`slot < CurIdx` 的语义上等价于"已行动",但当前 `RefreshOrder` 没有第三种颜色区分它和"还没轮到"的单位)——逻辑上数据都在(`slot`/`CurIdx` 都能拿到),只是没加这一条颜色分支,后续要加的话直接在 `RefreshOrder` 的颜色判断里插一个 `slot < CurIdx` 的 `elif` 即可。
+  - ⚠ **2026-08-15 追加防御**:`slot < Units.Length` 分支里,读 `Spd`/`Side`/`SetText` 之前先包了一层 `Utilities|IsValid`(对 `Units[slot]`)——一方全灭前的最后一轮,`TurnOrder` 里可能还留着"这一帧刚被 `TryAttack` `DestroyActor` 掉"的单位引用,直接读它的属性会报 `not valid (pending kill or garbage)`(实测复现过)。`Is Not Valid` 分支复用外层"槽位隐藏"那个 `SetVisibility(Collapsed)` 调用,不用另外接一遍。**同时把 `BP_TurnManager.StartTurn` 里 `RefreshOrder` 调用的位置从"最前面"挪到了 `bGameOver` 检查之后**——双保险,游戏结束后 `StartTurn` 哪怕又被调用一次也不会再碰 `RefreshOrder`。
 
 ---
 
