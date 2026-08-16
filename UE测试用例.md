@@ -9,6 +9,7 @@
 - [x] 点高亮格子 → 单位移动过去,Z 轴不下沉,范围清除
 - [ ] 点非高亮格子 → 不应该移动(待重新验证,状态机重构后再测;2026-08-15 已部分收窄——只有轮到的单位能点出高亮,见下方"回合"一节,但"移动/攻击模式互斥"仍未做完整状态机)
 - [x] 移动目标格若有其他单位占用 → 不应该能选中(2026-08-15 已在 `ShowRange` 加 `IsTileOccupied` 占位检查,MCP 直接图编辑完成、编译通过,人工 Play 实测确认重叠格子不再高亮)
+- [ ] **一回合只能移动一次**(2026-08-16 新增,用户 Play 实测反馈"现在可以无限移动,MoveRange 就没有意义了"):移动一次后再点自己单位,不应该再弹出黄/红高亮,点任何格子都不应该再次移动。已通过 `BP_Unit.bHasMoved` + `StartTurn` 重置 + `ActorOnClicked` 门槛 + `BP_Tile.ActorOnClicked` 置位四处协同实现,MCP 侧回归测试(11 条断言)重跑全 PASS,但这是纯交互行为,还没有人工 Play 验收过,见 `UE蓝图状态.md` 已知问题9。
 
 ## 回合(2026-08-15 大改:不再是"生成顺序 + N 键手动切",已重写为下面这套流程,见 `UE蓝图状态.md` `BP_TurnManager` 一节)
 - [x] 行动顺序条 UI(`WBP_OrderBar`)在屏幕左上角正确显示,内容跟随 `RefreshOrder` 更新(2026-08-15 实测截图确认显示出占位数字;根因是 `AddToViewport` 必须放在 `BeginPlay` 而不是 `UserConstructionScript` 里才生效,踩坑细节见 `UE蓝图状态.md`/`UE节点备忘录.md`)
@@ -21,6 +22,7 @@
 - [x] 点我方(不移动)→ 点相邻敌方 → 攻击链路执行(早期 Print 验证时数值 -30,是因为 HP 默认值当时未设,链路本身通;Class Defaults 补上后见下一条)
 - [x] HP/Atk/Def/MaxHP 的 Class Defaults 数值已设置为合理测试值(2026-08-15 核实:HP=MaxHP=20,Atk=10,Def=5,Spd=6,MoveRange=5,AtkRange=2)
 - [ ] 攻击范围红色高亮(`ShowAttackRange`)——点自己单位后屏幕上真的能看到一圈红格子(2026-08-15 自动回归测试 T8 只验证了 `AtkHighlighted` 布尔标记被正确置位,"视觉上真的渲染出红色"这一步仍需要人工在编辑器里 Play 验收——MCP 工具集目前没有 3D 视口鼠标点选能力,`SlateInspectorToolset.Click` 只能点 Slate UI 控件,不支持按世界坐标点选 actor)
+- [ ] **红色高亮的语义已改**(2026-08-16,用户反馈"红色应该是移动范围的最外围,也就是最远能打哪里,而不是当下位置的攻击范围"):半径从 `AtkRange` 改成 `MoveRange+AtkRange`,人工 Play 验收时注意——移动范围(黄)基本会被新的攻击范围(红)整体覆盖(这是预期表现,不是回归,因为红色范围现在必然 ≥ 黄色范围,见 `UE蓝图状态.md` `ShowAttackRange` v3 说明);需要确认的是红圈边缘确实到了 `MoveRange+AtkRange` 格远,而不是停在原来的 `AtkRange`。
 - [ ] 攻击后 HP 按新公式 `max(1, round(Atk×9/(9+Def)))` 正确变化,不再是占位版 `max(0,Atk-Def)`(2026-08-15 已切换实现,自动回归测试 T5 只确认"HP 确实下降"这一件事,没有断言具体数值;按 Atk=10/Def=5 手算应扣 6 血,这个数值本身还没有专门的自动断言或人工 Play 逐帧核对过,建议下次顺手验一下)
 - [x] 超出 AtkRange 的敌方点击 → 无效果(根因是 SpawnUnit/BP_Tile 移动都没写逻辑坐标 Col/Row,修复后实测通过)
 - [x] HP≤0 → 单位从场上移除(DestroyActor)——修复了 Target 未接 Defender、误伤 GridManager 自己的 bug 后确认正常

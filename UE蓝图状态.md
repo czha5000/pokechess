@@ -24,6 +24,7 @@
 | AtkRange | Integer | 未知 | Class Defaults = 2,**已接入 `TryAttack` 的距离判断**(此前"还没接入判断"的记录已过时,见已知问题2) |
 | HealthBarComponent | WidgetComponent | (2026-08-15 新增) | 头顶血条的 WidgetComponent,`UserConstructionScript` 里动态创建 |
 | HealthBarWidget | WBP_HealthBar (Object) | (2026-08-15 新增) | 血条 Widget 实例,`UserConstructionScript` 里 `ConstructObjectfromClass` 生成后经 `SetWidget` 挂到 `HealthBarComponent` 上,同时存一份引用在这个变量方便其他函数直接调用 |
+| bHasMoved | Boolean | (2026-08-16 新增,默认 false) | 本回合是否已经移动过。`BP_TurnManager.StartTurn` 轮到该单位时重置为 false;`BP_Tile.ActorOnClicked` 里真正挪动位置后置为 true;`ActorOnClicked` 里再点自己会检查这个标记,已移动就不再弹出移动/攻击高亮。用途:修复"一回合能无限移动"的 bug,见下方 `ActorOnClicked`/已知问题3。 |
 
 ### 函数
 - **Setup(bAlly: Bool)**:`Set Side = bAlly` → Branch(Side) → False 分支 `Mesh.SetMaterial(0, M_Enemy)` → **`UpdateHealthBar()`(2026-08-15 新增,初始化血条为满血)**
@@ -43,17 +44,20 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### EventGraph
 - BeginPlay / ActorBeginOverlap / Tick:模板残留,**Disabled,不用管**
-- **ActorOnClicked**(核心逻辑,已重构;**2026-08-15 加了"只有轮到的单位才能点"门槛 + 攻击命中后自动结束回合;同日再追加 ShowAttackRange 重触发修复**):
+- **ActorOnClicked**(核心逻辑,已重构;**2026-08-15 加了"只有轮到的单位才能点"门槛 + 攻击命中后自动结束回合;同日再追加 ShowAttackRange 重触发修复;2026-08-16 再加"一回合只能移动一次"门槛**):
   ```
   Event → Branch(Side)
     True(点我方) → 取 TurnManager.TurnOrder[CurrentIndex] → 是否等于 self?
-        是 → GetAllActorsOfClass(GridManager)[0] → ShowRange(Unit=self) → ShowAttackRange(Unit=self)
+        是 → Branch(NOT self.bHasMoved)
+            true(还没移动过)→ GetAllActorsOfClass(GridManager)[0] → ShowRange(Unit=self) → ShowAttackRange(Unit=self)
+            false(已经移动过)→ 什么都不做(不再弹高亮,防止一回合移动多次)
         否 → 什么都不做(不是你的回合,点了也没用)
     False(点敌方) → GetAllActorsOfClass(GridManager)[0] → TryAttack(Defender=self)
         → 再读一次 Grid.SelectedUnit,`IsValid`?
             Is Not Valid(TryAttack 内部命中后会把 SelectedUnit 清成 None)→ 说明这次真打中了 → TurnManager.EndTurn()
             Is Valid(还是原来那个值,说明超出射程/没选中单位,TryAttack 内部什么都没做)→ 不结束回合,允许玩家挪近了再点
   ```
+  **2026-08-16 新增"一回合只能移动一次"门槛**:此前没有任何东西阻止玩家在同一回合内反复点自己→挪动→再点自己→再挪动,`MoveRange` 形同虚设。修复分三处协同(单靠某一处都不完整):①`BP_Unit` 新增 `bHasMoved` 变量;②`BP_TurnManager.StartTurn` 轮到该单位时(True/我方分支)重置为 `false`(见 `BP_TurnManager.StartTurn` 词条);③`BP_Tile.ActorOnClicked` 真正执行移动(`SetActorLocation` 之后)时置为 `true`(见 `BP_Tile.ActorOnClicked` 词条);④这里的 `ActorOnClicked` 在跳去 `ShowRange`/`ShowAttackRange` 之前插入 `Branch(NOT bHasMoved)` 门槛,已移动就整段跳过,不再弹出任何高亮——玩家点自己没有任何反应,只能继续点敌方尝试攻击或直接结束回合(暂无"结束回合"按钮,靠攻击命中或轮到敌方自动推进,已知简化)。全部通过 MCP `create_node`/`connect_pins` 增量插入,`compile_blueprint` 后 `get_node_infos` 逐个核对过 exec 连接,回归测试 11 条断言重跑全 PASS。**待人工 Play 验收**:点自己单位移动一次后,再点自己应该不再出现黄/红高亮;点已高亮以外的格子应该没有效果。
   **2026-08-15 bug 修复(共两处,叠加导致"完全看不到攻击范围")**:
   1. **触发时机问题**:此前 `ShowAttackRange` 只在 `BP_TurnManager.StartTurn` 里调用一次,玩家移动后再点回自己单位(重新触发 `ActorOnClicked` → `ShowRange`)时不会重新刷新攻击范围红色高亮。修复:在 `ShowRange` 调用后紧接着插入一个新节点 `K2Node_CallFunction_16 = Class|BPGridManager|ShowAttackRange(self=GridManager引用, Unit=self)`,复用已有的 `K2Node_GetArrayItem_4`(GridManager引用)和 `K2Node_Self_1`(self)两个输出做扇出,`then` 接回原来 `ShowRange.then` 指向的 `IfThenElse_3`。
   2. **判定语义问题(真正的根因)**:第一处修复后用户实测仍然"看不到高亮",排查发现 `ShowAttackRange` 内部逻辑当时是"只高亮当前恰好有敌人站在射程内的格子"——如果点击那一刻没有敌人正好落在范围内,压根不会有任何格子被标记,材质/渲染链路本身没问题(用 `get_property_input` 对比过 `M_AtkHighlight` 和已验证能正常显示的 `M_Highlight`,BaseColor 连线结构完全一致)。改成"以单位当前位置为圆心,曼哈顿距离 1~AtkRange 内的格子一律高亮",不再依赖敌人是否在场,和移动范围黄色高亮同构。详见 `BP_GridManager.ShowAttackRange` 词条。
@@ -74,6 +78,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
    - `SpawnUnit`(GridManager):只把新单位摆到了正确的世界坐标(`SetActorTransform`/`SpawnActorFromClass` 的 Location),从没 `Set Col`/`Set Row`——生成的单位逻辑坐标永远是默认值 0。已修复:生成后从对应 `BP_Tile` 读 `Col`/`Row` 写回新单位。
    - `BP_Tile.ActorOnClicked`:移动逻辑只做了 `SetActorLocation`(挪世界坐标)+ `ClearHighlights`,文档里记的"更新 SelectedUnit.Col/Row"这一步实际上从没实现过。已修复:`ClearHighlights` 之后补上从本格读 `Col`/`Row` 写入 `SelectedUnit` 的两个 `Set` 节点。
    - **教训(已写入节点备忘录)**:视觉位置(世界坐标)和逻辑位置(Col/Row 整数变量)是两套独立数据,挪动/生成 Actor 只会同步视觉位置,逻辑坐标必须显式手动同步,UE 不会自动帮你对齐。
+9. ~~一回合能无限移动,MoveRange 形同虚设~~ ✅ 已解决(2026-08-16,用户 Play 实测反馈):点自己单位→移动→再点自己→再移动,原来完全没有限制,`MoveRange` 只影响单次移动的距离,不影响移动次数。已通过新增 `BP_Unit.bHasMoved` 标记 + `StartTurn`/`ActorOnClicked`/`BP_Tile.ActorOnClicked` 三处协同解决,见 `BP_Unit.ActorOnClicked` 词条。**注意与已知问题3的区别**:问题3是"移动逻辑和攻击逻辑共用 SelectedUnit,没有状态机"这个更深的结构性问题,本条只是"移动次数没有上限"这个具体表现,两者不是同一个问题,问题3依然未解决。
 
 **Step5(攻击+伤害公式)核心链路已跑通并验证**:点我方→点相邻敌方→伤害生效→HP≤0 正确移除目标(不再误伤 GridManager);AtkRange 范围判断经实测确认生效(超范围不掉血,范围内正常掉血)。仍是占位公式 `max(0, Atk-Def)`,真实 DEF_K 公式和 Class Defaults 数值设置留作后续。
 
@@ -95,9 +100,10 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### 函数
 - **ClearHighlights**(GUID `0F31C30A44B85167E0CE73A25A1D95FC`):For Each Tiles → `SetHighlight(False)`
-- **ShowAttackRange(Unit: BP_Unit)**(2026-08-15 新增,红色攻击范围高亮;**同日两次修复,第二次改了语义**):
+- **ShowAttackRange(Unit: BP_Unit)**(2026-08-15 新增,红色攻击范围高亮;**同日两次修复改了语义,2026-08-16 又改了一次半径公式**):
   - **v1(已废弃)**:`GetAllActorsOfClass(BP_Unit)` → For Each,若 `Side` 和 `Unit` 不同 → 算曼哈顿距离(`ManhattanDistance`)→ ≤ `Unit.AtkRange` → 找到该敌方单位所在的 `Tile` → `SetAttackHighlight(True)`。**问题**:只高亮"当前恰好在射程内的敌方单位所在格",如果点击那一刻没有敌人正好落在范围内,就完全不会有任何红格子出现——这正是用户反馈"看不到攻击范围"的根本原因(不是渲染/材质问题,是"该亮的格子这次根本没被判定为该亮")。
-  - **v2(当前版本,2026-08-15 第二次修复)**:改成和 `ShowRange` 同构的"范围本身"高亮,不再依赖敌人是否恰好在场:`For Each Tiles` → 曼哈顿距离(`Unit.Col/Row` → `Tile.Col/Row`)在 `1..Unit.AtkRange` 之间(`<=AtkRange 且 >0`,排除自己脚下那格)→ `SetAttackHighlight(True)`。也就是不管有没有敌人,只要点自己单位就会立刻围绕它显示一圈红格子,和 `ShowRange` 的黄色移动范围逻辑对称,符合用户说的"移动=黄,攻击=红"的直观预期。**已知简化**:调用顺序是先 `ShowRange`(黄)后 `ShowAttackRange`(红),如果某格子同时落在移动范围和攻击范围内,会被红色覆盖(材质槽只有一个,后调用的赢),目前没有做双色叠加或优先级区分,先记录着,后续如果要做"移动+攻击范围并存"的双色提示再回来改。
+  - **v2(2026-08-15 第二次修复)**:改成和 `ShowRange` 同构的"范围本身"高亮,不再依赖敌人是否恰好在场:`For Each Tiles` → 曼哈顿距离(`Unit.Col/Row` → `Tile.Col/Row`)在 `1..Unit.AtkRange` 之间(`<=AtkRange 且 >0`,排除自己脚下那格)→ `SetAttackHighlight(True)`。也就是不管有没有敌人,只要点自己单位就会立刻围绕它显示一圈红格子,和 `ShowRange` 的黄色移动范围逻辑对称,符合用户说的"移动=黄,攻击=红"的直观预期。
+  - **v3(当前版本,2026-08-16 第三次修复,改了语义)**:用户明确反馈"红色高亮应该是移动范围的最外围,也就是最远能打哪里,而不是当下位置的攻击范围"——v2 的半径只算 `Unit` **当前站的格子**能打多远,没考虑"先移动再攻击"这个战术意图。改成半径 `1..(Unit.MoveRange + Unit.AtkRange)`(仍然以 `Unit` 当前 Col/Row 为圆心算曼哈顿距离,只是上限从 `AtkRange` 换成 `MoveRange+AtkRange`),代表"移动到射程边缘后最远能打到的格子"。**已知简化**:红圈仍然是从当前位置算的固定半径圆,不是"先精确算可达移动格集合、再对每个可达格子分别画攻击范围再取并集"的精确战术威胁区(那样需要真实寻路,当前移动本身就是曼哈顿距离占位、不绕障碍物,见 `ShowRange` 已知简化),半径相加是这套简化寻路下的等价近似。改动仅涉及"半径怎么算"这一处比较条件,`ManhattanDistance` 调用和其它逻辑都没动;实现细节(踩过的孤立节点识别坑)见 `UE节点备忘录.md` 坑11。**已知简化(v2 遗留,v3 未变)**:调用顺序是先 `ShowRange`(黄)后 `ShowAttackRange`(红),如果某格子同时落在移动范围和攻击范围内,会被红色覆盖(材质槽只有一个,后调用的赢),目前没有做双色叠加或优先级区分——v3 半径变大后,移动范围内的格子基本必然也落在新的攻击范围内,所以移动范围的黄色高亮实际上**几乎全部会被红色盖掉**,这是本次改动的直接副作用,和用户"红色=最远能打哪里"的描述一致(红色本就该覆盖到比黄色更大的范围),不算 bug,但人工 Play 验收时会看到"点自己之后几乎看不到黄色、大片都是红色",属于预期表现,不要误判成回归。
   - 由 `BP_TurnManager.StartTurn` 和 `BP_Unit.ActorOnClicked`(点自己单位重新选中时)两处调用,`ShowRange` 之后紧接着调用,`ClearHighlights` 已同步扩展会同时清 `AtkHighlighted`。⚠ 建 Col/Row 相关的跨对象取值节点踩过坑:`Class|BPTile|GetCol`/`Class|GridSlot|GetRow` 这类"类名写错"的别名(历史遗留、`read_graph_dsl` 解码出来的)不能直接抄去用在 `BP_Unit` 引用上,必须显式写 `Class|BPUnit|GetCol`/`Class|BPUnit|GetRow`(类名和实际目标类一致)才能通过 `write_graph_dsl` 正确建出节点,细节记进了 `UE节点备忘录.md`。
 - **ShowRange(Unit: BP_Unit)**(GUID `365A39F74D91FB2F1BEFE78294302FF7`):ClearHighlights → `Set SelectedUnit=Unit` → For Each Tiles → 曼哈顿距离 ≤ `Unit.MoveRange` 且 ≠0 **且 `NOT IsTileOccupied(Tile.Col, Tile.Row)`**(2026-08-15 新增,见下方 `IsTileOccupied`)→ `SetHighlight(True)`(⚠不是BFS,已知简化;占位检查已补,BFS 仍未做)
 - **IsTileOccupied(Col: Int, Row: Int) → Bool**(2026-08-15 新增,MCP 直接图编辑,`create_node`/`connect_pins` 逐节点搭建,未走 DSL 整函数重写):`GetAllActorsOfClass(BP_Unit)` → For Each → 若某单位的 `Col`/`Row` 同时等于参数 → `return true`;循环结束 `return false`。用途:阻止 `ShowRange` 把已被任意单位(我方或敌方)占用的格子标记为可移动目标,修复"单位能移动到和敌人重叠的格子"的 bug。
@@ -141,8 +147,9 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - **SetAttackHighlight(bOn: Bool)**(2026-08-15 新增,攻击范围红色高亮):和 `SetHighlight` 完全同构,只是换了一套变量:`AtkHighlighted`(Bool)+`AtkHighlightMat`(Material Interface,Class Default=`/Game/Maps/M_AtkHighlight`,红色 `(1,0.08,0.08)`)。`bOn=false` 时两个高亮函数都切回同一个 `NormalMat`,不会互相打架——因为移动高亮和攻击高亮在设计上互斥(前者排除被占用格,后者只落在被敌方占用的格上)。
 
 ### EventGraph
-- ActorOnClicked → Branch(self.Highlighted) → True:`GetAllActorsOfClass(GridManager)[0]` → `Get SelectedUnit` → `Set Actor Location`(SelectedUnit,本格世界坐标 + Z50)→ `ClearHighlights` → **`Set SelectedUnit.Col`/`Set SelectedUnit.Row`(本轮新增,读本格 self.Col/self.Row 写回 SelectedUnit)** → (链路到此结束)
+- ActorOnClicked → Branch(self.Highlighted) → True:`GetAllActorsOfClass(GridManager)[0]` → `Get SelectedUnit` → `Set Actor Location`(SelectedUnit,本格世界坐标 + Z50)→ **`Set SelectedUnit.bHasMoved = true`(2026-08-16 新增,`Class|BPUnit|SetHasMoved`,MCP `create_node`/`connect_pins` 增量插入在 `SetActorLocation.then` 和原来的 `ClearHighlights` 之间)** → `ClearHighlights` → **`Set SelectedUnit.Col`/`Set SelectedUnit.Row`(本轮新增,读本格 self.Col/self.Row 写回 SelectedUnit)** → (链路到此结束)
   - False(未高亮):不执行任何逻辑,符合"点非高亮格子不应移动"的预期。
+  - **2026-08-16 新增 `bHasMoved` 置位**:配合 `BP_Unit.bHasMoved`/`BP_TurnManager.StartTurn` 的重置,修复"一回合能无限移动"的 bug,见 `UE蓝图状态.md` → `BP_Unit.ActorOnClicked` 词条和已知问题9。这里只负责"移动真的发生了"这一个事实的记录,不判断是否允许移动(允许与否的门槛在 `BP_Unit.ActorOnClicked` 里)。
   - ⚠ 修复前这里只有 `SetActorLocation + ClearHighlights`,完全没有更新逻辑坐标这一步(旧文档记录有误,实际从未实现),导致移动只改视觉位置、不改 Col/Row,是"攻击距离判断失效"的根本原因之一(另一处是 SpawnUnit,见 BP_Unit 已知问题8)。
   - ~~⚠ 已知遗留:链路末尾没有 `Set SelectedUnit = None`~~ ✅ **2026-08-13 已修复**:节点其实早就存在(`K2Node_ClearSU`,`|SetSelectedUnit`),但之前某轮编辑漏接了 `self`(Target,类型 `BP Grid Manager Object Reference`)引脚,导致蓝图**编译失败但没人发现**——直到本轮 MCP 会话触发重新编译才暴露(`load_level` 时引擎报 `EnsureFailed`,Play 时报 `Blueprint failed to compile: BP_Tile`,棋盘因此生不出来)。用 MCP `BlueprintTools`(`find_nodes`→`get_node_infos`→`connect_pins`→`compile_blueprint`)把 `self` 接到图里已有的 GridManager 引用(`K2Node_GetArrayItem_1` 输出,和旁边 `ClearHighlights` 用的是同一个)上,重新编译无报错,`save_assets` 落盘,`git diff` 确认改动(`BP_Tile.uasset` 111462→110054 字节)。**这是 `BlueprintTools` 图编辑路径第一次在真实内容上验证通过**,详见 `UE协作Harness规范.md` 0.1 节。
   - **教训**:蓝图编译错误可能长期潜伏不暴露(只在触发重新编译时才检查),`git diff` 干净不代表逻辑没问题——`.uasset` 从上次提交起字节没变,不等于它是"健康"的,可能本来就带着编译错误躺在那。以后接手新 session、或触发 `load_level`/Play 之类会强制重编译的操作前,最好先用 `BlueprintTools.compile_blueprint` 主动查一遍关键蓝图的编译状态。
@@ -163,7 +170,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | OrderBarWidget | WBP_OrderBar | (2026-08-15 新增,`ConstructObjectfromClass` 出来的行动顺序条实例) |
 
 ### 函数
-- **StartTurn**(GUID `B1B2BD0C4A80D0C6355B6A862565F459`,**2026-08-15 改过,加了敌方 AI 分支和死亡单位跳过;同日又修过一次真实的接线 bug,见下;同日又加了 `bGameOver` 门槛和行动顺序条刷新,见下**):
+- **StartTurn**(GUID `B1B2BD0C4A80D0C6355B6A862565F459`,**2026-08-15 改过,加了敌方 AI 分支和死亡单位跳过;同日又修过一次真实的接线 bug,见下;同日又加了 `bGameOver` 门槛和行动顺序条刷新,见下;2026-08-16 我方分支新增 `bHasMoved` 重置**):
+  - **`true`(我方)分支新增 `Set (该单位).bHasMoved = false`**(2026-08-16,MCP `create_node`/`connect_pins` 增量插入在 `Branch(Side).then` 和 `ShowRange` 之间,用 `read_graph_dsl`/`write_graph_dsl` 整函数重写失败——`bGameOver` getter 的可创建 type_id 三次尝试都不对,详见 `UE节点备忘录.md` 坑12,最后改用纯增量节点插入):每次轮到该单位时把"本回合是否已移动"清零,配合 `BP_Unit.ActorOnClicked` 的门槛检查和 `BP_Tile.ActorOnClicked` 的置位,修复"一回合能无限移动"的 bug。只在我方分支重置,敌方走 `RunEnemyTurn` 不受影响(敌方本来就不通过这套点击门槛移动)。
   - **入口先查 `Grid.bGameOver`**(2026-08-15 新增,**同日又把它挪到了整个函数最前面,见下**):`true` → 什么都不做,直接结束(不再往下推进回合)。**根因**:一方全灭后,`CheckVictoryCondition` 只负责弹窗和置位 `bGameOver`,回合循环本身从来没人检查过这个变量,导致继续 `StartTurn`→`RunEnemyTurn`→`FindNearestUnit0` 在已经没有对方单位的情况下找不到目标返回 `None`,后续 `MoveUnitTowardTarget`/`TryAttack` 拿这个 `None` 硬用,级联报一长串 `Accessed None`(实测复现过,`Output Log` 刷屏)。
   - **`false` 分支调用 `OrderBarWidget.RefreshOrder(TurnOrder, CurrentIndex)`**(2026-08-15 新增)刷新行动顺序条,再走原有逻辑。⚠ **最初把这一步放在了 `bGameOver` 检查前面**,导致游戏结束后如果还有最后一次 `StartTurn` 触发,`RefreshOrder` 会拿到刚被 `TryAttack` `DestroyActor` 的单位引用读属性,报 `not valid (pending kill or garbage)`(实测复现)——**已改成 `bGameOver` 检查在最前面,`RefreshOrder` 挪进 `false` 分支里**,游戏结束后彻底不会再碰它(`RefreshOrder` 自己也加了 `IsValid` 防御,见 `WBP_OrderBar` 一节,双保险)。
   - 取 `TurnOrder[CurrentIndex]` → `Utilities|IsValid` 宏(`Is Valid`/`Is Not Valid` 两条 exec 出口)判断该单位是否还有效(比如已经被 `TryAttack` 杀死但 `TurnOrder` 数组从没刷新过,里面还留着死单位的引用)。
