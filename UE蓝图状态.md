@@ -174,7 +174,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### 函数
 - **StartTurn**(GUID `B1B2BD0C4A80D0C6355B6A862565F459`,**2026-08-15 改过,加了敌方 AI 分支和死亡单位跳过;同日又修过一次真实的接线 bug,见下;同日又加了 `bGameOver` 门槛和行动顺序条刷新,见下;2026-08-16 我方分支新增 `bHasMoved` 重置**):
-  - **`true`(我方)分支新增 `Set (该单位).bHasMoved = false`**(2026-08-16,MCP `create_node`/`connect_pins` 增量插入在 `Branch(Side).then` 和 `ShowRange` 之间,用 `read_graph_dsl`/`write_graph_dsl` 整函数重写失败——`bGameOver` getter 的可创建 type_id 三次尝试都不对,详见 `UE节点备忘录.md` 坑12,最后改用纯增量节点插入):每次轮到该单位时把"本回合是否已移动"清零,配合 `BP_Unit.ActorOnClicked` 的门槛检查和 `BP_Tile.ActorOnClicked` 的置位,修复"一回合能无限移动"的 bug。只在我方分支重置,敌方走 `RunEnemyTurn` 不受影响(敌方本来就不通过这套点击门槛移动)。
+  - **`true`(我方)分支新增 `Set (该单位).bHasMoved = false`**(2026-08-16,MCP `create_node`/`connect_pins` 增量插入在 `Branch(Side).then` 和 `ShowRange` 之间,用 `read_graph_dsl`/`write_graph_dsl` 整函数重写失败——`bGameOver` getter 的可创建 type_id 三次尝试都不对,详见 `UE节点备忘录.md` 坑12,最后改用纯增量节点插入):每次轮到该单位时把"本回合是否已移动"清零,配合 `BP_Unit.ActorOnClicked` 的门槛检查和 `BP_Tile.ActorOnClicked` 的置位,修复"一回合能无限移动"的 bug。只在我方分支重置,敌方走 `RunEnemyTurn` 不受影响(敌方本来就不通过这套点击门槛移动)。**紧接着(2026-08-16 同日第四轮修复)又插入了 `Set PendingSkillIsElemental = false`**:每个单位轮到自己时把"待用技能选择"也清零,修复"原地攻击(不走菜单)会用上一个单位残留的技能选择"这个 bug,见下方"输入模式来回切换…"一节。
   - **入口先查 `Grid.bGameOver`**(2026-08-15 新增,**同日又把它挪到了整个函数最前面,见下**):`true` → 什么都不做,直接结束(不再往下推进回合)。**根因**:一方全灭后,`CheckVictoryCondition` 只负责弹窗和置位 `bGameOver`,回合循环本身从来没人检查过这个变量,导致继续 `StartTurn`→`RunEnemyTurn`→`FindNearestUnit0` 在已经没有对方单位的情况下找不到目标返回 `None`,后续 `MoveUnitTowardTarget`/`TryAttack` 拿这个 `None` 硬用,级联报一长串 `Accessed None`(实测复现过,`Output Log` 刷屏)。
   - **`false` 分支调用 `OrderBarWidget.RefreshOrder(TurnOrder, CurrentIndex)`**(2026-08-15 新增)刷新行动顺序条,再走原有逻辑。⚠ **最初把这一步放在了 `bGameOver` 检查前面**,导致游戏结束后如果还有最后一次 `StartTurn` 触发,`RefreshOrder` 会拿到刚被 `TryAttack` `DestroyActor` 的单位引用读属性,报 `not valid (pending kill or garbage)`(实测复现)——**已改成 `bGameOver` 检查在最前面,`RefreshOrder` 挪进 `false` 分支里**,游戏结束后彻底不会再碰它(`RefreshOrder` 自己也加了 `IsValid` 防御,见 `WBP_OrderBar` 一节,双保险)。
   - 取 `TurnOrder[CurrentIndex]` → `Utilities|IsValid` 宏(`Is Valid`/`Is Not Valid` 两条 exec 出口)判断该单位是否还有效(比如已经被 `TryAttack` 杀死但 `TurnOrder` 数组从没刷新过,里面还留着死单位的引用)。
@@ -245,7 +245,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 ### BP_TurnManager 新增函数(均为全新空函数,`write_graph_dsl` 整函数写入,无孤立节点风险)
 - **ShowActionMenu()**:`ActionMenuWidget.SetVisibility(Visible)` → `GetPlayerController(0)` → `SetInputModeGameAndUI`。**调用前提**:调用方必须先设置好 `PendingActionUnit`,这个函数本身不接收参数(`add_function_param` 不支持 Object 类型参数,只能走"先设变量、再调用"这个既有约定)。切到 Game+UI 输入模式是为了让 UMG 按钮真的能收到鼠标点击——项目里 3D Actor 点击(`bEnableClickEvents`)靠的是纯 Game 模式下的场景拾取,默认不会路由到屏幕 UI,这是让弹窗按钮可点的必要步骤(**未做过真人 Play 验证,是本轮最大的不确定项**,见下方"待人工验收")。
-- **HideActionMenu()**:`ActionMenuWidget.SetVisibility(Collapsed)` → `SetInputModeGameOnly`(切回纯游戏输入,恢复正常的 3D 点击)→ `Set PendingActionUnit=None`。
+- **HideActionMenu()**(2026-08-16 删掉了 `SetInputModeGameOnly` 那一步,见下方"输入模式不再切回去"):`ActionMenuWidget.SetVisibility(Collapsed)` → `Set PendingActionUnit=None`。
 - **StandbyAction()**:`HideActionMenu()` → **`Grid.SetSelectedUnit(None)`(2026-08-16 新增)** → `EndTurn()`——对应"待命"按钮,不攻击直接结束回合。清空 `SelectedUnit` 这一步是从 `BP_Tile.ActorOnClicked` 移动收尾那里挪过来的(见下方"根因修复"),挪到这里才是真正"这个单位操作序列结束"的时机。
 - **UndoAction()**:`Utilities|IsValid(PendingActionUnit)` →
   - Valid → `SetActorLocation(PendingActionUnit, PendingActionUnit.StartLocation)` → `Set PendingActionUnit.Col=StartCol` → `Set PendingActionUnit.Row=StartRow` → `Set PendingActionUnit.bHasMoved=false`(**撤销后允许重新移动**,不是"什么都不能做了")→ `Grid.ClearHighlights()` → `HideActionMenu()`
@@ -268,6 +268,9 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 2. 弹窗的屏幕位置(`(500,400)`,像素坐标,没有根据分辨率或单位屏幕位置动态调整)是否挡住了棋盘或者位置别扭。
 3. **本轮改动待验收**:①移动完成后红色攻击范围是否正确围绕单位新位置显示(`ShowAttackRangeCurrent`);②"攻击"→点敌方是否正常掉血/命中判定是否符合预期(修复了 `SelectedUnit` 被误清空的问题,理论上应该恢复正常);③"撤销"后能否重新点自己单位再次移动(如果还不行,说明不是这次修的根因,是独立的输入路由问题);④"待命"后回合是否正常推进到下一个单位(清空 `SelectedUnit` 的时机挪到了这里,需确认没有引入新问题)。
 4. 敌方单位没有走这套菜单流程(它们的移动由 `RunEnemyTurn` 自动完成,不经过 `BP_Tile.ActorOnClicked`),理论上不受影响,但建议顺手确认一下敌方回合别被新逻辑误伤。
+
+### 2026-08-16 第四轮反馈修复:输入模式来回切换导致点击时灵时不灵 + 原地攻击读到残留技能选择
+用户实测反馈两条:①"有时候移动点一下就可以,有时候要双击";②"不能原地攻击"。排查确认两者同根同源——`ShowActionMenu`/`HideActionMenu` 每次弹菜单/关菜单都在 `GameAndUI`/`GameOnly` 之间来回切换输入模式,UE 切换输入模式会重置 Viewport 焦点/鼠标捕获状态,连续快速切换时不保证下一次点击能立刻被正确路由,第一次点击可能被"夺回焦点"这个动作本身吃掉;"原地攻击"完全不经过菜单,如果上个单位操作后输入模式恰好停在过渡态,当前单位的两次点击(点自己、点敌人)都可能被吞。**修法**:`bEnableClickEvents` 驱动的 3D 点击在 `GameAndUI` 模式下本来就能正常工作(项目里除 `WBP_ActionMenu` 外的 Widget 都不拦截点击,菜单隐藏时是 `Collapsed` 不参与命中测试),所以**没必要每次隐藏菜单都切回 `GameOnly`**——删掉 `HideActionMenu` 里的 `SetInputMode_GameOnly` 调用,游戏从第一次弹菜单开始就永久留在 `GameAndUI`,不再有"过渡态"这个不稳定窗口。**附带修复**:原地攻击(不移动、不走菜单)时 `TryAttack` 用的 `bUseSkill2` 读自 `TurnManager.PendingSkillIsElemental`,这个变量只在点菜单按钮时写入,原地攻击会读到上一个单位的残留选择——已在 `StartTurn` 重置 `bHasMoved=false` 的同一处顺手把它归零,保证每个单位轮到自己默认是"普通攻击",除非这回合真的移动后在菜单里主动选了"元素技能"。详见 `UE节点备忘录.md` 坑25。11 条自动回归断言重跑全 PASS。**待人工 Play 重新验收**:连续移动多个单位确认不再需要双击;点自己单位不移动、直接点相邻敌人确认能正常攻击。
 
 ---
 

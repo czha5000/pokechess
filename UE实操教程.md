@@ -31,6 +31,7 @@
   - `WBP_ActionMenu` 从 3 按钮扩到 4 个:"攻击"拆成"普通攻击"/"元素技能",各自把选择写进 `BP_TurnManager.PendingSkillIsElemental` 再隐藏菜单。
   - **本轮踩了两个新坑,价值较高**:①`create_node` 建"调用另一个蓝图自定义函数"的节点,必须用 `Class|<类名>|<函数名>` 前缀 + `declaring_class`,`CallFunction|` 前缀只对自身蓝图内部函数有效(哪怕 `find_node_types` 精确搜出来的就是 `CallFunction|` 形式,一样建不出来);②给新 Function 写含 `(return X)` 的函数体之前,必须先 `add_function_param(input_param=false)` 显式声明输出参数,否则编译不报错但函数其实是 void——第一版 `GetTypeMultiplier` 就踩了这个,靠 `find_nodes` 主动核实"有没有 `K2Node_FunctionResult` 节点"才发现。详见 `UE节点备忘录.md` 坑22-24。
   - 11 条自动回归断言全 PASS,实测日志确认 `HIT dmg=6` 和公式手算吻合。**待人工 Play 验收**:菜单两个技能按钮、克制/反克制的伤害差异、命中率偶尔 MISS、遗物生效后属性变化,见 `UE测试用例.md`"技能与遗物"一节。
+- **2026-08-16 第四轮反馈,修复"点击时灵时不灵"**:用户报"移动有时候点一下有时候要双击"+"不能原地攻击"。排查确认同根同源——`ShowActionMenu`/`HideActionMenu` 每次弹菜单/关菜单都在 `GameAndUI`↔`GameOnly` 之间来回切换输入模式,UE 切换输入模式会重置 Viewport 焦点,连续切换时下一次点击不保证立刻生效,原地攻击(完全不走菜单)又特别容易撞上"上个单位操作后模式停在过渡态"这种情况。**修法**:删掉 `HideActionMenu` 里切回 `GameOnly` 的那一步,游戏从第一次弹菜单起永久留在 `GameAndUI`,不再有过渡态——`bEnableClickEvents` 驱动的 3D 点击在 `GameAndUI` 模式下本来就能正常工作,没必要切回去。附带修了一个次要 bug:原地攻击会读到上一个单位残留的"元素技能"选择,已在 `StartTurn` 里把 `PendingSkillIsElemental` 和 `bHasMoved` 一起清零。11 条自动回归断言重跑全 PASS。详见 `UE节点备忘录.md` 坑25。**待人工 Play 重新验收**:连续移动多个单位确认不再需要双击;原地攻击是否正常。
 - **下一步方向待定**:切片已完成,下一阶段是"补真实度"(数值对表)还是"扩内容"(更多单位/关卡)需要和用户对齐后再定,不要自己假设方向。
 - **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`——**任何新会话接手前先读那份**。简述:`UE蓝图状态.md`(变量/函数/GUID快照)、`UE节点备忘录.md`(踩坑记录+验证过的函数名)、`UE测试用例.md`(验收清单),三份配套文档每次改动后同步更新;复杂逻辑做成独立 Function 整体替换,不在 EventGraph 里打补丁;默认只要新增节点+邻居回传,不要整图。
 
