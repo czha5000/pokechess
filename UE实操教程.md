@@ -38,7 +38,28 @@
   - **本轮踩到全场最危险的一个坑**:`ResolveCounterAttack` 第一版里,`ComputeSkillDamage`(带随机数)被 `write_graph_dsl` 悄悄复制成两次独立调用(应用到 HP 上的伤害 vs 打印出来的伤害可能对不上,两次独立掷骰子)——哪怕已经拆成完全独立的 `bind` 语句也照样复现,根源是"任何最终流向 Setter 值 pin 的非纯调用都可能被提前物化成一份独立副本"。用"Set 到局部变量再统一 Get"的快照模式修复。详见 `UE节点备忘录.md` 坑26,这是比之前任何一次都更隐蔽、后果更严重(游戏数值静默出错)的坑,以后但凡"非纯调用结果要喂给 Setter"一律无条件走快照模式,不再赌。
   - 另确认了 `create_node` 建跨蓝图函数调用必须用 `Class|<类名>|<函数名>` 前缀(坑22 的第三次复现,已确认是稳定规律)。
   - 11 条自动回归断言全 PASS(加入命中率后 T5/T6a 有 ~5% 概率因为 MISS 假性 FAIL,重跑即可,非回归)。**待人工 Play 验收**:预测面板显示、确认/取消流程、反击是否生效(含敌方攻击我方时的反击)、超出反击距离时面板显示"无反击",见 `UE测试用例.md`"反击 + 攻击预测"一节。
-- **下一步方向待定**:切片已完成,下一阶段是"补真实度"(数值对表)还是"扩内容"(更多单位/关卡)需要和用户对齐后再定,不要自己假设方向。
+- **2026-08-16 遗物顶栏 + Debug 配装控制台**(接用户「类似 SLS 放最上方 + 自己配 Relic/技能」):C++ `UCombatLoadout` 早就写好,本轮补 UI 和接线。
+  - 顶栏 `WBP_RelicBar`:全宽贴顶,显示当前遗物 `BarText`,右侧 **DBG** 开关控制台。没有遗物图标素材,先用文字条,不是 SLS 那种图标+悬停。
+  - 控制台 `WBP_DebugLoadout`:靠右,遗物 CSV + 5 个技能 id,APPLY 重算、CLOSE 收起。空遗物 = 不装备(不再回退切片默认);开局仍用表里 `bEnabledInSlice`。
+  - `ApplyStartingRelics` 改走 `BuildRelicLoadout`,单位 `Atk/Def = BaseAtk/BaseDef + 加成`,APPLY 可以点多次不会叠。HP 不重置。
+  - `SelectSkillAndAttack` 按 `Grid.SkillSlots` 查行名;槽空时仍回退 basic/heavy/ember/aqua/vine。**行动菜单按钮上的中文标签还是写死的**,换 id 只换效果不换字。
+  - **待人工 Play**:顶栏是否出现;DBG 能否开关;APPLY 后顶栏文字和 Atk 是否跟着变;清空遗物再 APPLY,Atk 是否回到 10。
+- **2026-08-16 伤害接线 + 沙盒自动配装**(用户反馈伤害仍不对,并要「自动配遗物和技能,类似沙盒」):
+  - 公式本身没改:`ember` 1.4,`DEF_K=9`,克制关。Atk 10/Def 5 约 9;切片 5 遗物后 Atk 12 + 元素核心 1.15,火花约 **12**,HP 20 不应一招秒。
+  - 真正的错在蓝图:`TryAttack`/`ResolveCounterAttack` 把带掷骰的 `ComputeSkillDamage` 算了两次(坑26),扣血和 `HIT dmg=` 可以不是同一个数;`ApplyStartingRelics` 的 Break 读的是 Build **之前**的空缓存,遗物加成等于没装。已改成射程内只算一次、写入 `AttackDmgTmp`/`CounterDmgTmp` 再扣血;Break 接到 `BuildRelicLoadout` 的返回值。
+  - `UndoAction` 改回 `BP_Unit.StartLocation/StartCol/StartRow`(DSL 里看起来像 GridSlot 的 GetRow,节点 self 其实是 BP_Unit)。
+  - 沙盒:控制台加了 **AUTO (slice)** / **RANDOM**。AUTO 填切片 5 遗物+默认 5 技能并 APPLY;RANDOM 从切片遗物预设和 5 个技能 id 里抽。APPLY/AUTO/RANDOM **会把全场 HP 回满**(否则改配装后旧血量会让人误判公式)。**没有**全表下拉、没有给敌方单独配装、诅咒遗物故意不进随机池。
+  - **待人工 Play**:火花命中时 `HIT dmg=` 应等于 `SETTLE dmg=` 且约 12;AUTO 后顶栏是 5 件遗物、血条回满;撤销应回到开回合格子。
+- **2026-08-16 伤害计算用户验收通过**(公式不再改)。同日用户截图 Debug 面板只有 AUTO/RANDOM/APPLY/CLOSE,看不到遗物/技能清单:
+  - 根因:`EditableTextBox` 的 `minimumDesiredWidth=0` 且 `widgetStyle.backgroundImageNormal.imageSize={0,0}`,期望高度≈0,输入框被挤没;标题/提示也跟着看不见。
+  - 已修:`Input_Relics`/`Input_S0..S4` 设宽 320 + Box 底;面板加 `ScrollBox_0`;`Txt_Catalog` 列出 **DT_Relics 24 条 + DT_Skills 31 条** id(`*`=切片默认,`!`=诅咒)。顺序:标题 → 提示 → 输入框 → 按钮 → 状态 → **id 列表**(列表在按钮下面,APPLY 不用先滚到底)。
+  - **RANDOM 仍只抽切片池**,列表只是给人抄 id。手填 `arrogance`/`berserk_pact` 仍可能秒杀。
+  - **2026-08-17 面板开着也看不见**:PIE 里 `bDebugPanelOpen=true`,控件 Visible,但右锚点把宽度收成 **8px**(点锚点的 `offsets.right` 是宽不是边距)。已改成屏幕正中 560×780 不透明面板。
+  - **2026-08-17 简单三键配装**:用户反馈 APPLY 后技能没变、手填 id 太麻烦。PIE 实测 `SkillSlots=[]`、`EquippedRelicIds=[]`、`bRelicFallbackToSlice=false`——APPLY 的 `GetText(TextBox)` 读到空串,空技能槽回退 basic/heavy/ember/aqua/vine,**看起来和开局一模一样**。已改成三个一键预设,直接写数组,不读输入框: **切片** / **重击流** / **元素流**。
+  - **2026-08-17 中文菜单 + 自己改配装**:用户要行动菜单显示中文,并且能自己改遗物/技能。菜单走 `SkillIdToChinese`(id→中文)。自定义输入框重新 Visible;必须在 `EventConstruct` 里 `SetText(TextBox)` 写入中文默认值,否则 GetText 仍空。点 **应用自定义配装** 会把中文名替换/对照成表行名再 APPLY。英文 id 仍可用。
+  - **2026-08-17 顶栏中文 + 下拉**:C++ `GetSkillDisplayName`/`GetRelicDisplayName`/`Get*ComboOptions`/`Resolve*Token` 已写进 `CombatLoadout`，**需要编译 C++ 后空装备文案才从 `(no relics)` 变成「（无遗物）」**。有装备时顶栏走表 DisplayName / 内置中文全名。
+  - **2026-08-17 自定义 APPLY 仍空**:两个独立坑叠在一起。①`ComboBoxString` 的设计时 DefaultOptions 运行时经常是空的,`GetSelectedOption` 回空串,APPLY 把空数组写进 Grid 并关掉 fallback,技能看起来还是 basic/heavy/ember/aqua/vine,顶栏 `(no relics)`。已在 `EventConstruct` 里对每个下拉 `ClearOptions`+`AddOption`+`SetSelectedOption`(必须 `declaring_class=/Script/UMG.ComboBoxString`)。②`RelicCsvToIdsB`/`SkillTokenToIdB` 被编译器 prune(表达式里调了带 Exec 的自定义函数,返回值变默认空串),遗物 CSV 整段被吃掉。已把 24 条遗物 Replace 和 31 条技能对照内联进 A 函数,不再调 B。
+- **下一步方向待定**:切片已完成,下一阶段是"补真实度"(数值对表)还是"扩内容"(更多单位/关卡)需要和用户对齐后再定,不要自己假设方向。伤害公式本轮已验收,不要再改。
 - **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`——**任何新会话接手前先读那份**。简述:`UE蓝图状态.md`(变量/函数/GUID快照)、`UE节点备忘录.md`(踩坑记录+验证过的函数名)、`UE测试用例.md`(验收清单),三份配套文档每次改动后同步更新;复杂逻辑做成独立 Function 整体替换,不在 EventGraph 里打补丁;默认只要新增节点+邻居回传,不要整图。
 
 ---

@@ -223,12 +223,36 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 ### 已知测试脚动:加入命中率后,`RunRegressionTests` 的 T5/T6a 偶尔会假性 FAIL(~5% 概率),不是真回归
 `ComputeSkillDamage` 内部会真的掷骰子判定命中(基础攻击 95% 命中),`RunRegressionTests` 里 T5(`TryAttack_DamagesDefender_HP`)和 T6a(`HealthBar_DecreasesAfterDamage`)都是靠一次性的 `TryAttack` 调用断言"HP 确实下降了"——如果那一次刚好掷出了 MISS(约 5% 概率),攻击不造成伤害,这两条断言就会假性 FAIL,`Output Log` 里能看到 `MISS`(而不是某种真实错误)紧跟在失败的测试前面。**排查步骤**:T5/T6a FAIL 时,先查一下失败那次运行的 log 里紧邻的是不是 `MISS` 字样——如果是,直接重跑一遍regression即可,不是代码退化。这是给战斗系统加入随机数之后必然引入的测试不确定性,目前没有对 `RunRegressionTests` 做"保证命中"的特殊旁路,可以接受(重跑成本很低)。
 
+### 坑31:对 `ConstructObjectfromClass` 出来的 `EditableTextBox` 调 `GetText`,经常拿到空串,尽管 Details 里 `text` 默认值还在
+`ApplyDebugLoadout` 用 `Widget|GetText(TextBox)` 读遗物 CSV 和五个技能槽,PIE 里 Grid 变成 `EquippedRelicIds=[]`、`SkillSlots=[]`、`bRelicFallbackToSlice=false`。空技能槽走 `GetSkillSlotName` 回退,行动菜单效果还是 basic/heavy/ember/aqua/vine,玩家会觉得「APPLY 了但技能没变」。`text` UPROPERTY 仍显示默认字符串,不能当 GetText 的证据。**如果要读输入框,必须在 `EventConstruct` 里 `Widget|SetText(TextBox)` 再写一遍默认值**;预设按钮可以继续用写死的 `ParseCommaSeparatedNames`。中文名不能直接当 FName 行名,要先 `SkillTokenToId` / `RelicCsvToIds`。
+
+### 坑33:`ComboBoxString` 的 DefaultOptions / selectedOption 运行时经常是空的,必须自己 AddOption
+和坑31同一类:资产里写了选项,Play 时 `GetSelectedOption` 仍是空串。自定义 APPLY 把空串抄进隐藏输入框,Grid 变成 `SkillSlots=[]`、`EquippedRelicIds=[]`、`bRelicFallbackToSlice=false`,技能回退切片默认,顶栏 `(no relics)`。修法:`EventConstruct` 调 `FillRelicCombo`/`FillSkillCombo`,内部 `ComboBox|ClearOptions` → 一串 `AddOption` → `SetSelectedOption`。这四个节点必须 `create_node` + `declaring_class=/Script/UMG.ComboBoxString`,DSL 里写 `ComboBox|AddOption` 会接到错误类型。不要 `write_graph_dsl` 重写已经用 create_node 搭好的 Fill 函数,DSL 读不出来这些 ComboBox 节点。
+
+### 坑34:带 Exec 的自定义函数不能当纯表达式调用,否则会被 prune,返回值变默认空串
+`RelicCsvToIds` 里嵌 `CallFunction|RelicCsvtoIdsB`、`SkillTokenToId` 里嵌 B,编译器报 `was pruned because its Exec pin is not connected, the connected value is not available and will instead be read as default`。B 一 prune,遗物 CSV 整段变成空,APPLY 后必是 `(no relics)`。修法:把对照全部内联进 A 函数(Replace 链 / `if`+`return`),不要在 `select`/`return` 表达式里调另一个自定义函数。`if` 当语句用(匹配就 `return`),不要 30 层 `elif` 手数括号。
+
+### 坑32:蓝图里 String 不能用 `==`,嵌套 `select` 一次不要超过约 20 层
+`==` 接 String pin 会报 `Could not connect pin Token to A`。用 `Utilities|String|EqualExactly(String)`。31 个技能一次性 nested select 会 `Unexpected )` / 写不进去,拆成 `SkillIdToChinese` + `SkillIdToChineseB` 再 `CallFunction|SkillIdtoChineseB self Token`(注意生成的 type_id 会把 To 收成 to)。同蓝图纯函数当表达式用时 target 是 `self`,参数在后面。
+
+### 坑30:Canvas 点锚点时 `offsets.right/bottom` 是尺寸,不是边距
+`WBP_DebugLoadout` 右贴边用 `anchors min(1,0) max(1,1)`(X 轴 min==max,是点锚点;Y 轴才是拉伸)。设计者把 `right=8` 当成「离右缘 8px」,引擎却把 Right 当成**宽度 8**。运行时 `bDebugPanelOpen=true`、Visibility=Visible,截图上却几乎没有面板。修法:改成屏幕中心点锚点 + `SizeBox` 写死 560×780,`bAutoSize=true`。**X 轴要贴边拉伸必须让 min.x ≠ max.x**(例如 1,1 配不上宽度)。
+
+### 坑29:UMG `EditableTextBox` 默认 `minimumDesiredWidth=0` 且 `widgetStyle.backgroundImage*.imageSize={0,0}` 时,期望高度≈0
+`WBP_DebugLoadout` 里遗物 CSV / 五个技能槽资产都在、`visibility=Visible`、也有默认文本,Play 截图却只剩 AUTO/RANDOM/APPLY/CLOSE。按钮自带样式所以有高度;输入框被 VerticalBox 按 Desired Size 排布时高度塌掉,看起来像「没有列表」。修法:给每个 `EditableTextBox` 设 `minimumDesiredWidth`(本项目 320)并把 `backgroundImageNormal.imageSize.y` 设成 ≥28、`drawAs=Box`;长内容外面包 `ScrollBox`(滚轮 `Always`)。**不要**用「控件在 WidgetTree 里」推断运行时可见。
+
 ### 坑28:预览和结算必须调同一个 C++ 函数,命中骰只能在确认时掷
 蓝图里曾经两套公式(预览硬编码 0.9/1.4 + `GetTypeMultiplier_0`,结算查表 + 克制 ×2 + 遗物乘区),表现就是「面板 11 点、确认秒杀 20 血」。修法:两边都只调 `UCombatFormula::CalculateSkillDamageValue`,用 `bRollHit` 区分。**不要把命中骰放进预览**,否则面板每次点开都可能显示 0。反击预览如果也读 `PendingSkillRowName`,必须先快照再改成 `basic` 再还原,否则点确认会打出普通攻击。
 
 ## 通用陷阱:整数除法截断(2026-08-15,血条百分比 bug)
 
 `(/ a b)` 里 `a`、`b` 都是 Integer 时,DSL/蓝图的除法节点做的是**整数除法**,不会因为下游 pin 要 Float 就自动升格成浮点除法——`15/20` 算出来是 `0`,不是 `0.75`。这个坑在"两个整数变量算比例"的场景特别容易中招(血条百分比、进度条、任何 `当前值/最大值` 的场景),而且**编译不报错、运行不报错、单纯数值不对**,很难从代码本身看出来,得靠"实际数值 approximately 0" 这种现象反推。**只要是拿两个 Integer 变量算"比例"、"百分比"这类需要精度的结果,必须显式 `Math|Conversions|ToFloat(Integer)` 转换后再做除法**,不要依赖隐式转换。回归测试里判断这类值时,除了"变了"(`< 原值`)也要顺手判断"没被腰斩成 0"(`> 0`),否则测试会把这个 bug 放过去(本轮真实踩过:`T6` 断言写成"< 1.0"没抓到,加了个"> 0.0"的 `T6b` 才抓到)。
+
+- **`Class|Factory|SetText` 不是 TextBlock.SetText**(2026-08-16,遗物条):会接到 Factory 的 Bool `bText`,报 `Could not connect pin ReturnValue to bText`。TextBlock 正确节点是 **`Widget|SetText(Text)`**,参数顺序是 `(target, ToText(String))`。`WBP_AttackForecast.SetHpForecast` 已验证。
+
+- **`read_graph_dsl` 把 `BP_Unit.GetRow` 显示成 `Class|GridSlot|GetRow` 是别名,不是真用了 UMG**(2026-08-16):`get_node_infos` 里 self pin 类型是 `BP Unit Object Reference` 才算数。不要只凭 DSL 就整段重写 SpawnUnit/StartTurn 的 Col/Row。反过来,`UndoAction` 里 `GameplayAbilityTargetActor|GetStartLocation` 是真错,必须改成 `Class|BPUnit|GetStartLocation`。
+
+- **`ApplyStartingRelics` 的 Break 必须接 `BuildRelicLoadout` 的返回值,不能接 Build 之前的 `GetRelicCache`**(2026-08-16):DSL 会把 Break 写在函数最前面,exec 上却是先 Build 再 Set。Break 若仍读旧缓存,遗物加成全是 0,公式看起来「永远不对」。增量修法:把 Break 的 struct 输入从 `GetRelicCache` 改接到 Build 的 `ReturnValue`。
 
 ## 请求用户回传时的省 token 原则
 

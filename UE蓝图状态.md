@@ -289,7 +289,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
   - **命中**:`Damage = Max(1, Round(AttackerAtk × SkillMult × GetTypeMultiplier0(SkillType, DefenderAtkType) × 9/(9+DefenderDef)))`,顺手 `PrintString("HIT dmg=X")` 方便调试确认。
   - **未命中**:`Damage = 0`,`PrintString("MISS")`,**不做"最低伤害1点"的兜底**——miss 就是纯粹没伤害,这是和"命中但伤害算出来是1"刻意区分开的两种结果。
   - 由 `TryAttack` 唯一调用,验证过实测日志 `HIT dmg=6`(默认 `Atk=10/Def=5/Normal vs Normal`,`10×0.9×1.0×9/14≈6.43→round 6`,和公式手算吻合)。
-- **ApplyStartingRelics()**(无参数):`For Each GetAllActorsOfClass(BP_Unit)`,只处理 `Side=true`(我方)的单位,`Set Atk = Atk+2` 且 `Set Def = Def+2`——硬编码代表两件遗物"力量头带"(全队攻击+2)+"钢之意志"(全队防御+2)一起生效,不做"选哪个"的三选一界面,也不做遗物的数据结构(没有 `RELICS` 数组这种东西,加成直接写死在这个函数体里)。由 `BP_TurnManager.EventBeginPlay` 在 `Set Grid` 之后、`BuildTurnOrder()` 之前调用一次(全局只生效一次,不会重复叠加),对 `RunRegressionTests` 里另外单独 `SpawnUnit` 出来的测试单位没有影响(那条路径不经过 `EventBeginPlay`)。
+- **ApplyStartingRelics()**(无参数):`UCombatLoadout::BuildRelicLoadout(DT_Relics, EquippedRelicIds, bRelicFallbackToSlice)` 一次算完,结果快照进 `RelicCache` 再 Break 写出 `RelicAtkAdd`/`RelicDefAdd`/`RelicHitAdd`/三个乘区/`RelicBarText`。然后对每个 `Side=true` 的单位 `Atk = BaseAtk + RelicAtkAdd`、`Def = BaseDef + RelicDefAdd`(禁止 `Atk = Atk + Add`,否则 Debug APPLY 会叠)。开局 `EquippedRelicIds` 空且 `bRelicFallbackToSlice=true` → 用表里 `bEnabledInSlice` 行。Debug APPLY 会把 fallback 关掉,空 CSV 就是 0 件遗物。由 `BP_TurnManager.EventBeginPlay` 在 `Set Grid` 之后调用,随后 `RefreshRelicBar`。回归测试里单独 `SpawnUnit` 的单位不走这条 BeginPlay,不受影响。
 
 ### BP_GridManager.TryAttack 改动
 - 新增输入参数 `bUseSkill2: Bool`(`add_function_param` 支持 bool,不受"不能加 Object 参数"的限制,见坑17)。
@@ -341,7 +341,32 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | `PendingSkillRowName` | Name | 本次要用的 `DT_Skills` 行名(`basic`/`heavy`/`ember`/`aqua`/`vine`)。`SelectSkillAndAttack` 同时写到 TurnManager 和 GridManager。 |
 | `FcSavedSkillRow` | Name | `ShowAttackForecast` 算反击预览前,把 Grid 的技能行名暂存于此,算完还原,避免确认时变成 `basic`。 |
 | `bAttackTargeting` | Bool | 已选技能、正在选敌/看预测。`SelectSkillAndAttack` 置 true。 |
-| `SelectSkillAndAttack(bElemental, SkillIndex)` | 函数 | `SkillIndex` 0..4 对应上面 5 个技能;Index=0 时仍可用旧的 `bElemental` 回退。写行名 → 隐藏菜单 → 弹出预测面板提示选敌("Select an enemy target" / "Cancel abandons this attack"),**同时把 `Btn_Confirm` Collapsed**,避免还没点敌人就确认。 |
+| `SelectSkillAndAttack(bElemental, SkillIndex)` | 函数 | `SkillIndex` 0..4 读 `Grid.SkillSlots`(`UCombatLoadout::GetSkillSlotName`,空槽回退 basic/heavy/ember/aqua/vine)。写行名 → 隐藏菜单 → 弹出预测面板提示选敌,**同时把 `Btn_Confirm` Collapsed**。 |
+| `RelicBarComponent`/`RelicBarWidget` | WidgetComponent / WBP_RelicBar | 同构挂载:Construction 里 Construct+SetWidget 只为初始化 `bIsVariable`;BeginPlay `AddToViewport` ZOrder=10,组件本身 `SetVisibility(false)` |
+| `DebugComponent`/`DebugWidget` | WidgetComponent / WBP_DebugLoadout | 同上,ZOrder=20,默认 Collapsed |
+| `bDebugPanelOpen` | Bool | ToggleDebugPanel 用,避免 GetVisibility 枚举和字符串比类型 |
+| `RefreshRelicBar()` | 函数 | `RelicBarWidget.SetBarText(Grid.RelicBarText)` |
+| `ToggleDebugPanel()` / `HideDebugPanel()` | 函数 | DBG 开关 / CLOSE |
+| `ApplyDebugLoadout()` | 函数 | 读输入框。遗物 CSV 先 `RelicCsvToIds`(中文名 Replace 成行名),技能槽各走 `SkillTokenToId`(中文→id,英文 id 原样)。再 Parse → Set 数组 → 关 fallback → 遗物/回血/刷新顶栏和菜单。 |
+| `ApplyPresetSlice/Heavy/Elem()` | 函数 | 一键配装。直接 `ParseCommaSeparatedNames` 写死英文 id → Set 数组 → 关 fallback → 遗物/回血/刷新。不读输入框。 |
+| `RefreshSkillMenuLabels()` | 函数 | `GetSkillSlotName` → `SkillIdToChinese` → `WBP_ActionMenu.SetSkillButtonLabels`。`ShowActionMenu` 每次打开也会调。 |
+| `SkillIdToChinese` | 函数 | 技能行名 → 中文。31 条 `EqualExactly` + `if`/`return`,不再调会被 prune 的 B。认不出则原样返回。 |
+| `SkillTokenToId` | 函数 | 中文名 → 行名;已是英文 id 则原样返回。同样全部内联,不调 B。 |
+| `RelicCsvToIds` | 函数 | 整段 CSV 里把 24 个中文遗物名 `Replace` 成行名。不再调 `RelicCsvToIdsB`。 |
+
+### 遗物顶栏 / Debug 控制台(2026-08-16)
+
+**WBP_RelicBar**(`/Game/UI/WBP_RelicBar`):RootCanvas(`SelfHitTestInvisible`)→ 顶贴边 `BarBorder` → `Txt_Bar` + `Btn_Debug`。`SetBarText(Msg)` 用 `Widget|SetText(Text)`,不要用 `Class|Factory|SetText`(会接到 Bool `bText`)。
+
+**WBP_DebugLoadout**:居中 SizeBox → 中文标题 → 5 个遗物 `ComboBoxString` + 5 个技能下拉 → 切片/重击流/元素流/应用自定义/关闭。旧输入框 Collapsed，点应用时 `GetComboOption` 抄进输入框再 `ApplyDebugLoadout`。`GetComboOption` 必须用 `declaring_class=ComboBoxString` 的 `ComboBox|GetSelectedOption`，DSL 里的同名节点会接到错误的 ComboBox 类型。`EventConstruct` 调 `FillRelicCombo`/`FillSkillCombo`(运行时 `ClearOptions`+`AddOption`+`SetSelectedOption`)再 `SetText` 隐藏框;只靠资产 DefaultOptions,下拉是空的。
+
+**WBP_ActionMenu**:`Txt_Attack`/`Txt_Skill2..5` 已 `bIsVariable`。`SetSkillButtonLabels(S0..S4)` 改五个按钮上的字。设计时和运行时都显示中文 DisplayName(普通攻击/重击/火花…)。
+
+**BP_Unit**:`BaseAtk`/`BaseDef`,`Setup` 里在改 Side 之后立刻从当前 Atk/Def 快照。之后遗物只做 `Atk = BaseAtk + RelicAtkAdd`。
+
+**BP_GridManager**:`EquippedRelicIds`/`SkillSlots`(Name 数组)、`RelicBarText`、`bRelicFallbackToSlice`(CDO true)、`RelicCache`、`AttackDmgTmp`(TryAttack 伤害快照)。`ApplyStartingRelics` 的 Break 必须接 Build 的返回值(不要接 Build 前的 GetRelicCache)。`TryAttack` 射程内只调一次 `ComputeSkillDamage`,写入 `AttackDmgTmp` 再扣血。`ResetAllUnitHP()` 把所有单位 HP 设回 MaxHP 并刷血条,给沙盒 APPLY 用。
+
+**已知简化**:没有遗物图标;遗物只加我方;预设/自定义都会回满 HP;菜单显示中文全名(不是技能说明);自定义是下拉(诅咒带「（诅咒）」,遗物可「（空）」),可能秒杀;HEAVY 里的 closecombat 等 UePhase=2,但倍率仍会进公式;克制表仍关,元素流和重击流的差异主要是倍率和遗物 Atk,不是属性克制。伤害公式已验收,本轮未改。 `SkillIdToChineseB`/`SkillTokenToIdB`/`RelicCsvToIdsB` 仍留在蓝图里但主路径已不调用。
 
 ### WBP_AttackForecast(`/Game/UI/WBP_AttackForecast.WBP_AttackForecast_C`,全新 Widget)
 `ForecastBox`(VerticalBox,根)→ **`Txt_HpInfo`(2026-08-16 新增,排在最上面,16pt 黄字,`bIsVariable=true`)** → `Txt_AtkDmg`/`Txt_CounterDmg`(TextBlock,`bIsVariable=true`,运行时动态改文字)→ `Btn_Confirm`("确认攻击")/`Btn_Cancel`("取消")(Button,`bIsVariable=true`,各挂一个静态 `TextBlock` 标签)。三个公开函数 `SetHpForecast(Msg)` / `SetAtkForecast(Msg)` / `SetCounterForecast(Msg)` 内部各自把字符串转 `Text` 后 `SetText` 到对应 TextBlock——和 `WBP_HealthBar.SetHealthPercent` 一样走"外部主动 Push"模式,不用属性 Binding。`SetHpForecast` 用的是 `Widget|SetText(Text)`(TextBlock),不要抄 `Class|Factory|SetText`(会误建成 Factory 的 `bText` Bool setter)。HP 行示例:`敌HP 20/20 -> 13 | 我HP 20/20 | Atk10 vs Def5`(箭头后面是假设本次攻击命中后的敌方剩余 HP)。`EventGraph` 两个 `OnClicked` 事件分别调 `TurnManager.ConfirmAttack()`/`CancelAttackForecast()`。
