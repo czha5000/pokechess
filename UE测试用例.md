@@ -77,4 +77,13 @@
 ## 待补(第6/7步)
 - [x] 血条 UI 跟随 HP 变化(2026-08-15 完整实现并人工 Play 验收通过:`WBP_HealthBar` + `BP_Unit.HealthBarComponent`/`UpdateHealthBar`,`Setup` 时初始化满血、`TryAttack` 扣血后调用更新。过程中修了两个真实 bug——①Transform 类型 pin 不支持字符串默认值导致血条位置一直是 (0,0,0)、旋转也没面向固定相机,看起来是一条细线;②HP/MaxHP 整数相除截断成 0,导致随便掉一滴血就整条全红。两个都已修复,`RunRegressionTests` T5/T6a/T6b 三条断言覆盖。)
 - [x] 一方全灭 → 胜负弹窗(2026-08-15 已实现并修过一个真实 bug、人工 Play 验收通过:`BP_GridManager.CheckVictoryCondition` 挂在 `TryAttack` 的死亡分支后面,全屏半透明遮罩 + 居中大字 "VICTORY"/"DEFEAT"(先用英文占位,没确认项目字体支不支持中文)。**中途踩过坑**:最初设计是一个共享 Widget 运行时 `SetText`,结果 `ConstructObjectfromClass` 造的实例控件树绑定没初始化,文字死活显示不出来(只看到灰色遮罩),报 `Accessed None`——已改成 `WBP_GameOver`(胜利)/`WBP_GameOverDefeat`(失败)两个独立 Widget,文字颜色全烤在设计时默认值里,不再运行时碰这个绑定,已用 MCP 直接读取 PIE 里的活对象确认文字("VICTORY")和颜色(绿色)都正确显示。详见 `UE节点备忘录.md`。人工 Play 已确认:连续攻击同一个敌方单位到死会正确弹出带文字的 "DEFEAT"/"VICTORY",且只弹一次不会重复弹。2026-08-15 又追加了 `bGameOver` 门槛,防止一方全灭后 `StartTurn` 继续推进导致 `Accessed None` 级联报错,见 `UE蓝图状态.md`。)
+## TPS 直控迁移 · 阶段 A(2026-08-17,操控与相机地基;设计见 `C:\Users\AI_Work\.claude\plans\pokemon-tps-misty-walrus.md`)
+- [ ] 轮到己方单位时,按 WASD 能让该单位在棋盘上连续移动(不再是点格子瞬移),身体朝向跟随移动方向转
+- [ ] 移动鼠标(或右摇杆)能转动第三人称相机(肩后跟随,约 300 距离/100 高度),角色身体不会跟着鼠标转(只有相机转,`bUseControllerRotationYaw` 等已关闭)
+- [ ] 没轮到的己方单位、全部敌方单位应该**不可操控**(WASD/鼠标转视角对它们没反应),原有的鼠标点单位/点格子流程对这些单位应该还和之前一样
+- [ ] 敌方 AI 回合(`RunEnemyTurn`)应该照常自动跑完,不需要也不应该触发 Possess
+- [ ] 结束一次己方回合后(待命或攻击结束回合),原来那个单位应恢复不可操控;下一个轮到的己方单位才能用 WASD 移动
+- [ ] (已知限制,阶段 A 暂不做)`IA_Attack`(左键)/`IA_EndTurn`(E)目前只在 Enhanced Input 里注册了映射,`BP_Unit` 还没接线,按了没反应,等阶段 C 才会生效
+- [ ] (已知限制)棋盘四周暂时没有物理边界墙,现在 WASD 可以无限走出棋盘范围——阶段 B 会加"离本回合开始点的距离"软边界来约束,不要现在就验收"是否出界"
+
 - [ ] 敌方 AI 自动移动+攻击(2026-08-15 自动化逻辑已完成:`FindNearestUnit0`/`MoveUnitTowardTarget`/`RunEnemyTurn` 三个函数本身由 `RunRegressionTests` 的 T7a/T7b/T7c 三条断言覆盖并全部 PASS。**过程中修了两个真实 bug**:①三个函数最初都用 `write_graph_dsl` 写的 `Utilities|IsValid` 判断,全部编译通过但静默断流/返回默认值,改成哨兵值/局部 bool 标记规避;②这三个函数以及 `RunRegressionTests` 反复用 `write_graph_dsl` 重写导致孤立节点堆积并被错误复用,改用 `remove_function_graph`+`add_function_graph` 清空重建解决,细节见 `UE节点备忘录.md`。**另外顺带发现并修复了一个更严重的问题**:`BP_TurnManager.StartTurn`(真正的游戏内入口,靠手工 `create_node`/`connect_pins` 拼图加的死亡跳过+AI分支逻辑)有一段接线是彻底断流的死路——不只是敌方 AI 调不到,连我方"点单位→`ShowRange`高亮"和`EndTurn`推进回合都会一起失效,只是没被 T7a/b/c 发现(那三条测试绕开 `StartTurn` 直接测 `RunEnemyTurn`)。已用 `get_node_infos` 核实并修好,重跑全部回归断言确认无连带破坏。**待人工 Play 验收**:按流程连续推进回合,确认①我方单位轮到时依旧能正常点鼠标选格子(验证上面这个断流 bug 真的修好了、没有回归,且新加的"只有轮到的单位能点"门槛没有误伤);②敌方单位轮到时无需任何操作,自动朝最近的我方单位移动、进入攻击范围就自动打一下,然后自动 `EndTurn` 轮到下一个;③连续多个敌方单位相邻时能不能一路自动跑完不卡住;④行动顺序条 UI 在敌方回合推进时是否也跟着正确刷新高亮。)

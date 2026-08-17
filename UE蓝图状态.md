@@ -7,6 +7,8 @@
 
 ## BP_Unit (`/Game/Maps/BP_Unit.BP_Unit_C`)
 
+> **2026-08-17 父类 Actor → Character**(TPS 直控迁移阶段A,设计见 `C:\Users\AI_Work\.claude\plans\pokemon-tps-misty-walrus.md`)。原有 `DefaultSceneRoot`/`StaticMesh` 完整保留,只是现在挂在 Character 原生根组件 `CollisionCylinder`(胶囊体)下面,不再是 Actor 根。新增组件:`SpringArm`(挂 `CollisionCylinder`,`targetArmLength=300`、`relativeLocation={0,0,100}`、`bUsePawnControlRotation=true`、`bDoCollisionTest=true`、`bEnableCameraLag/bEnableCameraRotationLag=true`)→ `TPSCamera`(挂在 SpringArm 末端)。`CharMoveComp.maxWalkSpeed=500`、`bOrientRotationToMovement=true`(移动方向带动身体转向);CDO 上 `bUseControllerRotationYaw/Pitch/Roll` 全部设为 false(鼠标只转相机,不转身体)。`EventGraph` 新增 `Input|EnhancedActionEvents|IA_Move`(→ `BreakVector2D` + `GetActorForwardVector`/`GetActorRightVector` 各一次 `AddMovementInput`)、`Input|EnhancedActionEvents|IA_Look`(→ `BreakVector2D` + `AddControllerYawInput`(X)/`AddControllerPitchInput`(Y)),原有四个事件(`EventBeginPlay`/`MouseInput|EventActorOnClicked`/`Collision|EventActorBeginOverlap`/`EventTick`)完全没动。`IA_Attack`/`IA_EndTurn` 阶段C才会在这里接线。
+
 ### 变量
 | 名字 | 类型 | MemberGuid | 备注 |
 |---|---|---|---|
@@ -181,6 +183,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
   - `Is Not Valid` → 直接 `EndTurn`,跳过这个位置。
   - `Is Valid` → 按 `Side` 分支:`true`(我方)→ `Grid.ShowRange(Unit=该单位)`,和以前一样等玩家点鼠标;`false`(敌方)→ `Grid.RunEnemyTurn(Unit=该单位)` 自动移动+可能攻击,然后**立刻自己调用 `EndTurn`**(不需要玩家做任何操作)。如果连续多个敌方单位挨着,会同一帧内递归 `StartTurn→EndTurn→StartTurn...` 一路自动跑完,直到轮到下一个我方单位才停下来等点击。
   - ⚠ **2026-08-15 修过的真实 bug**:最初的接线中,`Utilities|IsValid` 宏的两条 exec 出口(`Is Valid`/`Is Not Valid`)完全没接到任何东西上——是一条彻底的死路。真正驱动 `Branch` 节点的,是另一个完全独立、从未连过 `IsValid` 结果的 `NOTBoolean` 节点,其输入 `A` 也没有任何连线,用的是字面量默认值 `false`,于是 `NOT(false)=true` 恒真。结果是:`FunctionEntry` 执行到 `IsValid` 宏就直接断流,`Branch`/`ShowRange`/`RunEnemyTurn`/`EndTurn` 全部不可达——**意味着这次改动上线后,连最基本的"点我方单位高亮范围"都会失效**,而不仅仅是敌方 AI 没生效。用 `get_node_infos` 逐个检查 `Branch` 节点的 `execute`/`Condition` 输入的 `connected_pins` 才发现(两处都是空数组)。修法:删掉这个 `NOTBoolean` 驱动的 `Branch` 和它的常量比较节点,把 `IsValid` 宏的 `Is Valid`/`Is Not Valid` 两条 exec 出口直接接到原本 `Branch` then/else 之后的两段逻辑(Side 分支 / `EndTurn`)上,重新编译 + 跑回归测试(T1–T7c 九条断言全 PASS)确认没连带破坏别的东西。**教训:`IsValid` 相关的接线,`compile_blueprint` 编译通过 + regression test 局部 PASS(这次 T7a/b/c 测的是直接调用 `RunEnemyTurn`,没走 `StartTurn` 整条链路)都不能证明整条 exec 链路真的可达,必须用 `get_node_infos` 顺着 `FunctionEntry` 往下每个节点核对一遍。**详见 `UE节点备忘录.md`。
+- **StartTurn 追加 Possess/UnPossess**(2026-08-17,TPS 直控迁移阶段A,MCP `create_node`/`connect_pins`/`break_pins` 增量插入,**没有**用 `write_graph_dsl` 整函数重写——这个函数带历史遗留的 `|GetbGameOver` 裸写法,回写会炸,见 `UE节点备忘录.md` 坑38):函数最前面(`FunctionEntry.then` 断开原来到 `Branch(bGameOver)` 的连线,插入新链再接回去)无条件 `GetPlayerController(0)` → `UnPossess` → `RemoveMappingContext(/Game/Input/IMC_TacticsControl)`,哪怕当时没人被 possess 也是安全的空操作。原有 `Side==true` 分支尾部(`ShowAttackRange` 之后,原本是断头的 `then` output)追加 `Possess(该单位)` → `AddMappingContext(/Game/Input/IMC_TacticsControl, Priority=0)`。敌方分支(`RunEnemyTurn`+`EndTurn`)和"单位已失效"分支完全没碰。
 - **BuildTurnOrder()**(2026-08-15 新增,对应 web 版 `turn.js` 的 `startRound`):`Grid.GetAllActorsOfClass(BP_Unit)`(死亡单位已被 `TryAttack` `DestroyActor`,天然只剩存活的)→ 每个单位算 `key = Spd*1000 + RandomIntegerInRange(0,999)` 存进 `SortKeysTmp`(和 `TurnOrder` 逐位对应)→ 对 `TurnOrder`/`SortKeysTmp` 做选择排序(按 `SortKeysTmp` 降序,`TurnOrder`/`SortKeysTmp` 同步 `SwapArrayElements`)→ `CurrentIndex=0`。**"Spd 降序 + 同速随机 tiebreak"被压缩成单一数值键排序**:只要随机分量固定在 `[0,999]`、乘数是 1000,不同 `Spd` 的单位永远不会因为随机分量而排序颠倒(`Spd=6` 的最大 key 是 6999,`Spd=7` 的最小 key 是 7000),同 `Spd` 的单位则完全由随机分量决定顺序——不用另写 tie-break 分支。由 `EventBeginPlay` 和 `EndTurn`(每轮结束、`CurrentIndex` 超出数组长度时)调用,对应 web 版"每回合重新排序"的行为。
 - **EndTurn**:`CurrentIndex+1`;若超出 `TurnOrder.Length` → 调 `BuildTurnOrder()`(重新排序+清零索引,一轮结束);否则正常 `Set CurrentIndex` → 都会接 `StartTurn`。
 
@@ -523,3 +526,22 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - 如果要调用自身(GridManager)的其他函数,DSL 里**必须显式传 `self` 作为第一个参数**(哪怕是自己调自己),比如 `(CallFunction|IsTileOccupied self colA rowA)`——这类自定义 Function 节点即使自调用也会暴露一个 `self` pin,不传会报 "Could not connect pin X to self"。
 - 需要新增的临时测试对象记得在断言完之后 `DestroyActor` 清理掉。
 - **⚠ 已知坑,别踩第二次**:`(Utilities|IsValid X)` 嵌在 `Assert` 这类普通函数调用的参数位置里(纯表达式写法)不可靠——本轮实测会导致执行流程"静默卡住"(编译通过、不报运行时错误,但 `RunRegressionTests` 跑到那一句之后,后面所有语句,包括结尾的 `REGRESSION_TESTS_DONE`,全部不再执行,Output Log 里也不留任何报错痕迹,非常难排查)。**正确写法是把 `IsValid` 当 `if` 的条件单独起一整条语句**,像 `TryAttack` 里的用法一样:`(if (Utilities|IsValid X) (真分支...) (else (假分支...)))`,不要嵌到别的函数调用参数里。
+
+## `/Game/Input/` Enhanced Input 资产(2026-08-17 新增,TPS 直控迁移阶段A)
+
+- **IA_Move**(`InputAction`,`valueType=Axis2D`):X=前后(前+/后-),Y=左右(右+/左-)。
+- **IA_Look**(`InputAction`,`valueType=Axis2D`):X=偏航增量,Y=俯仰增量。
+- **IA_Attack**(`InputAction`,`valueType=Boolean`):阶段C才接线,目前只在 `IMC_TacticsControl` 里注册了映射。
+- **IA_EndTurn**(`InputAction`,`valueType=Boolean`):同上,阶段C才接线。
+- **IMC_TacticsControl**(`InputMappingContext`):
+  | 键 | Action | Modifiers | Trigger |
+  |---|---|---|---|
+  | W | IA_Move | (无) | (默认) |
+  | S | IA_Move | Negate | (默认) |
+  | A | IA_Move | Negate, SwizzleAxis(默认序 YXZ) | (默认) |
+  | D | IA_Move | SwizzleAxis(默认序 YXZ) | (默认) |
+  | Mouse2D | IA_Look | Negate(只勾 bY,bX/bZ=false,只修俯仰不影响偏航) | (默认) |
+  | LeftMouseButton | IA_Attack | (无) | InputTriggerPressed |
+  | E | IA_EndTurn | (无) | InputTriggerPressed |
+
+  搭建这套映射时确认了两条新规律,写进 `UE节点备忘录.md` 坑39:`ObjectTools.set_properties` 的 `values` 是 JSON 字符串不是原生 object;给 `Instanced` 子对象数组(如 `mappings[].modifiers`)赋值时数组元素直接写类路径字符串就会就地实例化,不要用 `{"class": "..."}` 这种写法。

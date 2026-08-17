@@ -62,7 +62,16 @@
     2. **APPLY 后遗物变 null、技能看起来没换**:`GetComboOption` 的 Return 节点没接 Exec,返回值一直是空串;DoApply 用空串覆盖 Construct 里写好的中文默认 CSV;再无条件 `SetbRelicFallbackToSlice false`。空技能槽回退开局 5 技能。已修:Return 补 Exec;空下拉不覆盖隐藏框;解析 0 件遗物时 fallback 设回 true。
     3. 防护层(有用但不是验收那一刀):运行时 `FillRelicCombo`/`FillSkillCombo`;`RelicCsvToIds`/`SkillTokenToId` 内联,不再调会被 prune 的 B。
     4. 自定义默认技能就是普通攻击/重击/火花/水枪/藤鞭,和开局相同;要换技能点 **重击流 / 元素流**,或下拉真有选中项再点「应用自定义」。APPLY 后不要 Keep Simulation Changes,否则 fallback false 会写回关卡。
-- **下一步方向待定**:切片已完成,下一阶段是"补真实度"(数值对表)还是"扩内容"(更多单位/关卡)需要和用户对齐后再定,不要自己假设方向。伤害公式本轮已验收,不要再改。
+- **2026-08-17 方向已定:战棋点击 → 第三人称直控(TPS 视角)迁移**。完整设计见 `C:\Users\AI_Work\.claude\plans\pokemon-tps-misty-walrus.md`(用户已选定"全套"版本:自由连续移动 + 瞄准发动 + 玩家可控相机)。核心思路是只换"操作输入层",不动战斗数值/回合序/属性克制/反击预测这套已跑通的逻辑层。分四阶段(A 操控与相机地基 / B 移动范围软边界 / C 瞄准锁定+攻击 / D 打磨),每阶段独立 Play 验证。**阶段 A 已完成,待人工 Play 验收**:
+  1. `BP_Unit` 父类 Actor → Character:原有 `DefaultSceneRoot`+`StaticMesh` 完整保留(现在挂在 Character 原生 `CollisionCylinder` 根下面),新增 `SpringArm`(挂 Capsule,`targetArmLength=300`、`relativeLocation.z=100`、`bUsePawnControlRotation=true`、开摄像机碰撞+轻微位置/旋转 lag)+ `TPSCamera`(挂在 SpringArm 末端)。`CharMoveComp.maxWalkSpeed=500`,`bOrientRotationToMovement=true`(移动方向带动身体转向);`bUseControllerRotationYaw/Pitch/Roll` 全关(鼠标只转相机,不转身体)。
+  2. 新建 `/Game/Input/` 下 5 个 Enhanced Input 资产:`IA_Move`(Axis2D)、`IA_Look`(Axis2D)、`IA_Attack`(Bool,阶段C才接线)、`IA_EndTurn`(Bool,阶段C才接线)、`IMC_TacticsControl`(映射:WASD→Move 用 Negate+SwizzleAxis(默认YXZ)拼 2D 向量,Move.X=前后/Move.Y=左右;Mouse2D→Look,只对 Y 分量加 Negate 修正俯仰,不碰偏航;LeftMouseButton→Attack、E→EndTurn 都挂 `InputTriggerPressed` 单次触发)。
+  3. `BP_Unit.EventGraph` 新增 IA_Move/IA_Look 两条处理链(纯 `create_node`+`connect_pins` 手搭,没有动 `write_graph_dsl`):Move 用 `BreakVector2D`+`GetActorForwardVector`/`GetActorRightVector` 各调一次 `AddMovementInput`;Look 用 `BreakVector2D`+`AddControllerYawInput`(X)/`AddControllerPitchInput`(Y)。**原有** `EventBeginPlay`/`MouseInput|EventActorOnClicked`/`Collision|EventActorBeginOverlap`/`EventTick` 四个事件完全没动。
+  4. `BP_TurnManager.StartTurn` 加了 Possess/UnPossess:函数最前面无条件 `GetPlayerController(0)` → `UnPossess` + `RemoveMappingContext(IMC_TacticsControl)`(哪怕没人被 possess 也是空操作,安全);原有 `Side==true` 分支尾部(`ShowAttackRange` 之后)追加 `Possess(该单位)` + `AddMappingContext(IMC_TacticsControl)`。敌方/无效单位分支完全没改,`RunEnemyTurn`/`EndTurn` 路径不受影响。这也是**唯一**碰了 EventGraph 之外的既有函数;用的是 `create_node`/`connect_pins`/`break_pins` 插入,没有整函数 `write_graph_dsl` 重写(见下方新坑)。
+  5. **新坑,写进备忘录前先记这里**:`write_graph_dsl` 对 `BP_TurnManager.StartTurn` 里已有的 `(|GetbGameOver _grid)` 这类"无左侧类名的变量取值"简写,`read_graph_dsl` 能读出来,但 `write_graph_dsl` 原样传回去会报 `AssertionError: ... does not exist`——**读写不对称,不是我改坏的**,验证过連**未改动的原始脚本**回写都炸。以后碰到这类历史遗留 DSL(尤其带 `|GetXXX`/`|SetXXX` 裸写法的旧函数),一律改用 `create_node`+`connect_pins`/`break_pins` 做增量编辑,不要整函数 `write_graph_dsl` 重写,除非先小范围试过回写不报错。
+  6. 棋盘四周的物理边界墙这轮**没加**——阶段 B 会用"离回合开始点的距离夹断"做移动范围软边界,比整块棋盘的硬边界更贴合玩法,阶段 A 暂不需要。
+  7. 风险点,人工验收时留意:`BP_Unit` 换成 Character 后根组件从原来的 `DefaultSceneRoot` 变成 `CollisionCylinder`(胶囊体),现有的 `MouseInput|EventActorOnClicked` 鼠标点击流程(非当前操控单位仍用这套)理论上不受影响(点击命中判定走的是碰撞体,胶囊体只会让可点击范围变化,不会失效),但**没有实测确认过**,不要假设它一定还灵。
+  - **待人工 Play 验收**:轮到己方单位时能否直接 WASD 移动、按住鼠标右键或移动鼠标能否转动相机看到角色转向;敌方单位和"未轮到"的己方单位是否仍然不可操控(Possess 没发生在它们身上);敌方 AI 回合和原有点击选人流程是否还正常。
+- **下一步**:阶段 A 验收通过后接阶段 B(移动范围软边界 + 逻辑坐标 `Col`/`Row` 回写)。伤害公式/回合序/属性克制这轮完全没动,不要再改。
 - **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`——**任何新会话接手前先读那份**。简述:`UE蓝图状态.md`(变量/函数/GUID快照)、`UE节点备忘录.md`(踩坑记录+验证过的函数名)、`UE测试用例.md`(验收清单),三份配套文档每次改动后同步更新;复杂逻辑做成独立 Function 整体替换,不在 EventGraph 里打补丁;默认只要新增节点+邻居回传,不要整图。
 
 ---

@@ -267,3 +267,10 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 
 - **默认不要求整张 EventGraph** —— 只要新加的那几个节点 + 它们连接的邻居节点。整图回传只在"怀疑有旧节点/其他事件干扰"时才要。
 - 复杂改动优先做成**独立 Function**(像 ShowRange/StartTurn/EndTurn),而不是往 EventGraph 里加分支——Function 出错时可以整体重新生成替换,不需要连蒙带猜patch。
+
+### 坑38:`write_graph_dsl` 对历史遗留的 `|GetXXX`/`|SetXXX` 裸写法读写不对称,回写会 `AssertionError: does not exist`(2026-08-17,TPS 迁移阶段A)
+`read_graph_dsl` 能把 `BP_TurnManager.StartTurn` 读成含 `(|GetbGameOver _grid)`(无左侧类名前缀)这种简写,但把**原样未改动**的同一段脚本喂回 `write_graph_dsl` 会报 `The node could not be created / |GetbGameOver does not exist`——验证过不是我改坏了语法,是这套 DSL 工具链本身读写不对称,对这类旧函数**任何** `write_graph_dsl` 整函数重写都会炸,哪怕一个字都不改。以后要给这类历史函数(尤其是 5-15 版本之前生成的、带裸 `|GetXXX` 语法的老函数)加逻辑,一律用 `find_nodes`/`get_node_infos` 先读清楚现有节点和 pin index,再用 `create_node`+`connect_pins`(要在中间插入用 `break_pins` 先断开旧连接)做增量编辑,不要赌整函数回写能过。`BP_TurnManager.StartTurn` 加 Possess/UnPossess + AddMappingContext/RemoveMappingContext 就是这么手搭的。
+
+### 坑39:MCP 内省类工具(`get_node_type_pins`/`list_properties`)不会真的在图里创建节点,`set_properties`/`create_node` 才会(2026-08-17)
+`get_node_type_pins(graph, type_id)` 会返回一个看起来像真实节点的 `refPath`(例如 `K2Node_EnhancedInputAction_0`),但那只是查询用的预览态,不会持久化进图——之后 `create_node` 建同类型节点时,编号会从这个"幽灵节点"之后继续排(比如变成 `_1`),用 `find_nodes(entry_points_only=true)` 能确认幽灵节点从未真正出现过。不要因为拿到了 `refPath` 就以为节点已经在图里,后续操作要用 `create_node` 实际建出来的 `refPath`。
+`ObjectTools.set_properties` 的 `values` 参数是**字符串**(JSON 编码后的字符串),不是原生 JSON object,直接传对象会报 `input param "values" is required`。给 `Instanced` 子对象数组赋值(例如 `InputMappingContext.mappings[].modifiers`)时,数组元素直接写**类路径字符串**(如 `"/Script/EnhancedInput.InputModifierNegate"`)就会就地实例化一个新的子对象并写回 `refPath`;写成 `{"class": "..."}` 这种对象形式不会生效,回读会发现该项变成 `"None"`。改一个已经有内容的数组前,先整体清空成 `[]` 再重新整体赋值,否则会报 `ArrayAdd: elements changed alongside the size change`。
