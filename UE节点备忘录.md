@@ -224,13 +224,22 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 `ComputeSkillDamage` 内部会真的掷骰子判定命中(基础攻击 95% 命中),`RunRegressionTests` 里 T5(`TryAttack_DamagesDefender_HP`)和 T6a(`HealthBar_DecreasesAfterDamage`)都是靠一次性的 `TryAttack` 调用断言"HP 确实下降了"——如果那一次刚好掷出了 MISS(约 5% 概率),攻击不造成伤害,这两条断言就会假性 FAIL,`Output Log` 里能看到 `MISS`(而不是某种真实错误)紧跟在失败的测试前面。**排查步骤**:T5/T6a FAIL 时,先查一下失败那次运行的 log 里紧邻的是不是 `MISS` 字样——如果是,直接重跑一遍regression即可,不是代码退化。这是给战斗系统加入随机数之后必然引入的测试不确定性,目前没有对 `RunRegressionTests` 做"保证命中"的特殊旁路,可以接受(重跑成本很低)。
 
 ### 坑31:对 `ConstructObjectfromClass` 出来的 `EditableTextBox` 调 `GetText`,经常拿到空串,尽管 Details 里 `text` 默认值还在
-`ApplyDebugLoadout` 用 `Widget|GetText(TextBox)` 读遗物 CSV 和五个技能槽,PIE 里 Grid 变成 `EquippedRelicIds=[]`、`SkillSlots=[]`、`bRelicFallbackToSlice=false`。空技能槽走 `GetSkillSlotName` 回退,行动菜单效果还是 basic/heavy/ember/aqua/vine,玩家会觉得「APPLY 了但技能没变」。`text` UPROPERTY 仍显示默认字符串,不能当 GetText 的证据。**如果要读输入框,必须在 `EventConstruct` 里 `Widget|SetText(TextBox)` 再写一遍默认值**;预设按钮可以继续用写死的 `ParseCommaSeparatedNames`。中文名不能直接当 FName 行名,要先 `SkillTokenToId` / `RelicCsvToIds`。
+`ApplyDebugLoadout` 用 `Widget|GetText(TextBox)` 读遗物 CSV 和五个技能槽,PIE 里 Grid 变成 `EquippedRelicIds=[]`、`SkillSlots=[]`、`bRelicFallbackToSlice=false`。空技能槽走 `GetSkillSlotName` 回退,行动菜单效果还是 basic/heavy/ember/aqua/vine,玩家会觉得「APPLY 了但技能没变」。`text` UPROPERTY 仍显示默认字符串,不能当 GetText 的证据。**如果要读输入框,必须在 `EventConstruct` 里 `Widget|SetText(TextBox)` 再写一遍默认值**;预设按钮可以继续用写死的 `ParseCommaSeparatedNames`。中文名不能直接当 FName 行名,要先 `SkillTokenToId` / `RelicCsvToIds`。自定义路径后来改成下拉;`GetText` 空仍是真坑,但 08-17 APPLY 清空的验收根因是坑37,不要把本条当唯一解释。
+
+### 坑35:关卡里的 `BP_GridManager` 把 `bRelicFallbackToSlice` 覆盖成 false,开局顶栏就是空遗物
+**验收根因(开局没遗物)**:蓝图 CDO 是 true,但 TestMap 放置实例曾是 false。PIE 复制的是关卡实例不是 CDO。开局 `EquippedRelicIds` 空 + fallback false → `BuildRelicLoadout` 不读 `bEnabledInSlice`。英文 `(no relics)` 只说明当时 C++ 空文案还是旧字符串,**不是开局为空的原因**;不要把「没 Compile C++」写成开局没遗物的根因。自定义 APPLY 会在 PIE 里把 fallback 关掉;若点了「保留模拟更改」,false 写回关卡,下次一打开就没遗物。修法:`reset_properties` 掉实例覆盖;不要 Keep Simulation Changes。查的时候 `tiles=[]` 的 `_C_1` 是编辑器关卡实例,不是 PIE 副本。
 
 ### 坑33:`ComboBoxString` 的 DefaultOptions / selectedOption 运行时经常是空的,必须自己 AddOption
-和坑31同一类:资产里写了选项,Play 时 `GetSelectedOption` 仍是空串。自定义 APPLY 把空串抄进隐藏输入框,Grid 变成 `SkillSlots=[]`、`EquippedRelicIds=[]`、`bRelicFallbackToSlice=false`,技能回退切片默认,顶栏 `(no relics)`。修法:`EventConstruct` 调 `FillRelicCombo`/`FillSkillCombo`,内部 `ComboBox|ClearOptions` → 一串 `AddOption` → `SetSelectedOption`。这四个节点必须 `create_node` + `declaring_class=/Script/UMG.ComboBoxString`,DSL 里写 `ComboBox|AddOption` 会接到错误类型。不要 `write_graph_dsl` 重写已经用 create_node 搭好的 Fill 函数,DSL 读不出来这些 ComboBox 节点。
+和坑31同一类:资产里写了选项,Play 时 `GetSelectedOption` 仍可能是空串。运行时 `FillRelicCombo`/`FillSkillCombo`(`ClearOptions`→`AddOption`→`SetSelectedOption`)是防护层。这四个节点必须 `create_node` + `declaring_class=/Script/UMG.ComboBoxString`,DSL 里写 `ComboBox|AddOption` 会接到错误类型。不要 `write_graph_dsl` 重写已经用 create_node 搭好的 Fill 函数。**不要把「只缺 FillCombo」写成 APPLY 清空的唯一原因**;验收后主因是坑37。
 
 ### 坑34:带 Exec 的自定义函数不能当纯表达式调用,否则会被 prune,返回值变默认空串
-`RelicCsvToIds` 里嵌 `CallFunction|RelicCsvtoIdsB`、`SkillTokenToId` 里嵌 B,编译器报 `was pruned because its Exec pin is not connected, the connected value is not available and will instead be read as default`。B 一 prune,遗物 CSV 整段变成空,APPLY 后必是 `(no relics)`。修法:把对照全部内联进 A 函数(Replace 链 / `if`+`return`),不要在 `select`/`return` 表达式里调另一个自定义函数。`if` 当语句用(匹配就 `return`),不要 30 层 `elif` 手数括号。
+`RelicCsvToIds` 里嵌 `CallFunction|RelicCsvtoIdsB`、`SkillTokenToId` 里嵌 B,编译器报 `was pruned because its Exec pin is not connected, the connected value is not available and will instead be read as default`。这是真警告,返回值会变默认空串,所以对照必须内联进 A。**当时误把 B prune 写成 APPLY 清空的唯一原因**;验收时主路径已经不调 B,清空仍发生,真正打穿的是坑37 + 无条件关 fallback。`if` 当语句用(匹配就 `return`),不要 30 层 `elif` 手数括号。
+
+### 坑37:`GetComboOption` 的 Return 节点 Exec 没接 FunctionEntry,返回值按默认空串(APPLY 清空的验收根因)
+带 Exec 的自定义函数如果 Return 的 execute pin 悬空,函数会跑完但返回值是类型默认值(String 就是 `""`)。DoApply 用这个空串 `SetText` 覆盖 Construct 里已经写好的中文默认 CSV,再调 `ApplyDebugLoadout`;当时 APPLY **无条件** `SetbRelicFallbackToSlice false`,于是 `EquippedRelicIds=[]` + fallback false → 顶栏空。空 `SkillSlots` 走 `GetSkillSlotName` 回退开局 5 技能,看起来「APPLY 了技能没变」。`get_node_infos` 能看出 Return.execute 没连;`read_graph_dsl` 不一定写得清楚。修法:Entry.then → Return.execute;下拉空串则**不覆盖**隐藏框;解析 0 件遗物时 fallback 设回 true。
+
+### 坑36:排查结论只追加、不改写旧条目,文档里会长期留着已被否决的「当前真相」
+08-17 配装问题查了好几轮,中间把开局空遗物写成「没编 C++」、把 APPLY 清空写成「只缺 FillCombo」或「只是 RelicCsvToIdsB prune」。这些曾写进 `UE实操教程.md` 续接区和测试清单,后来查清了只在文件末尾再加一条,前面的误判还当现状。下个会话会按文档把错因再修一遍。规矩:新结论必须回头把否决掉的旧条目标「误判/已否决」;验收后只留最终根因(本轮:坑35 开局、坑37 APPLY)。
 
 ### 坑32:蓝图里 String 不能用 `==`,嵌套 `select` 一次不要超过约 20 层
 `==` 接 String pin 会报 `Could not connect pin Token to A`。用 `Utilities|String|EqualExactly(String)`。31 个技能一次性 nested select 会 `Unexpected )` / 写不进去,拆成 `SkillIdToChinese` + `SkillIdToChineseB` 再 `CallFunction|SkillIdtoChineseB self Token`(注意生成的 type_id 会把 To 收成 to)。同蓝图纯函数当表达式用时 target 是 `self`,参数在后面。

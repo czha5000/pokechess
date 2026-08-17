@@ -40,7 +40,7 @@
   - 11 条自动回归断言全 PASS(加入命中率后 T5/T6a 有 ~5% 概率因为 MISS 假性 FAIL,重跑即可,非回归)。**待人工 Play 验收**:预测面板显示、确认/取消流程、反击是否生效(含敌方攻击我方时的反击)、超出反击距离时面板显示"无反击",见 `UE测试用例.md`"反击 + 攻击预测"一节。
 - **2026-08-16 遗物顶栏 + Debug 配装控制台**(接用户「类似 SLS 放最上方 + 自己配 Relic/技能」):C++ `UCombatLoadout` 早就写好,本轮补 UI 和接线。
   - 顶栏 `WBP_RelicBar`:全宽贴顶,显示当前遗物 `BarText`,右侧 **DBG** 开关控制台。没有遗物图标素材,先用文字条,不是 SLS 那种图标+悬停。
-  - 控制台 `WBP_DebugLoadout`:靠右,遗物 CSV + 5 个技能 id,APPLY 重算、CLOSE 收起。空遗物 = 不装备(不再回退切片默认);开局仍用表里 `bEnabledInSlice`。
+  - 控制台 `WBP_DebugLoadout`:靠右,遗物 CSV + 5 个技能 id,APPLY 重算、CLOSE 收起。~~空遗物 = 不装备(不再回退切片默认)~~ **08-17 已否决**:解析 0 件时恢复切片回退,见下方正确因果。开局仍用表里 `bEnabledInSlice`(前提是关卡实例 `bRelicFallbackToSlice=true`)。
   - `ApplyStartingRelics` 改走 `BuildRelicLoadout`,单位 `Atk/Def = BaseAtk/BaseDef + 加成`,APPLY 可以点多次不会叠。HP 不重置。
   - `SelectSkillAndAttack` 按 `Grid.SkillSlots` 查行名;槽空时仍回退 basic/heavy/ember/aqua/vine。**行动菜单按钮上的中文标签还是写死的**,换 id 只换效果不换字。
   - **待人工 Play**:顶栏是否出现;DBG 能否开关;APPLY 后顶栏文字和 Atk 是否跟着变;清空遗物再 APPLY,Atk 是否回到 10。
@@ -55,10 +55,13 @@
   - 已修:`Input_Relics`/`Input_S0..S4` 设宽 320 + Box 底;面板加 `ScrollBox_0`;`Txt_Catalog` 列出 **DT_Relics 24 条 + DT_Skills 31 条** id(`*`=切片默认,`!`=诅咒)。顺序:标题 → 提示 → 输入框 → 按钮 → 状态 → **id 列表**(列表在按钮下面,APPLY 不用先滚到底)。
   - **RANDOM 仍只抽切片池**,列表只是给人抄 id。手填 `arrogance`/`berserk_pact` 仍可能秒杀。
   - **2026-08-17 面板开着也看不见**:PIE 里 `bDebugPanelOpen=true`,控件 Visible,但右锚点把宽度收成 **8px**(点锚点的 `offsets.right` 是宽不是边距)。已改成屏幕正中 560×780 不透明面板。
-  - **2026-08-17 简单三键配装**:用户反馈 APPLY 后技能没变、手填 id 太麻烦。PIE 实测 `SkillSlots=[]`、`EquippedRelicIds=[]`、`bRelicFallbackToSlice=false`——APPLY 的 `GetText(TextBox)` 读到空串,空技能槽回退 basic/heavy/ember/aqua/vine,**看起来和开局一模一样**。已改成三个一键预设,直接写数组,不读输入框: **切片** / **重击流** / **元素流**。
-  - **2026-08-17 中文菜单 + 自己改配装**:用户要行动菜单显示中文,并且能自己改遗物/技能。菜单走 `SkillIdToChinese`(id→中文)。自定义输入框重新 Visible;必须在 `EventConstruct` 里 `SetText(TextBox)` 写入中文默认值,否则 GetText 仍空。点 **应用自定义配装** 会把中文名替换/对照成表行名再 APPLY。英文 id 仍可用。
-  - **2026-08-17 顶栏中文 + 下拉**:C++ `GetSkillDisplayName`/`GetRelicDisplayName`/`Get*ComboOptions`/`Resolve*Token` 已写进 `CombatLoadout`，**需要编译 C++ 后空装备文案才从 `(no relics)` 变成「（无遗物）」**。有装备时顶栏走表 DisplayName / 内置中文全名。
-  - **2026-08-17 自定义 APPLY 仍空**:两个独立坑叠在一起。①`ComboBoxString` 的设计时 DefaultOptions 运行时经常是空的,`GetSelectedOption` 回空串,APPLY 把空数组写进 Grid 并关掉 fallback,技能看起来还是 basic/heavy/ember/aqua/vine,顶栏 `(no relics)`。已在 `EventConstruct` 里对每个下拉 `ClearOptions`+`AddOption`+`SetSelectedOption`(必须 `declaring_class=/Script/UMG.ComboBoxString`)。②`RelicCsvToIdsB`/`SkillTokenToIdB` 被编译器 prune(表达式里调了带 Exec 的自定义函数,返回值变默认空串),遗物 CSV 整段被吃掉。已把 24 条遗物 Replace 和 31 条技能对照内联进 A 函数,不再调 B。
+  - **2026-08-17 配装面板**(用户要中文名 + 下拉 + 自己改,不要手填 id)。预设 **切片 / 重击流 / 元素流** 写死英文 id,不读控件。自定义走隐藏输入框 + 下拉。伤害公式未改。
+  - **⚠ 中间误判(不要当现状用)**:曾把「开局 `(no relics)`」写成 C++ 没编、把「APPLY 后技能不变」只写成 `GetText` 空 / `RelicCsvToIdsB` prune / 只缺 `FillCombo`。这些都是排查过程,不是验收后的根因。正确因果见下一节,细节见 `UE节点备忘录.md` 坑35–37。
+  - **2026-08-17 验收后的正确因果**(用户 Play 通过):
+    1. **开局没遗物**:TestMap 里放置的 `BP_GridManager` 把 `bRelicFallbackToSlice` **实例覆盖成 false**(CDO 仍是 true)。空装备又不回退切片 → 顶栏空文案。已 `reset_properties` 并保存关卡。英文 `(no relics)` 只说明当时二进制仍是旧字符串,不是开局为空的原因。
+    2. **APPLY 后遗物变 null、技能看起来没换**:`GetComboOption` 的 Return 节点没接 Exec,返回值一直是空串;DoApply 用空串覆盖 Construct 里写好的中文默认 CSV;再无条件 `SetbRelicFallbackToSlice false`。空技能槽回退开局 5 技能。已修:Return 补 Exec;空下拉不覆盖隐藏框;解析 0 件遗物时 fallback 设回 true。
+    3. 防护层(有用但不是验收那一刀):运行时 `FillRelicCombo`/`FillSkillCombo`;`RelicCsvToIds`/`SkillTokenToId` 内联,不再调会被 prune 的 B。
+    4. 自定义默认技能就是普通攻击/重击/火花/水枪/藤鞭,和开局相同;要换技能点 **重击流 / 元素流**,或下拉真有选中项再点「应用自定义」。APPLY 后不要 Keep Simulation Changes,否则 fallback false 会写回关卡。
 - **下一步方向待定**:切片已完成,下一阶段是"补真实度"(数值对表)还是"扩内容"(更多单位/关卡)需要和用户对齐后再定,不要自己假设方向。伤害公式本轮已验收,不要再改。
 - **协作方式(harness)**:完整协议见 `UE协作Harness规范.md`——**任何新会话接手前先读那份**。简述:`UE蓝图状态.md`(变量/函数/GUID快照)、`UE节点备忘录.md`(踩坑记录+验证过的函数名)、`UE测试用例.md`(验收清单),三份配套文档每次改动后同步更新;复杂逻辑做成独立 Function 整体替换,不在 EventGraph 里打补丁;默认只要新增节点+邻居回传,不要整图。
 
