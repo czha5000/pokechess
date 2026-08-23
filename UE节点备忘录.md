@@ -121,6 +121,8 @@
 - 排查"某个功能编译不报错但运行时结果不对/卡住不动"的诡异问题,加 `PrintString` 逐段打印中间变量实际运行时值,比只信任静态读图/手算推理更可靠;怀疑"exec 链路是否真的从入口连到出口"时,`get_node_infos` 逐节点核对 `connected_pins` 比打印更直接。(见'排查心法'、坑53)
 - 向量按分量相乘(`vector*vector`)的输入 pin 如果完全没连线也没填值,`get_node_infos` 读出来是**空字符串**而不是 `"0,0,0"`,容易被忽略当成"没什么信息";方向向量×距离这类场景优先找专门的"向量乘标量"节点,不要用分量相乘再手动广播。(见坑53)
 - 面对一个未解决的深层引擎/项目问题(比如 Enhanced Input 全局不触发),留一套排查用的诊断基础设施(探针 PrintString、备用输入方案)在项目里且明确记录在文档中,方便下一次接手直接复用,不需要重新排查一遍。(见坑41)
+- `SetViewTargetWithBlend` 换镜头时,`NewViewTarget` 要传"设计上就该在这个时刻被看到的东西"(比如全景相机自己),不能传"跟这件事有关联但状态还没就绪"的对象(比如还没被 `Possess`、没人瞄准过的下一个单位)——后者朝向随机,表现上像"镜头乱甩",根因其实是选错了目标,不是相机数学错。(见坑60)
+- 验证 `SetViewTargetWithBlend`(`BlendTime>0`)是否换对了目标,不能在同一帧里读 `PlayerController.GetViewTarget()` 断言——Blend 没跑完之前它还返回旧目标,必须等 Blend 时长过去之后再读;而 `Delay` 节点不能放进普通 Function(只有 EventGraph/Macro 能用),要在 Function 里验证"延迟后的状态",得拆成 `SetTimerbyFunctionName` 调另一个函数来做断言。(见坑61)
 
 ---
 
@@ -611,3 +613,23 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 3. **在怀疑"新写的循环/累加逻辑又是不是重蹈了某个历史坑"之前,先想有没有更便宜的方法证伪**——这次如果一开始就用 `SetCameraTransform`+`WorldPosToScreenCoords` 或者临时插 `PrintString` 直接验证运行时的真实数值,几步之内就能排除"循环算错了"这个方向,不需要经过一整套`remove_function_graph`+`write_graph_dsl`重建+逐节点`get_node_infos`核对的大动作。**怀疑一段刚写的逻辑有 bug 时,优先用最直接的手段验证"这段逻辑的输出值到底对不对"(哪怕是临时插 PrintString),而不是先入为主往复杂的方向去查连线结构**——复杂的结构性核查应该是"直接验证发现输出确实不对"之后才需要动用的下一步,不该是排查的第一步。
 
 **本轮最终改动**(`SetupOverviewCamera` 函数体,细节见 `UE蓝图状态.md` `BP_TurnManager` 一节):循环本身在排查过程中被完整重建过一遍,但重建前后逻辑等价(都是正确的),不是"修复"了循环,只是把局部变量和节点重新搭了一遍;真正改变行为的是最后一步——把 `Location`/`Rotation` 的计算从"棋盘正上方、`Pitch=-90`"换成"沿 `-Y` 方向后退 `D`、`Location.Z=boardTopZ+D`、`Pitch=-45,Yaw=90`"。排查途中为了验证真实数据插入的 4 组 `PrintString` 调试节点,以及为了验证"是不是 `SetupOverviewCamera` 在 `BeginPlay` 里跑得太早、`Tile` 还没生成完"这个候补假设而加的 `Utilities|FlowControl|Delay(0.3s)`(插在 `BuildTurnOrder`→`SetupOverviewCamera` 之间),排查结束后**全部已经清理删除,`EventGraph`/`SetupOverviewCamera` 恢复成只包含最终有效逻辑的干净状态**,不会遗留调试残留物。
+
+### 坑60:`SetViewTargetWithBlend` 的 `NewViewTarget` 传了"跟这一刻相关但状态还没就绪"的对象,而不是"这一刻真正该看的东西",表现成"镜头乱甩"(2026-08-23,用户发录屏反馈"运镜有问题") #Camera #状态时序 #逻辑设计
+
+**背景**:用户发来一段 Play 录屏反馈"运镜有问题"。一开始用 `ffmpeg` 抽帧(先 2fps 全览,再对可疑片段抽 30fps 逐帧不跳帧)分析画面,一开始误判成 `BP_Unit.SpringArm` 的碰撞探测(`bDoCollisionTest`)被攻击特效顶到贴脸——这个判断后来被 30fps 逐帧证据推翻了(碰撞探测应该是渐进变化的距离,但实际是相邻两帧之间的瞬间硬切,不是逐步逼近),提醒了一件事:**光看录屏抽帧,哪怕加密到逐帧,也只能验证"现象是什么",验证不了"为什么"——必须回头读代码,两者要配合,不能停在抽帧这一步就下结论**。
+
+**真正根因**:读完 `TryAttack`→`ResolveCounterAttack`→`PerformSkillAttack`→`BP_TurnManager.EndTurn`→`AnnounceNextTurn`→`StartTurn` 整条链路后发现,每次回合切换镜头其实被摆了三次,中间那次纯属选错了目标:`AnnounceNextTurn` 会 `SetViewTargetWithBlend(下一个单位本人, 0.3秒)`,但这个"下一个单位"此时还没被 `Possess`,朝向是它上次移动/待机结束时随便停留的角度,没有任何人瞄准过它——镜头切过去看到的就是这个随机朝向(天空/贴近别的单位模型),这正是录屏里"贴地看天"和"怼脸糊成一片"两段画面的根因。1 秒后 `StartTurn` 才会把镜头切到真正设计好的位置(我方 `Possess`+第三人称;敌方切 `OverviewCamera`)。
+
+**教训**:选摄像机/镜头的 `ViewTarget`,不能图省事传"这一刻手头现成的、逻辑上相关的那个 Actor"(这里是"下一个要行动的单位"),要传"这一刻真正设计上想让玩家看到的东西"(这里是全景相机,和 `StartTurn` 敌方分支早就在用的目标一致)。这类 bug 编译不报错、逻辑上"看起来对"(确实是切到了下一个单位没错),只有跑起来看画面才会暴露,而且容易被误判成相机数学/碰撞体的问题——**排查镜头"看起来乱"的问题,第一步应该是列出这段时间内所有 `SetViewTargetWithBlend`/`Possess` 调用点和它们各自的目标,而不是先怀疑碰撞探测或数学公式**。
+
+**修法**:`AnnounceNextTurn` 里 `SetViewTargetWithBlend` 的 `NewViewTarget` 参数,从"下一个单位本人"(`K2Node_GetArrayItem_0` 的输出)改接到 `self`(`BP_TurnManager` 自己)。只 `break_pins`+新建一个 `Variables|Getareferencetoself` 节点+`connect_pins`,`_output`(下一个单位的引用)在同一个函数里另外两处用途(`IsValid` 判空、`PrintString` 判断"我方/敌方回合开始"文案)完全没动。
+
+### 坑61:验证 `SetViewTargetWithBlend`(非零 `BlendTime`)换没换对目标,不能同一帧读 `GetViewTarget()`;Function 里放不了 `Delay`,只能用 `SetTimerbyFunctionName` 拆成异步(2026-08-23,坑60 修完后按硬性规范给 `RunRegressionTests` 补断言) #Camera #Blend #Delay #Function限制 #回归测试
+
+**背景**:坑60 的修法本身通过 `read_graph_dsl` 复查过连线,肉眼确认无误,但项目硬性规范要求"验收通过后必须补一条能真正卡住这个 bug 复发的运行时断言",不能只满足于"读图确认接线对了"。第一版断言写法:在 `RunRegressionTests` 里直接调用 `TurnManager.AnnounceNextTurn()`,紧接着同一帧内 `Pawn|GetViewTarget(PlayerController)` 读取当前视角目标,断言它等于 `TurnManager`——开 PIE 实测,这条断言**稳定 FAIL**,而 `read_graph_dsl` 复查过的连线明明是对的。
+
+**根因**:`SetViewTargetWithBlend` 传入非零 `BlendTime`(这里是 `0.3` 秒)时,`APlayerCameraManager` 不会立刻把"当前生效的 `ViewTarget`"切换成新目标——它会记录混合参数,在接下来的 `Tick` 里逐步过渡,`ViewTarget`(`GetViewTarget()` 读到的)只有在混合结束后才真正变成新目标,混合期间读到的还是旧目标。也就是说:**代码逻辑（选对了目标)是对的,断言的时序假设(改的瞬间就能读到新值)是错的**——这是一次"测试本身设计有 bug,不是被测代码有 bug"的典型案例,排查时要先怀疑断言的时序前提,不要立刻回头怀疑刚验证过是对的连线。
+
+**衍生的工具限制**:想到"那就在断言前插一个 `Delay(0.4秒)` 等混合结束"来修断言,结果 `create_node`/`find_node_types` 都搜不到 `Utilities|FlowControl|Delay` 这个 type_id——`Delay` 是**latent(异步/延迟)节点,只能放在 EventGraph/Macro 里,UE 的普通 Function 图从设计上就不允许包含 latent 节点**,这是引擎级别的硬限制,不是 MCP 工具的缺陷。
+
+**修法**:把"检查 `ViewTarget`"这部分逻辑拆成一个独立的新 Function(`T9_CheckViewTarget`),在 `RunRegressionTests` 里改用 `Utilities|Time|SetTimerbyFunctionName(self, "T9_CheckViewTarget", 0.4, false)` 异步调度它(和 `AnnounceNextTurn`/`EndTurn` 自己内部调度 `StartTurn` 用的是同一套机制),0.4 秒后混合肯定已经结束,这时候读到的 `GetViewTarget()` 才是断言应该比对的值。改完重跑,断言稳定 `PASS`。**教训**:任何"调用一个带 Blend/Tween/Interp 效果的函数,紧接着验证效果"的断言,都要先确认这个效果是不是瞬时生效的——凡是叫 `...WithBlend`/`...Interp`/`Tween` 之类名字的函数,大概率不是瞬时的,同帧断言几乎必错;Function 里验证"过一段时间后的状态",只能靠 `SetTimerbyFunctionName` 拆成独立函数异步验证,不能指望 `Delay`。

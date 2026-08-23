@@ -529,7 +529,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 `BP_GridManager.EventGraph.EventBeginPlay` 在原有的建图/生成初始单位逻辑之后,新增了 `Branch(bRunRegressionTestsOnBeginPlay) → True → RunRegressionTests(self)`。默认 false,不影响正常游玩。
 
-### RunRegressionTests 覆盖的断言(当前 9 条)
+### RunRegressionTests 覆盖的断言(当前 12 条)
 
 在 `Tiles[0]`/`Tiles[1]`(11×8 网格里的两个相邻空格,离初始 4 个单位所在的 30/41/52/63 号格远,不会撞车)上:
 
@@ -545,6 +545,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | T7a_FindNearestUnit_ReturnsDistinctUnit | `FindNearestUnit0(fromUnit, bWantAlly=true)` 返回值不应该是 `fromUnit` 自己(几何无关的设计,不假设具体是哪个单位最近,见下方"以后怎么扩展"里的教训) |
 | T7b_RunEnemyTurn_MovesCloserToNearestTarget | `RunEnemyTurn` 跑完之后,敌方单位到"它实际找到的最近目标"的曼哈顿距离应该比移动前更小(**今天 pure 节点别名 bug 的直接回归测试**,见 `UE节点备忘录.md` 坑3) |
 | T7c_RunEnemyTurn_VacatesOldTile | `RunEnemyTurn` 跑完之后,单位原来所在的格子 `IsTileOccupied` 应变回 false(**同一个 pure 别名 bug 的另一种表现的回归测试**,见 `UE节点备忘录.md` 坑3) |
+| T8_ShowAttackRange_HighlightsEnemyInRange | `ShowAttackRange` 之后,射程内的敌方单位所在格子 `AtkHighlighted` 应为 true |
+| T9_AnnounceNextTurn_TargetsOverviewCamera_NotNextUnit | **2026-08-23 新增,直接卡住坑60(回合切换镜头乱甩)**:调用 `TurnManager.AnnounceNextTurn()` 后,`PlayerController.GetViewTarget()` 应该等于 `TurnManager` 自己,不能是"下一个要行动的单位"(那个单位此时还没被 `Possess`,朝向随机)。**这条断言异步执行**:`RunRegressionTests` 里用 `SetTimerbyFunctionName` 延迟 0.4 秒后才调独立函数 `T9_CheckViewTarget()` 做真正的断言,不是同步 Assert——原因是 `SetViewTargetWithBlend(BlendTime=0.3)` 不会同帧生效,`GetViewTarget()` 要等混合结束才反映新目标,见 `UE节点备忘录.md` 坑61。**这也是这条测试的日志顺序和其它测试不一样的原因**:`REGRESSION_TESTS_DONE` 会先打印,`T9` 的 `PASS`/`FAIL` 大约 0.4~0.5 秒后才追加出现在日志里,不代表测试没跑或者顺序错了。 |
 
 ⚠ T7a/b/c 测的是**直接调用 `RunEnemyTurn`**,刻意绕开了 `BP_TurnManager.StartTurn` 这个真正的游戏内入口——这也是为什么 `StartTurn` 那个"整条 exec 链路从 `FunctionEntry` 起就断流"的 bug(见上面 `BP_TurnManager.StartTurn` 一节)完全没被这三条断言捕捉到。目前还没有一条断言覆盖"`StartTurn` 本身的分支是否真的可达",这类"入口函数的 exec 链路是否连通"目前只能靠 `get_node_infos` 人工核对,是这套回归测试机制现在的一个已知盲区。
 
@@ -673,3 +675,59 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
     - **验证方式**:`EditorAppToolset.SetCameraTransform` 把编辑器视口相机摆到算出来的真实世界坐标 `(600,-237.119,687.119)`+旋转,再用 `WorldPosToScreenCoords` 逐个投影棋盘真实四角 `(100,100,0)`/`(1100,100,0)`/`(100,800,0)`/`(1100,800,0)` 和中心 `(600,450,0)`——四角归一化屏幕坐标都落在 `[0.155,0.845]×[0.326,0.793]` 内(留有余量,不贴边),中心几乎精确落在 `(0.5,0.5)`,证明"四角入画+45度俯视+棋盘居中"三个验收条件都满足。`CaptureViewport` 截图确认过画面里能看到棋盘所在的地板区域,但和坑58 记录的限制一样,棋盘和背景地板材质糊在一起看不出格子边界,这是已知的美术资源限制,不是这次改动引入的新问题。
     - `BP_TurnManager.EventGraph` 里为了验证"是不是 `SetupOverviewCamera` 跑得比 `Tile` 生成还早"这个候补假设而插入的 `Utilities|FlowControl|Delay`(`BuildTurnOrder`→`SetupOverviewCamera` 之间)已确认无关并移除,`EventGraph` 恢复成 `BuildTurnOrder`→`SetupOverviewCamera`→`StartTurn` 直接连接,没有遗留多余节点。
     - `compile_blueprint`/`save_assets` 均通过。**待人工 Play 验收**:实际游戏画面里 45 度俯角看起来是否符合预期(几何范围已用坐标投影验证过,但最终"好不好看"仍需人工确认)。
+
+### 2026-08-22 当日修复(续,第八轮:用户 Play 后反馈"比之前好点但角度仍然不好,应该是斜上45度角看整个棋盘")
+
+12. **这次不是本项目的 unreal-mcp MCP 会话,而是纯文档仓库(`纹兽战记`,无 `.uproject`)里发起的对话——本机没有把 unreal-mcp server 接进这次 Claude 会话**。改用 `curl` 直连 `http://127.0.0.1:8001/mcp`(项目真实 UE 工程 `MyProject 5.8/.mcp.json` 里配置的端口,和 [[project_ue_mcp_port]] 记录一致)手搓 JSON-RPC 请求(`initialize`→带 `Mcp-Session-Id` 头→`tools/call` 套 `call_tool`)完成本轮全部排查和修复,过程中确认响应体是 `event: message\ndata: {...}` 的单帧 SSE 包法,取值前要先剥掉 `data: ` 前缀再解析 JSON——纯粹是本次沟通方式的记录,不是蓝图知识,以后再遇到"当前会话没有 unreal-mcp 工具但编辑器进程在跑"可以照此操作,不用让用户切目录重开会话。
+13. **根因排查**:用 `EditorAppToolset.CaptureViewport(captureTransform=...)` 摆出第七轮验收记录的真实机位 `(600,-237.119,687.119)` 实拍(不是只投影四角坐标),叠加世界网格标注后肉眼确认——棋盘真正占的画面比例远小于第七轮"四角都在 `[0.155,0.845]×[0.326,0.793]` 内"这条验收结论给人的印象:该验收只检查了"四角有没有被裁掉",没有检查"棋盘在画面里占多大比例"。用 `WorldPosToScreenCoords` 对多组候选机位做数值扫描后发现两个独立问题:
+    - **`D` 公式用的是 Tile *中心点* 的 `OvMinX/MaxX/MinY/MaxY`,没有加上 `TileSize/2` 的格子半径**——最外圈格子的真实边缘比中心点还要再向外 50cm(`TileSize=100`),按中心点算出来的机位对真实棋盘边缘几乎没有安全余量,水平方向实测只有 `1.4%` 屏占比余量(`x∈[0.014,0.986]`),已经贴着画面左右边缘,谈不上"留白构图"。
+    - **最外层 `×1.3` 安全系数偏大**:这个系数是在"中心点公式"的基础上加的,两者叠加的净效果是——机位比"刚好不裁边"所需距离整整多退了约 25%,棋盘因此被压缩到画面中上部一小块,下方一大片空地板占满前景(这正是用户说的"看起来不像在看棋盘,像在看地板"的观感来源)。
+    - 两个问题方向相反(一个说明当时其实"不够安全",一个说明整体又"太保守"),叠加后表现为"数学上四角没被裁掉"但"视觉观感很差"这个看似矛盾的结果——这正是第七轮验收记录"待人工 Play 验收"这行字后来被用户实测证伪的原因,教训是**验证构图不能只投影角点判断"在不在画面内",还要看这些点落在画面的什么位置比例(至少要检查 y 值代表的画面纵深占比)**,已补记入 `UE节点备忘录.md`。
+14. **修法**:`SetupOverviewCamera()` 的 `D` 公式改成"格子边缘 + 更小的安全系数":`halfX_edge = (OvMaxX-OvMinX)/2 + 50.0`、`halfY_edge = (OvMaxY-OvMinY)/2 + 50.0`(`50.0` = `TileSize/2`,当前项目 `TileSize=100`,**这个 `50.0` 是按当前棋盘格子尺寸手工写死的字面量,不是从 `GridManager.TileSize` 动态读的**——`SetupOverviewCamera` 本来就只有 Tile 世界坐标可用,没有现成的跨蓝图 `TileSize` 引用,嫌麻烦没有额外接线,以后如果改 `TileSize` 需要记得回来同步改这两个字面量),`D=((halfY_edge)+1.41421356×(halfX_edge))/2×1.1`(安全系数 `1.3→1.1`)。**没有用 `write_graph_dsl` 整函数重写**——试过一次直接把 `read_graph_dsl` 读出来的原文原样传回 `write_graph_dsl`,报错 `Unreachable code after branch/return`(这个函数开头 `(bind _returnvalue (Transformation|GetActorLocation (Utilities|Array|ForEachLoop ...)))` 的写法,反编译文本本身就不是能直接回灌的合法 DSL,和坑42/58 记录的"`ForEachLoop` 反编译失真"是同一类陷阱,只是这次连"整体照抄不改也报错"都踩到了,以后遇到含 `ForEachLoop` 累加器的函数,**改动一律走 `get_node_infos`+`create_node`/`break_pins`/`connect_pins`/`set_pin_value` 逐节点操作,不要尝试 `write_graph_dsl` 整体重写**,哪怕只是想验证"原样传回去行不行")。改用 `find_nodes`(空标题列出全部 71 个节点)+批量 `get_node_infos` 读出节点图,定位到:
+    - `K2Node_PromotableOperator_6`(`(OvMaxX-OvMinX)/2`)的输出原本直接接到 `K2Node_PromotableOperator_13`(`×1.41421356`)的 `B` 输入——`break_pins` 断开,中间插入一个新建的 `Utilities|Operators|Add`(⚠ `create_node` 的 `type_id` 必须传这个通用重载名,不能传 `get_node_infos` 回显的 `Math|Float|float+float`,那个是显示名不是可创建的 type_id,试了直接报"节点不存在")节点 `K2Node_PromotableOperator_19`,`A` 接原来的 `/2` 输出,`B` 用 `set_pin_value` 字面量填 `50.0`,输出再 `connect_pins` 回 `PromotableOperator_13.B`。
+    - 同样手法在 `K2Node_PromotableOperator_8`(`(OvMaxY-OvMinY)/2`)和 `K2Node_PromotableOperator_14`(`halfY+halfX×1.41421356` 的加法)之间插入新建的 `K2Node_PromotableOperator_20`(`+50.0`)。
+    - 原本的字面量节点 `K2Node_CallFunction_11`(`MakeLiteralFloat Value=1.3`)直接 `set_pin_value` 改成 `1.1`,没有新建/删除节点。
+    - `compile_blueprint`(`/Game/Maps/BP_TurnManager.BP_TurnManager`)通过,`read_graph_dsl` 复查一遍确认新公式已经是 `(+ (+ (/ (- MaxY MinY) 2.0) 50.0) (* 1.41421356 (+ (/ (- MaxX MinX) 2.0) 50.0)))` 这个结构,`save_assets` 落盘。
+15. **验证**:改动后按新公式反推当前棋盘(`Columns=11,Rows=8,TileSize=100`→`halfX=500,halfY=350`)对应的机位约为 `D≈647.8`,`Location=(600,-197.8,647.8)`。用 `WorldPosToScreenCoords` 对棋盘真实四角(格子边缘 `(50,50)/(1150,50)/(50,850)/(1150,850)`,不再用格子中心点)重新投影:近排两角 `y≈0.88`(离底边约 12%,不再贴边)、`x∈[0.068,0.932]`(约 6.8% 水平留白,不再是第七轮的 1.4%);远排两角 `y≈0.30`,`x∈[0.271,0.729]`——四角全部在框内且留有观感舒适的边距,不是"卡着边缘算过关"。`CaptureViewport(captureTransform=(600,-197.8,647.8),Pitch=-45,Yaw=90)` 实拍(带世界网格标注)确认棋盘对应的行列范围(第 0~10 行、第 1~11 列)撑满画面中下部约 55%~60% 的高度,不再是第七轮截图里"一大片空地板、棋盘挤在画面上方一小条"的构图。**这轮全程通过 PIE + `CaptureViewport` 编辑器视口验证,没有能力实拍"敌方回合触发时"的真实游戏帧**(和坑57 记录的限制一样,`SetViewTargetWithBlend` 切镜头这件事本身没法在 MCP 里可靠触发/观察,只能验证 `SetupOverviewCamera()` 算出来的目标机位本身构图是否合理)。**待人工 Play 验收**:敌方回合实际触发时,45 度全景镜头看起来是否终于"棋盘为主体、留白合理",而不是"一半画面都是空地板"。
+16. **仍未解决、和这轮无关的已知限制(坑58 原文重申)**:棋盘贴图和背景地板是同一套没有逐格描边的默认棋盘格材质,俯视角度下棋盘和地板边界肉眼难分辨,单位模型在这个机位高度下也偏小——如果人工验收后觉得"角度对了但还是看不清棋盘在哪、单位在哪",大概率不是相机数学的问题,而是这条美术资源缺口没堵,需要用户另外排期做棋盘描边/独立材质,不是靠再调 `SetupOverviewCamera` 的参数能解决的。
+
+### 2026-08-22 锁定式索敌系统(阶段1,替换鼠标瞄准攻击;用户反馈"不想用鼠标瞄准+以后要范围攻击+要解决hit=Floor_0+要命中率伤害看板")
+
+**背景**:用户发来一张实际 Play 截图,`AttemptSkillAttack` 的调试文本刷屏("ATTACK: E pressed, tracing..." / "hit=Floor_0" 反复出现)暴露了攻击射线基本打不中单位这个真实 bug。排查结论:攻击判定是从 `TPSCamera` 沿 `PlayerController.GetControlRotation()` 做 3000cm 的 `LineTraceForObjects`,而 `LineTraceForObjects` 的 `ActorsToIgnore` 参数传的是**全部 `BP_Tile`**——射线一旦稍微偏一点没扫到角色胶囊体,会直接穿过被忽略的地板格,打到更底下的 `Floor_0` 静态网格。小体型怪物模型+摄像机瞄准的组合天然容易脱靶,不是简单调参能根治的,和用户"不想用鼠标瞄准"的诉求一致——**方案定为整体替换掉这套摄像机射线判定,改成不依赖鼠标精度的"锁定式索敌"**。
+
+**设计**:不再用鼠标朝向做物理判定,改成复用已有的 `ValidateSkillTarget`(曼哈顿距离 + `GetSkillEffectiveRange`)逻辑,自动在当前技能射程内枚举合法目标,玩家用 `Tab` 键在候选目标间循环切换,`E` 键攻击当前锁定的目标。**只做了单体锁定这一半**——范围技能的"地面光标+独立瞄准模式"按用户的问答选型已经定了方向(独立瞄准模式:按住/切换一个专门的瞄准态,这时 WASD 挪光标不挪角色),但范围技能本身还没做,这部分设计留到真正做范围技能时再实现,不在这轮范围内。
+
+**BP_GridManager 新增**(均 `write_graph_dsl` 整体生成,不含 `ForEachLoop` 累加器回读風险,全新函数直接写没有踩坑):
+- **`GetTargetsInRange(Attacker, SkillIndex) → Array<BP_Unit>`**:`For Each` 全场 `BP_Unit` → 复用 `ValidateSkillTarget(self, Attacker, candidate, SkillIndex)`(内部已经做了"是敌方"+"曼哈顿距离≤有效射程"两层判断,不用重写)→ 命中就 `Utilities|Array|Add` 进结果数组。**踩坑**:第一版把 `Array|Add` 的返回值(新元素下标,`Integer`)当成"新数组"回填给累加器变量,报 `Could not connect pin ReturnValue to TargetsTmp`——`Array|Add` 是**原地引用修改**(`TargetArray` 是 by-ref 输入),不是纯函数,直接当 `exec` 语句调用就行,不需要也不能再包一层 `Set`。
+- **`ClearLockIndicators()`**:`For Each` 全场 `BP_Unit` → 逐个调用 `SetLockIndicator(false)`(见下方 `BP_Unit` 新函数),每 Tick 先清后设,和项目里 `ClearHighlights`→`ShowXxx` 的固定套路一致。
+
+**BP_Unit 新增**:
+- 变量 `LockedTargetIndex`(Int,默认0,`Tab` 键自增,不做取模——取模节点这个引擎版本的 `find_node_types` 搜不到现成的 `int%int`,改成在 `EventTick` 里用"`>=候选数量` 就清零"的越界回绕,比取模更符合项目一贯的 `Select`/`Clamp` 写法)、`CurrentLockedUnit`(Object BP_Unit,缓存当前锁定目标供 `AttemptSkillAttack` 直接用)。
+- 新函数 **`SetLockIndicator(bLocked: Bool)`**:`Transformation|SetRelativeScale3D(HealthBarComponent, bLocked?(1.4,1.4,1.4):(1,1,1))`——**用"血条放大 1.4 倍"当锁定指示器**,没有另外做描边/图标,理由是复用现成组件零新增美术资源,最快能验证逻辑对不对;如果人工 Play 觉得不够醒目,后续可以换成更明显的描边材质,但那是纯视觉打磨,不影响这轮的判定逻辑。
+- **`EventTick` 尾部新增一段**(接在原有 `ShowSkillRange` 调用的空 `then` 之后,`create_node`/`connect_pins`/`set_pin_value` 逐节点搭建,没有用 `write_graph_dsl`——这个函数本身极长且historically 对 `EventTick` 这类多事件共享的 `EventGraph` 做整图回写有断线风险,见下方"踩坑"):`Grid.ClearLockIndicators()` → `Grid.GetTargetsInRange(self, SelectedSkillIndex)` → `Array Length` → `>0` 分支:`LockedTargetIndex >= count` 就 `Select` 回绕成 0 并写回变量 → 按(可能回绕后的)下标 `Array Get` 取出目标 → `SetLockIndicator(true)` → `Set CurrentLockedUnit` = 该目标;`=0` 分支:`Set CurrentLockedUnit`(数据 pin 不接,默认 `None`)。
+- 新增 `Input|KeyboardEvents|Tab`(Pressed,legacy 按键,和项目里 WASD/1-5/E 同款,不赌 Enhanced Input)→ `LockedTargetIndex += 1`。
+- **`AttemptSkillAttack()` 整个重写**(`write_graph_dsl` 直接覆盖旧图,新函数体极短、不含 `ForEachLoop`,风险低,一次成功):删除原来的 `LineTraceForObjects`+`CastToBP_Unit`+一堆 `PrintString` 调试链,换成 `IsValid(CurrentLockedUnit)`(**用 continuation 语法 `(:"Is Valid" ...) (:"Is Not Valid")`,不是 `if` 包 `IsValid`——第七轮踩过的坑2/47/坑50 教训这次直接照着正确写法写,没有再犯**)→ 有效就直接 `Grid.PerformSkillAttack(self, CurrentLockedUnit, SelectedSkillIndex)`。**E 键在 `EventGraph` 里指向这个函数的调用节点(`K2Node_CallFunction_66`)没有动过**,`write_graph_dsl` 整体重写函数体后按函数名重新解析,`compile_blueprint` 通过后核对过 `K2Node_InputKey_1`(E)→`K2Node_CallFunction_66` 这条线原样还在,不需要手动补线。
+
+**顺手清理**:`ValidateSkillTarget` 里两个残留调试 `PrintString`(`VALIDATE: dist=... range=...` / `VALIDATE: BLOCKED - target Side=true`)的 `bPrintToScreen` 从 `true` 改成 `false`(`bPrintToLog` 仍是 `true`,`Output Log` 里还查得到,只是不再糊屏幕)——这两条正是用户截图里刷屏的调试文本的一部分。`AttemptSkillAttack` 旧版自带的另外两条刷屏文本("ATTACK: E pressed, tracing..." 等)因为整个函数体被替换,直接消失,不需要单独关。
+
+**已知限定/未处理**:`BP_Unit.EventGraph` 里另外 2 个 `PrintString`(`K2Node_CallFunction_23/24`,挂在 `W` 键分支,`坑42` 朝向修复相关)这轮没有动,和本次改动无关,不在范围内。
+
+### 2026-08-23 回合切换镜头乱甩修复(用户发录屏反馈"运镜有问题",抽帧定位后确认是代码 bug,不是相机数学问题)
+
+**排查过程**:用户发了一段 Play 录屏,反馈镜头体验差。先用 `ffmpeg` 抽帧(2fps 全览+关键片段 30fps 逐帧不跳帧)分析,一开始误判是 `BP_Unit.SpringArm` 的碰撞探测(`bDoCollisionTest`)被攻击特效顶到贴脸——**这个判断后来被逐帧证据推翻了**:碰撞探测应该是渐进变化的,但实际看到的是相邻两帧之间的瞬间硬切,不是逐步逼近。这提醒了一件事:**只看录屏低帧率抽帧容易得出错误结论,得配合高帧率逐帧+读代码才能定位准**,以后类似"体验问题"排查不能只停留在稀疏抽帧这一步。
+
+**真正根因(读完 `TryAttack`→`ResolveCounterAttack`→`PerformSkillAttack`→`BP_TurnManager.EndTurn`→`AnnounceNextTurn`→`StartTurn` 整条链路后确认)**:每次回合切换,镜头实际被摆了三次:
+1. 攻击结算(`TryAttack`/`ResolveCounterAttack`)纯数值计算,不碰镜头。
+2. `PerformSkillAttack` 结算完立刻调 `BP_TurnManager.EndTurn()` → 等 1 秒(`SetTimerbyFunctionName`)→ `AnnounceNextTurn`。
+3. **`AnnounceNextTurn` 原来会 `SetViewTargetWithBlend(下一个单位, 0.3秒)`——这个"下一个单位"此时还没被 `Possess`,朝向是它上次移动/待机结束时随便停留的角度,没有任何人瞄准过它**,镜头切过去看到的就是这个随机朝向(天空/贴近别的单位模型),这正是录屏里"贴地看天"和"怼脸糊成一片"两段画面的根因——不是相机数学错,是选错了"中间过渡镜头该看哪"这个目标。
+4. 再等 1 秒 → 真正的 `StartTurn` 才跑,这里有设计好的镜头(我方 `Possess`+回到该单位第三人称;敌方切到 `OverviewCamera` 全景),`0.75秒` blend 过去——这才是录屏里最后稳定下来那个还算正常的构图。
+
+**修法**:`AnnounceNextTurn` 里 `SetViewTargetWithBlend` 的 `NewViewTarget` 参数,从"下一个单位本人"(`K2Node_GetArrayItem_0` 的输出)改接到 `self`(`BP_TurnManager` 自己,即 `OverviewCamera`)——和 `StartTurn` 敌方分支早就在用的写法(`SetViewTargetWithBlend self 0.75`)完全同构。只 `break_pins`+新建一个 `Variables|Getareferencetoself` 节点+`connect_pins` 这一步,`_output`(下一个单位的引用)在同一个函数里另外两处用途(`IsValid` 判空、`PrintString` 里判断"我方/敌方回合开始"文案)完全没动。改完之后中间这一步变成"切到全景",本身构图稳定,不再是随机朝向;1 秒后 `StartTurn` 该怎么切还怎么切,时序完全没变。
+
+**验证**:`compile_blueprint`(`BP_TurnManager`)通过,`read_graph_dsl` 复查确认 `SetViewTargetWithBlend` 的目标已经是 `self`。`save_assets` 落盘。临时打开 `bRunRegressionTestsOnBeginPlay` 开 PIE 跑一遍(验完立刻改回 `false`,没有留痕到关卡资产):`T1`~`T6b`/`T8` 依旧 `PASS`,`T7b`/`T7c` 依旧 `FAIL`(和上一轮记录的结果完全一致,证明这次改动没有引入新的回归,`T7b`/`T7c` 是独立的、更早遗留的问题,见上一节记录)。
+
+**2026-08-23 用户"验收通过"后按硬性规范补的回归断言**(`BP_GridManager.RunRegressionTests` 新增 T9):直接调用 `TurnManager.AnnounceNextTurn()` 后同帧读 `PlayerController.GetViewTarget()` 断言等于 `TurnManager` 的第一版写法**稳定 FAIL**——根因是 `SetViewTargetWithBlend` 带 `BlendTime=0.3` 时,`GetViewTarget()` 要等混合结束才反映新目标,同帧读到的还是旧值,不是代码逻辑错了,是断言的时序假设错了(详见 `UE节点备忘录.md` 坑61)。改法:新增独立函数 `BP_GridManager.T9_CheckViewTarget()`(内容:`GetAllActorsOfClass(BP_TurnManager)`→Cast→`GetViewTarget(GetPlayerController(0))`→`Assert(==TurnManager, "T9_...")`),`RunRegressionTests` 里改用 `Utilities|Time|SetTimerbyFunctionName(self, "T9_CheckViewTarget", 0.4, false)` 异步调度(`Utilities|FlowControl|Delay` 是 latent 节点,不能放进普通 Function,这也是这次才发现的引擎硬限制)。重跑后 `T9_AnnounceNextTurn_TargetsOverviewCamera_NotNextUnit` 稳定 `PASS`,`T1`~`T8` 结果不变(`T7b`/`T7c` 依旧是独立的老问题)。**这条断言真正卡住了坑60 这个 bug**——如果以后有人不小心把 `AnnounceNextTurn` 的 `NewViewTarget` 又改回"下一个单位本人",这条测试会立刻 FAIL,不用等人工 Play 才发现。
+
+**顺手发现,未处理**:开 PIE 时 `Output Log` 刷出几条 `Attempted to access BP_Unit_C_6 via property PendingEnemyUnit, but BP_Unit_C_6 is not valid (pending kill or garbage)`——`PendingEnemyUnit` 变量在某个之前的单位被 `DestroyActor` 之后没有清空,残留了一个失效引用。和这轮镜头改动无关,没有顺手修,留待下次处理。
+
+**验证方式**:`compile_blueprint`(两个蓝图)均通过,`save_assets` 落盘。开 PIE(临时把 `bRunRegressionTestsOnBeginPlay` 打开跑了一遍,验完立刻改回 `false`,没有留痕到关卡资产)看 `Output Log`:`T1`~`T6b`/`T8` 全部 `PASS`,**`T7b_RunEnemyTurn_MovesCloserToNearestTarget`/`T7c_RunEnemyTurn_VacatesOldTile` 两条 FAIL**——**这次没有新引入这两条失败**:这轮改动完全没碰 `RunEnemyTurn`/`MoveUnitTowardTarget`/`FindNearestUnit0`,`AttemptSkillAttack`/新函数只在被 `Possess` 的我方单位的 `EventTick`/按键路径上执行,和敌方 AI 回合的调用链没有交集,**推断是这轮之前(某次 TPS 迁移/AI 朝向修复改动)就已经破坏、只是没人在那之后重新跑过回归测试才没发现**,已如实记录、没有顺手修,留给用户决定要不要单独排期排查(参见"当日修复(续,第六轮)"第8条"敌方AI移动朝向修复"——很可能是那次改动引入,因为改动本身"没能实测",时间线吻合)。**没能验证的部分(和以往同一类限制)**:MCP 没有可靠按键模拟能力,`Tab` 切换目标手感、`E` 锁定攻击的真实命中率仍需人工 Play 验收;`SetLockIndicator` 的血条放大效果好不好看也需要肉眼确认。

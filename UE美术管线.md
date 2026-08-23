@@ -34,13 +34,22 @@ clean design, centered, game character
 4. 其余模型(去背景 rembg 等)首次 Run 自动下。
 
 ### 第 3 步 · 生成(出灰模)
-1. Load Image 节点传概念图(FRONT)。
-2. 点 **Run** → 出灰模(375k 面 → 自动精简到 25k 面/50k 三角,棋子够用)。
-3. **贴图这步会报错** `No module named 'custom_rasterizer'` —— 那是要编译的贴图渲染扩展。
-   - torch 2.10/cu130 太新,kijai 的预编译 wheel(torch2.6/cu126)对不上,得自己编译(装 VS 生成工具),很折腾。
-   - **占位棋子不需要贴图** → 直接跳过:选 `Hy3DRenderMultiView`(及后面贴图组)按 **Ctrl+B 旁路**,用 `Hy3DExportMesh` 导出灰模。
-   - 想要真彩贴图 = 以后单独攻编译,或改用带贴图的在线工具。
-4. 导出 **glTF(.glb)** → 文件在 `<ComfyUI>/output/`。
+
+单视图和四视图是**两套工作流、两份权重**,不能在 `hy3d_example_01` 上多接几张图。
+
+| | 单视图(超梦那次) | 四视图 |
+|---|---|---|
+| 工作流 | `hy3d_example_01` | `user/default/workflows/hy3d_mv_grey_4view.json` |
+| 生成节点 | `Hy3DGenerateMesh`(1 个 image) | `Hy3DGenerateMeshMultiView`(front/left/right/back) |
+| 权重 | `hunyuan3d-dit-v2-0-fp16.safetensors`(已有) | `hunyuan3d-dit-v2-0-mv-fast-fp16.safetensors`(**另下一份**,不是把单图模型改名) |
+
+四视图用法:
+1. Comfy 打开 `hy3d_mv_grey_4view`。Loader 必须选 **mv-fast**,不要选 v2-0。
+2. 四个 Load Image 各放一张**独立**图:正 / 左 / 右 / 后。不要一张四宫格。右视如果是 3/4 透视,断开 right 口,不要硬喂。
+3. 四张会 pad 到 518×518(尺寸不一致会在拼 preview 时崩)。背景尽量黑或透明。
+4. Run → `output/3D/Hy3D_mv_*.glb`。
+
+贴图这步会报错 `No module named 'custom_rasterizer'`(torch 2.10 对不上预编译 wheel)。**灰模工作流已经旁路贴图组**。想要真彩 = 以后编译扩展,或改用带贴图的在线工具。完整带贴图官方示例另存为 `hy3d_multiview_example_02.json`,这台机器上先别跑。
 
 ---
 
