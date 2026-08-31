@@ -20,7 +20,9 @@
 - 算术运算符 `+`/`-`/`*`/`/` 的 type_id 不在 `find_node_types` 搜索结果里,要从 `create_node` 工具自身的参数说明(docstring)里找(如 `Utilities|Operators|Add`)。(见坑15)
 - `add_function_param` 不支持 Object 类输入/输出参数,只支持基础类型和少数结构体;需要传对象时改成"调用前把值写进成员变量,函数内部读这个变量"的模式。(见坑17)
 - `get_node_type_pins` 会在图里创建一个临时/预览节点来读取 pin 信息,不是纯只读查询,它返回的 `refPath` 不保证是图里持久存在的真实节点——真正要用的节点必须显式 `create_node` 建,拿那次调用自己返回的 `refPath`。(见坑18、坑39、坑43)
-- 给已有 Function 新增/修改输出参数后,已存在的调用点(`K2Node_CallFunction`)不会自动刷新 pin,只能 `delete_node` 后 `create_node` 重建;改签名前先 `find_nodes` 数一下有几个调用点。(见'MCP BlueprintTools实测细节'第8条)
+- 给已有 Function 新增/修改输出参数后,已存在的调用点(`K2Node_CallFunction`)不会自动刷新 pin,只能 `delete_node` 后 `create_node` 重建;改签名前先 `find_nodes` 数一下有几个调用点。(见'MCP BlueprintTools实测细节'第8条,坑66 是这条规律的一次代价高昂的重演)
+- `write_graph_dsl` 对**通过 `add_function_graph` 刚创建的、真正空白**的函数图是安全的整体写入(不会重复);但对着**已经有内容**的既有函数图(哪怕只想整体替换成"看起来一样但加了几个分支"的新版本)提交,行为是追加不是替换,旧节点全部留着不被清掉,新旧内容一起变成图里的孤儿——这条规律早就写在这个文件最上面,但"这个函数早就存在、不是全新的"这件事很容易在专注于内容对不对时被忽略,必须先用 `list_functions`/`find_nodes` 确认目标函数**当前是否已有节点**,已有就先 `remove_function_graph`→`compile_blueprint`→`add_function_graph` 清空重建,再 `write_graph_dsl`,不能图省事直接覆盖着写。(见坑66)
+- 给一个已有 Function 用 `add_function_param` 声明输出参数时,参数名必须和 `write_graph_dsl` 内部生成 `(return ...)` 终止节点时使用的**内置默认输出 pin 名**一致(实测这个内置默认名是 `"Result"`,不是更常见的 `"ReturnValue"`)——命名不一致会在编译时报"Pin Result 找不到匹配的参数"这类错误,即使函数体本身逻辑完全正确。判断一个函数的输出参数该叫什么,不要凭记忆套用别处的命名(比如 `IsPhysicalSkill` 用的是 `ReturnValue`),遇到报错就老老实实读报错文本里点名的那个 pin 名字,照着改成一致,不要用同义词硬猜。(见坑66)
 - 新建的、需要有返回值的 Function,写函数体之前必须先 `add_function_param(..., input_param=false)` 声明输出参数;写完后必须用 `find_nodes` 确认存在 `K2Node_FunctionResult` 节点、`get_node_infos` 核对它的值 pin 确实接了东西——否则可能编译成功但函数其实是 void,返回值被悄悄丢弃。(见坑24)
 - 带 Exec 的自定义函数(非纯函数)不能当纯表达式嵌套调用,否则会被 prune(`Exec pin is not connected`),返回值变成默认空值。(见坑34)
 - 自定义函数的 `Return` 节点如果 `execute` pin 没接 `FunctionEntry`,函数会跑完但返回值按类型默认值返回(String 是空串),编译不报错,必须用 `get_node_infos` 核实 Return 节点的 exec 输入确实连着。(见坑37)
@@ -49,6 +51,8 @@
 - 跨蓝图调用自定义 Function 时,"self/target 参数排第几位"没有固定规律,不能死记硬背;先按直觉试一次,报错信息会明确说是把谁的输出接到了 self 上,照着报错倒过来重试。(见'UMG/Widget相关踩坑'第4条、'UMG补充踩坑'第3条)
 - 同一个类的蓝图图里读不到"另一个同类实例"的变量——MCP 反射工具的限制是:跨实例读取的显式 Target 版本只有当前图所属类≠目标类时才会出现在可创建列表里;要在自己类的图里读别的同类实例的变量,必须把判定逻辑包到第三方蓝图(比如 GridManager)的小函数里,传对象引用进去、拿结果出来。(见坑46)
 - 排查"某个操作还能通过意料之外的方式触发"这类问题,必须从**真正执行这个操作的终点函数**反向搜索全项目所有调用方,不能从"最近改过的输入"或"看起来相关的事件"出发局部排查——历史遗留的叠加系统里,触发点可能挂在完全无关的事件名字上。(见坑52)
+- `Actor|GetAllActorsOfClass`+`Utilities|Array|Get(acopy)` 这套"现查引用"模式取出来的数组元素,类型只会解析成基类(`Actor Object Reference`),不会自动收窄成 `ActorClass` 参数指定的具体子类——接到需要具体子类的 pin(比如跨蓝图函数调用的 `self`)之前必须显式插一个 `Utilities|Casting|CastToXxx` 做向下转型,否则 `connect_pins` 报"pins may be incompatible types"。每次用这套模式都要加这一步,不是一次性的坑。(见坑65)
+- 一个函数如果被设计成"循环里反复调用",调用前必须审查它内部会不会**无条件重置**某个被下一次迭代依赖的共享状态(GridManager 成员变量、单例引用等)——`TryAttack` 结尾无条件把 `SelectedUnit` 清成 `None`、`ResolveCounterAttack` 无条件把 `PendingSkillRowName` 改写成 `"basic"` 且从不恢复,这类"函数只被设计成调一次"时完全无害的收尾操作,一旦被循环复用就会让第二次及以后的迭代静默失败或用错数据,且不报错、不影响第一次迭代的正确性,很容易在"看起来能命中多个目标"的粗测下蒙混过关。循环体内每次迭代都要重新显式 `Set` 这些会被清空/篡改的共享状态,而不是只在循环开始前设一次。(见坑65)
 
 ### ④ UMG/Widget 相关
 
@@ -123,6 +127,9 @@
 - 面对一个未解决的深层引擎/项目问题(比如 Enhanced Input 全局不触发),留一套排查用的诊断基础设施(探针 PrintString、备用输入方案)在项目里且明确记录在文档中,方便下一次接手直接复用,不需要重新排查一遍。(见坑41)
 - `SetViewTargetWithBlend` 换镜头时,`NewViewTarget` 要传"设计上就该在这个时刻被看到的东西"(比如全景相机自己),不能传"跟这件事有关联但状态还没就绪"的对象(比如还没被 `Possess`、没人瞄准过的下一个单位)——后者朝向随机,表现上像"镜头乱甩",根因其实是选错了目标,不是相机数学错。(见坑60)
 - 验证 `SetViewTargetWithBlend`(`BlendTime>0`)是否换对了目标,不能在同一帧里读 `PlayerController.GetViewTarget()` 断言——Blend 没跑完之前它还返回旧目标,必须等 Blend 时长过去之后再读;而 `Delay` 节点不能放进普通 Function(只有 EventGraph/Macro 能用),要在 Function 里验证"延迟后的状态",得拆成 `SetTimerbyFunctionName` 调另一个函数来做断言。(见坑61)
+- 任何"读 live PIE 状态排查"之前,第一步先 `EditorAppToolset.IsPIERunning()` 确认真的在跑——`StartPIE` 调用成功过不代表这一刻 PIE 仍然活着(可能已经被停掉/因故结束),`find_actors` 返回的 `UEDPIE_0_...` 路径哪怕看着眼熟也可能是上一次残留的假象,后续 `ObjectTools`/`ActorTools` 对同一路径的调用会全部报"not valid Object"且报错信息本身不会提示"其实是 PIE 没在跑"。(见坑62)
+- `SkeletalMeshComponent.AnimationData` 这个属性只在组件初始化/序列化时有意义,不会随运行时 `PlayAnimation()` 调用同步更新;想确认"现在到底在播放哪个动作",读这个属性是死路,只能通过——功能是否触发看蓝图变量(如自建的 `CurrentLocoAnim`)、视觉效果是否正确只能靠截图或人工肉眼确认。(见坑63)
+- 一个挂了 `CapsuleComponent`(`ACharacter`)的角色,如果玩家反馈"移动时头朝向不对/像在倒退着走(moonwalk)",且换动画资产(swap 两个 AnimationAsset 变量)没有效果,第一时间应该怀疑 `SkeletalMeshComponent.RelativeRotation`(挂载在胶囊体下的静态朝向补偿值)差了 180 度,而不是"选错了哪个动作";这类角度补偿值如果通过"肉眼看渲染截图猜前后"校准出来的,本身有 50% 概率猜反,前后各差 180 度都可能被误判成"看起来还行"——最终判定必须回到真实玩家的直接描述(比如"背对着移动方向走"),不要靠继续截图硬猜。(见坑64)
 
 ---
 
@@ -633,3 +640,293 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 **衍生的工具限制**:想到"那就在断言前插一个 `Delay(0.4秒)` 等混合结束"来修断言,结果 `create_node`/`find_node_types` 都搜不到 `Utilities|FlowControl|Delay` 这个 type_id——`Delay` 是**latent(异步/延迟)节点,只能放在 EventGraph/Macro 里,UE 的普通 Function 图从设计上就不允许包含 latent 节点**,这是引擎级别的硬限制,不是 MCP 工具的缺陷。
 
 **修法**:把"检查 `ViewTarget`"这部分逻辑拆成一个独立的新 Function(`T9_CheckViewTarget`),在 `RunRegressionTests` 里改用 `Utilities|Time|SetTimerbyFunctionName(self, "T9_CheckViewTarget", 0.4, false)` 异步调度它(和 `AnnounceNextTurn`/`EndTurn` 自己内部调度 `StartTurn` 用的是同一套机制),0.4 秒后混合肯定已经结束,这时候读到的 `GetViewTarget()` 才是断言应该比对的值。改完重跑,断言稳定 `PASS`。**教训**:任何"调用一个带 Blend/Tween/Interp 效果的函数,紧接着验证效果"的断言,都要先确认这个效果是不是瞬时生效的——凡是叫 `...WithBlend`/`...Interp`/`Tween` 之类名字的函数,大概率不是瞬时的,同帧断言几乎必错;Function 里验证"过一段时间后的状态",只能靠 `SetTimerbyFunctionName` 拆成独立函数异步验证,不能指望 `Delay`。
+
+### 坑62:`StartPIE` 调用成功过不代表这一刻 PIE 还在跑,`find_actors` 返回的 `UEDPIE_0_...` 路径可能是残留假象,排查前先 `IsPIERunning()`(2026-08-29,骨骼网格换新模型后排查"按W不出前进动画") #PIE #StateAssumption #排查心法
+
+**背景**:接手一个"按 W 前进时不出现向前走动画"的问题,会话早前(上下文压缩之前)已经调用过一次 `StartPIE`。基于这个记忆直接调用 `SceneTools.find_actors(actor_type=BP_Unit_C)`,拿到 4 个 `/Game/Maps/UEDPIE_0_TestMap.TestMap:...` 路径,看起来完全正常;紧接着对这些路径调用 `ObjectTools.get_properties` 却全部报 `is not valid Object for property 'instance'`,`ActorTools.get_actor_transform`/`get_class` 同样报 `is not valid Actor`。一开始怀疑是 API 参数格式问题(`instance`/`actor` 到底要不要额外包一层),换了好几种 payload 形状都不行。
+
+**根因**:`EditorAppToolset.IsPIERunning()` 一查是 `false`——早前那次 `StartPIE` 对应的 PIE 会话在两次工具调用之间的这段时间(很可能是上下文压缩期间)已经结束了,但 `find_actors` 依然能返回带 `UEDPIE_0_` 前缀的路径字符串(推测是 `SceneTools` 内部缓存或者查询到了一个刚失效、尚未被完全清理的 `UWorld`),这些路径字符串本身"看起来"完全合法,唯独指向的对象已经不存在,所以任何试图解析成真实 `UObject`/`AActor` 的调用都会失败,而报错信息("not valid Object")完全没有提示"PIE 根本没在跑"这个真正原因。
+
+**教训**:任何要"读 live PIE 状态"的排查动作,第一步必须显式 `IsPIERunning()` 确认为 `true`,不能依赖"记得自己之前调用过 `StartPIE`"这种历史记忆——尤其是长会话、经历过上下文压缩/长时间空隙之后接手时,PIE 可能已经因为各种原因(用户手动停止、编辑器本身超时、compaction 期间的意外)结束了。确认为 `false` 就重新 `StartPIE`,不要先花时间怀疑工具参数格式。
+
+### 坑63:`SkeletalMeshComponent.AnimationData` 属性只是初始化/序列化用的静态缓存,不会随运行时 `PlayAnimation()` 调用更新,拿它判断"现在到底在播什么动作"是死路(2026-08-29,同一轮排查) #Animation #PropertyReflection #死胡同
+
+**背景**:怀疑 `UpdateLocomotionAnim` 没能正确让角色从 Idle 切到 WalkForward,想找一个"零信任"的验证手段,而不是只看蓝图变量 `CurrentLocoAnim`(担心变量本身被设对了但视觉没变)。想到用 `ObjectTools.get_properties` 直接读 `CharacterMesh0.AnimationData`(`FSingleAnimationPlayData`,包含 `animToPlay`/`bSavedPlaying`/`savedPosition` 等字段),预期它能反映"这个组件此刻真实在播放哪个动作、播到第几秒"。
+
+**结果**:PIE 里读全场 4 个单位,`AnimationData.animToPlay` 全部精确等于 `CharacterMesh0` 的 **CDO 默认值**(`Walking_import_Anim`,`savedPosition=0`),即便蓝图变量 `CurrentLocoAnim` 已经确认是 `Idle_import_Anim`——看起来像是"BeginPlay 的 Idle 初始化压根没有真正调用 `PlayAnimation`",一度怀疑这是本轮 bug 的根源,准备去查 BeginPlay 的动画初始化逻辑。
+
+**根因**:`AnimationData` 这个 `UPROPERTY` 只在组件**注册/反序列化**阶段被引擎读取一次,用来初始化内部真正驱动播放的 `UAnimSingleNodeInstance` 对象;之后蓝图 `PlayAnimation()`/`SetPlayRate()` 等运行时调用只会改这个内部 instance 对象的状态,**不会**回写更新 `AnimationData` 这个缓存字段。所以不管运行时实际切换过多少次动作,`ObjectTools.get_properties` 读到的永远是组件初始化那一刻(也就是 CDO 序列化时)的原始值,和"现在真的在播什么"完全没有关系。这是一次纯粹的假线索,浪费了一整轮排查,最后靠交叉核对——变量 `CurrentLocoAnim` 在 4 个单位上全部正确变成 `Idle`,证明 `PlayAnimation` 调用链路本身其实是通的——才推翻了"BeginPlay 没调用"这个错误方向。
+
+**教训**:凡是"某个组件现在实际的运行时状态"这类问题,只有两条可靠路径——①功能层面的自定义追踪变量(比如这里的 `CurrentLocoAnim`,前提是确认过赋值时机和调用链路正确)、②直接的视觉/截图确认;`AnimationData`/类似的"初始化配置结构体"属性只应该用来核对**资产配置**(比如 CDO 上 `IdleAnimAsset` 到底指向哪个 AnimSequence),不能用来核对**运行时行为**。
+
+### 坑64:玩家反馈"移动动画方向不对"时,不要立刻假设"选错了动画 clip",先分清是"clip 选择错"还是"整个模型朝向反了 180 度(moonwalk)"——两者修法完全不同,前者治不了后者(2026-08-29,Mewtwo_TPose 骨骼网格迁移后的朝向排查) #Animation #Orientation #误诊 #排查心法
+
+**背景**:用户反馈"按 W 前进时,变成后退走的动画;按 A/D 也是倒着走的动画"。第一反应是"`WalkForwardAnim`/`WalkBackwardAnim` 这两个 `AnimationAsset` 变量的资产引用被接反了",于是直接把这两个变量的默认值互相调换。验收:**没有任何变化**,用户追加反馈"往前走的时候还是头朝向有问题,不是正着走路"——这句话才是关键线索,指向的是"朝向"(整个角色面朝哪),不是"该播哪一份动作数据"。
+
+**排查过程**:
+1. 先做了一轮"选错 clip"方向的验证——read_graph_dsl/get_node_infos 逐节点核对 `UpdateLocomotionAnim` 内部的分支逻辑(速度阈值/点乘正负号选 Idle/WalkForward/WalkBackward),确认逻辑和接线本身完全正确,` if (NotEqual(target,current)) { Set; Play }` 这种"看起来像 if/else 但其实是顺序执行两条语句"的写法也核实过是对的,不是坑。这一轮排除了"函数逻辑错"。
+2. 又用一个后台 agent 完整回溯了 `EventTick` 里 WASD 输入到 `UpdateLocomotionAnim` 的整条 642 节点执行链路,确认没有类似历史上 CastFailed 那种断线——图结构层面完全正常。
+3. 到这一步"程序逻辑没问题"已经反复验证两次,但用户仍然反馈方向不对,而且明确说"swap 动画没用"——这时才真正把假设从"选错 clip"切换到"模型挂反了"。用 `SceneTools.add_to_scene_from_class` 生成一个临时测试 actor,强制把它的 `CharacterMesh0.AnimationData` 设成目标动作(`savedPosition=0.3` 取一个有代表性的动作中间帧),用 `EditorAppToolset.CaptureViewport` 显式传 `captureTransform` 从多个角度(45度俯视/纯侧面/正后方/纯俯视)截图,试图用肉眼判断角色的头/尾朝向和 `Arrow` gizmo(胶囊体真实 forward 方向)是否一致——**这一步的截图在当前的光照(项目风格化的紫色天空,整体偏暗、缺乏方向性阴影)下始终无法给出有把握的结论**,来回切换 `CharacterMesh0.RelativeRotation.Yaw` 在 90/270 之间对比,肉眼看不出预期中应有的"180度镜像"差异(推测是这个姿势本身左右/前后轮廓不够有区分度,加上渲染质量不足)。
+4. 最终**放弃继续靠截图猜,直接用 `AskUserQuestion` 让实际在玩游戏、能清楚看到画面的用户自己描述现象**("背对前进方向(moonwalk)" / "侧对" / "转圈" 三选一)——这一步一次性给出了确定性答案,比继续截图排查快得多。
+
+**真正根因**:`CharacterMesh0.RelativeRotation.Yaw` 这个挂载在胶囊体下的静态朝向补偿值,从骨骼网格换成 `Mewtwo_TPose` 那一轮起就被设成了 `90`,但正确值应该是 `270`(即 `90+180`)——早前"确认过朝向正确"的验收只是对**静止 Idle 姿势**的截图肉眼判断,而 90/270 这两个值相差整 180 度,恰好都能在某些静态角度的截图里"看起来大致过得去"(尤其是模型本身不是左右强不对称的设计),真正的偏差只有在**移动起来后模型朝向和实际行进方向的关系**上才会被人一眼看穿——这正是"以为闭环验收过的东西,其实一开始就带着 50% 概率的隐藏错误"的一次典型案例。
+
+**修法**:`BP_Unit.Default__BP_Unit_C:CharacterMesh0` 的 `RelativeRotation.Yaw` 从 `90` 改成 `270`(其余不动)。**同时撤销了第一轮"swap WalkForward/WalkBackward 资产引用"这个误诊改动**,恢复成原来的对应关系——如果不撤销,朝向修好之后会变成"朝向对了,但步伐动作是反的"(该迈右脚的时候在迈左脚)这个新问题,两个 bug 会叠加成更难排查的复合状态。`compile_blueprint` 通过,用户 Play 验收通过。
+
+**教训**:
+1. "换动画播放" 和 "整个模型挂载朝向偏了固定角度" 是两类完全不同、修法互斥的 bug——前者的信号是"该往前走的时候放了往后走的动作数据"(比如 `WalkForwardAnim` 和 `WalkBackwardAnim` 引用真的接反了),后者的信号是"不管放哪个动作,角色身体朝向都和实际移动方向对不上"。玩家用自然语言描述的"动画不对"经常混着说,排查者需要主动追问/靠"swap 有没有效果"这类排除法来区分,不能选一个看起来省事的方向就直接动手改。
+2. 一个角度补偿值如果是靠"看渲染截图猜前后"校准出来的(不是从模型资产的几何/骨骼数据算出来的精确值),就有真实的 50% 概率整体猜反 180 度,而且静止姿势的截图经常两个方向看着都"过得去"——这类校准值上线前,理想情况应该是找一个方向性极强的姿势(比如伸手指向一个方向、明显不对称的动作)专门做一次验证,而不是用 Idle 这种前后大致对称的姿势去定。
+3. 当"读代码/读图/截图"这类工具侧排查反复验证"逻辑是对的"但用户反馈依然存在时,不要继续加码同一类排查手段(比如换个截图角度再试一次)——应该直接问能看到真实画面的人一个具体到可以三选一回答的问题,这往往比自己再猜五轮更快拿到确定性结论。
+
+### 坑65:规划 AOE 范围技能时,直接读了 live 蓝图(不是只看文档),发现 `TryAttack`/`ResolveCounterAttack` 一旦被循环调用就会静默出错——两个此前从未暴露过的真实 bug,因为历史上从没人调过第二次(2026-08-29,待命键+AOE 移植规划阶段) #规划验证 #共享状态 #循环陷阱
+
+**背景**:计划给 AOE 技能设计"命中列表里每个敌人都独立走一遍现有 `TryAttack` 单体伤害/反击管线"这个方案(而不是另写一套平行逻辑),规划阶段没有只信任 `UE蓝图状态.md` 里的文字描述,而是直接用 MCP 对**当前真实、已编译**的 `BP_GridManager.TryAttack`/`ResolveCancelAttack` 做了 `read_graph_dsl` 复查,结果读到两处此前完全没人发现、也不可能靠"看文档"发现的真实 bug——因为这两个函数从诞生起，从来没有在同一次玩家操作里被调用超过一次，这条隐藏路径此前无从触发。
+
+**bug①**:`TryAttack` 函数体末尾,不管命中/未命中、存活/死亡,最终都会汇合到同一句 `(Variables|Default|SetSelectedUnit 0)`(清空成 `None`)——这在"一次攻击=一次 `TryAttack` 调用"的原有设计下完全合理(收尾清场)。但 `TryAttack` 开头会 `(Utilities|IsValid _selectedunit (:"Is Valid" ...))`且**没有 "Is Not Valid" 分支**——如果在循环里对同一批 AOE 目标反复调 `TryAttack`,第 1 次调用结束时 `SelectedUnit` 已经被清成 `None`，第 2 次调用一进来这个 `IsValid` 判断就会失败且没有 else，整个函数体从这一句开始直接静默跳过，不掉血、不报错、什么都不做。
+
+**bug②**:`TryAttack` 在防御方存活的分支里无条件调用 `ResolveCounterAttack`(不管主攻击是否命中，这是既有设计)，而 `ResolveCounterAttack` 内部只要反击条件成立，就会执行 `(Variables|Default|SetPendingSkillRowName "basic")`且**这个函数里没有任何地方把它改回来**。`ComputeSkillDamage`/`GetSkillHitChance` 这两个真正算伤害的 C++ 包装函数，内部都是拿 `Grid.PendingSkillRowName` 去查 `DT_Skills` 表取 `Mult`/`Hit`/`TypeId`——也就是说，AOE 命中列表里只要第 1 个目标存活并触发了一次反击（这是绝大多数情况），`PendingSkillRowName` 就会在循环打到第 2 个目标之前被悄悄改成 `"basic"`，导致第 2 个及以后的目标全部按普通攻击的倍率结算，而不是这个 AOE 技能自己的倍率——伤害数字会不对，但不会报错，粗测"AOE 能不能打中多个敌人"这种测试完全发现不了，是那种会静默通过验收又在数值层面出错的坑。
+
+**教训**:一个原本只被设计成"整个游戏动作里只调一次"的函数，即使内部逻辑本身完全正确、经过了大量验证（`TryAttack`/`ResolveCounterAttack` 都是这个项目里被验证/踩坑最多的函数之一，历史上出过坑26"双重掷骰"这种级别的问题），**把它复用进一个新的"循环调用"场景之前，必须重新审查它内部有没有"函数收尾时无条件清空/篡改某个共享状态、且不负责为下一次调用恢复"这种假设"我只会被调一次"的收尾代码**——这类代码在原场景下是完全正确的（该清空就清空），只有在被复用进循环时才会变成 bug，而且是那种"第一次迭代完全正确、后续迭代悄悄出错"的最难被粗测发现的模式。规划阶段主动去读 live 蓝图（而不是只信任已有文档的文字描述）是发现这两个 bug 的关键——`UE蓝图状态.md`/`UE节点备忘录.md` 都没有以任何形式记录过这两处行为，因为在坑65之前，这两个函数确实从未被这样调用过，文档只能记录"已经发生过的事"，不能替代对"即将复用到新场景的现有代码"做一次针对性复查。
+
+**修法(设计阶段定的方案，实现阶段执行)**:新写的 `PerformAoeSkillAttack` 循环体里，每一次迭代调 `TryAttack` 之前都重新显式 `Set SelectedUnit = Attacker` 和 `Set PendingSkillRowName = 保存下来的 AOE 技能行名`（循环开始前先用一次 `bind` 快照原始行名，因为第一次 `TryAttack` 调用本身就会把它改掉），而不是只在循环开始前设一次。
+
+### 坑66:给已有 Function(`SkillTokenToId`/`SkillIdToChinese`)追加分支时,`write_graph_dsl` 整体重写(而不是走 remove/add 重建流程)造成节点重复;修复过程中又连续踩中输出参数命名(`ReturnValue` vs `Result`)和调用点刷新两个已知坑,三层问题叠在一起排查(2026-08-29,AOE 移植阶段2) #write_graph_dsl #FunctionSignature #调用点刷新 #代价高昂
+
+**背景**:阶段2需要给两个既有、已经跑了很久的技能名⇄中文名互查函数各追加4个 `elif` 分支。因为原函数是"单一已验证正确的线性 if/elif/return 文本",觉得"整体重写一遍、只在末尾多插4段"比手工在 30 层嵌套 `elif` 中间穿针引线风险更低,于是直接对着**这两个已经存在多年、图里本来就有内容**的函数调用了 `write_graph_dsl`。
+
+**第一层坑(本该被记住却被忽略)**:`write_graph_dsl` 对已有内容的函数图是**追加不是替换**——这条规律其实早就写在这份备忘录最上面的硬规则速查表第一条,但因为这次的判断依据是"内容层面这是个我完全理解、可以安全整体覆盖的简单函数",注意力全在"新文本对不对"上,压根没有回头检查"这个函数当前是不是空的"这个前提条件。结果 `find_nodes` 一查,两个函数各自变成了 66+ 个 `IfThenElse`(应该是 34 个)——旧的 30 分支和新提交的 34 分支全部堆在一起,新提交的内容混进了一堆孤立/半连通的旧节点里,`compile_blueprint` 竟然报告成功(说明编译器只要求"入口能连通到某条出口",不要求"图里没有多余节点"),但图的真实状态完全不可信。
+
+**修法**:`remove_function_graph` 整个删掉两个函数 → `compile_blueprint` 清悬空引用(报"找不到函数"是预期中的正常现象,这一步就是要让所有旧调用点先失效)→ `add_function_graph` 用原名重建空函数 → `add_function_param` 补输入参数 `Token`(String)。
+
+**第二层坑(新发现,此前没人踩过,因为没人在"重建过的空函数"上加过带返回值的 `write_graph_dsl` 全新写)**:补输出参数时,类比这个项目里另一个成功先例 `IsPhysicalSkill`(用的是 `ReturnValue`)命名成了 `ReturnValue`,写完 `write_graph_dsl`(34 分支的干净版本,这次图里确实只有一份,没有重复)后编译报错:`Could not find a pin for the parameter ReturnValue... Pin Result named Result doesn't match`。逐节点 `get_node_infos` 核实发现:函数体内部所有 `(return X)` 自动生成的 `K2Node_FunctionResult` 节点,pin 名实际上全部是 `ReturnValue`(和我声明的一致),矛盾的地方在别处——反复交叉验证后才确认,报错其实来自图里其它地方(调用点),不是这个函数自己内部。第一次诊断把"函数自身签名"和"外部调用点缓存的旧签名"这两件事搞混了,原地重复 `compile_blueprint` 两次都是同一个报错,一度怀疑是这次工具调用本身有 bug。
+
+**真正原因(第三层坑,和第8条硬规则同源但代价大得多)**:这两个函数存在多年,是被**其它 5+5 处调用点**(`ApplyDebugLoadout` 里 5 次 `SkillTokenToId`、`RefreshSkillMenuLabels`+`RefreshSkillBar` 里各 5 次 `SkillIdToChinese`)引用的公共函数,不是新写的孤立函数。这些调用点的 `K2Node_CallFunction` 节点缓存了函数**原本**的输出 pin(标准 UE 行为:一个手工在编辑器里加输出参数的函数,默认生成的 pin 就叫 `Result`,不是 `ReturnValue`——`IsPhysicalSkill` 那次侥幸把两者都试过一遍,选中的是巧合而非规律),`remove_function_graph`+`add_function_graph` 重建后,不管新参数取什么名字,只要和原来不是同一个底层 Pin/Guid,所有旧调用点全部变成"stale"状态,报错信息里明确写了 `In use pin Result no longer exists`——这才是最终线索,倒推出原参数名其实是 `Result`。改名成 `Result` 后编译依然报同样的错,证明问题**不是名字对不对,是调用点的 pin 引用本身(哪怕名字凑巧一样)已经失效**,和文件顶部硬规则"改签名后调用点不会自动刷新,只能 delete_node+create_node 重建"完全对应,只是这次一次性命中了全部 10 个调用点,逐个 `get_node_infos`→`delete_node`→`create_node`→按原有的 exec/self/Token/Result 连线逐条 `connect_pins` 补回去,耗费的操作量远超预期。
+
+**教训**:
+1. 对着**内容已存在**的函数图做任何 `write_graph_dsl` 提交之前,**不管多大把握"这次整体重写没问题"**,先 `find_nodes`(或 `list_functions` 数节点数)确认图当前是不是真的空——这条检查只需要一次工具调用,能完全规避第一层坑,而这次是在事后靠"分支数量翻倍"这个异常现象才发现问题,晚了。
+2. 一个函数的输出参数具体叫什么名字,是这个函数**自己的历史**决定的,不能类比同项目里另一个函数的命名"抄"过来用——分歧极小概率碰巧一致(比如都叫 `ReturnValue`),但没有任何机制保证一致,唯一可靠的确认方式是重建前**没有机会**看到旧签名时,重建后老老实实读报错信息里明确点名的 pin 名字来定,而不是凭偏好或先例选一个。
+3. **改一个被多处引用的公共函数的签名/身份(哪怕只是"删了重建、内容看起来一样"),连带影响的调用点数量要提前用 `find_nodes`/全文搜索摸清楚**,不能默认"这只是内部实现细节的调整"——这次两个函数一共牵连了 3 个不同 Function(`ApplyDebugLoadout`/`RefreshSkillMenuLabels`/`RefreshSkillBar`)里的 10 个调用点,如果没有心理准备,遇到 10 条相同报错很容易误判成"同一个 bug 报了很多遍"而不是"确实有 10 个独立位置都要修"。
+
+### 坑67:同一个 `Class|GridSlot|GetRow` 节点,在旧代码(已编译)里能用,在**新写的** `write_graph_dsl` 里报 "Could not connect pin Defender to self"——不是节点坏了,是新函数的上下文没有已编译代码里那条隐式的类型收窄路径(2026-08-29,AOE 移植阶段3,`GetAoeHitList`) #WriteGraphDSL #类型解析 #GridSlot #BPUnit
+
+**现象**:`GetAoeHitList` 新函数里想用 `Class|GridSlot|GetRow(Defender)` 读某个 `BP_Unit` 参数的行号——这个写法在 `ValidateSkillTarget`/`TryAttack` 等既有代码里用得好好的(`BP_Unit` 继承链上确实有 `GridSlot` 这一层,`GetRow`/`GetCol` 是 `GridSlot` 的函数)。但在这个全新写的 `write_graph_dsl` 里,同样的调用直接报错 `Could not connect pin Defender to self`,像是类型不兼容。
+
+**绕过法(未深挖根因)**:换成 `Class|BPUnit|GetRow`/`Class|BPUnit|GetCol`(照抄 `GetCol` 的既有惯例,而不是 `GetRow` 抄的 `GridSlot` 版本),同样的参数、同样的意图,直接编译通过。以后**新写**涉及 `BP_Unit` 参数取行列号的 DSL,一律优先试 `Class|BPUnit|GetRow`/`GetCol`,不要照抄旧代码里的 `Class|GridSlot|GetRow` 写法——旧代码能用大概率是因为那个上下文里 `self`/参数的静态类型推导路径不同(比如 `self` 就是 `BP_GridManager` 内部对既有局部变量的引用,类型信息在编译期已经"具体化"过一次),新写的 DSL 从零推导时拿到的是基类层级的 `GridSlot` 视角,`self` 连接会不兼容。
+
+### 坑68:`Utilities|Name|Equal(Name)` 只有"读"的形态,创建新节点时这个 type_id 不存在——真正能建出来的是 `Utilities|Operators|Equal(==)`(2026-08-29,AOE 移植阶段3,`IsAoeSkill`) #TypeID #FindNodeTypes #Name比较
+
+**现象**:`IsAoeSkill` 要比较一个 `Name` 类型的 `RowName` 参数和几个字符串字面量(`"sweep"`等),直觉找 `Utilities|Name|Equal(Name)`(read_graph_dsl 反序列化既有代码时确实会打印出类似形态的文本),但拿这个 type_id 去 `create_node`/`write_graph_dsl` 建新节点会失败。
+
+**修法**:`find_node_types` 配 `context_pins` 精确匹配 `Name` 类型的输入,搜出来真正可创建的是 `Utilities|Operators|Equal(==)`,直接换用即可,行为完全一致。**教训**:`read_graph_dsl` 打印出来的算子写法名字,不能保证就是 `create_node`/`write_graph_dsl` 能拿去创建新节点的那个 type_id——这类"只读形态"和坑12(`find_node_types` 搜到的字符串本身也可能不可创建)是同一类陷阱的另一个变种,遇到"反序列化里见过、但建不出来"的算子,直接上 `find_node_types`+`context_pins` 重新搜,不要死磕原文本里的名字。
+
+### 坑70:整体重写一个内容已存在多年的大函数(`RunRegressionTests`)时,同一份从 `read_graph_dsl` 原样拷贝出来的文本,连续撞上了三种完全不同类型的"读写不对称"陷阱,缺一不可全部修完才能编译通过(2026-08-29,补写 AOE 的 T10 回归断言) #ReadGraphDSL #WriteGraphDSL #反序列化失真 #self参数 #TypeID
+
+**背景**:给 `RunRegressionTests` 追加 T10 断言,判断"内容不新鲜"(有12条已验证正确的历史断言)不能用 `write_graph_dsl` 直接追加(坑1/坑66 的教训),于是按标准流程 `remove_function_graph`→`compile_blueprint`→`add_function_graph`→整体重写"原文本 + 新增 T10 段"。**原文本是直接从这次会话稍早前 `read_graph_dsl` 读出来的、当时已经确认过和历史文档一致的内容**,按理说"原样抄一遍"应该零风险,结果连续报了三类错,分三轮才全部修完:
+
+1. **跨类同名属性解析漂移(坑10/16/坑67 的再次复现,但这次更极端)**:原文本里 `(Class|BPUnit|GetCol _output)`(`_output` 其实是个 `BP_Tile`)、`(Class|GridSlot|GetRow _output)`——这两行在**本轮任何代码改动之前**就已经是这样写的,而且是**在同一个函数被删除重建之前**用 `read_graph_dsl` 原样读出来的历史文本,重新写回去却报"Could not connect pin Output to self"。说明这类跨类属性解析结果**不是文本决定的,是"当前蓝图里存在哪些类/哪些同名属性候选"这个全局上下文决定的**——哪怕一个字都没改,只要中间新增过别的类/变量(本轮新增了 `BP_Tile.AoeHighlightMat`/`BP_GridManager.GetEnemyUnitAtTile` 等好几个新东西),同一段旧文本重新编译时解析结果都可能变。**修法**:全部换成明确指向真实目标类的写法(`Class|BPTile|GetCol`/`Class|BPTile|GetRow`,以及后面 `_spawnedunit_2` 是 `BP_Unit` 时换成 `Class|BPUnit|GetRow`)——不能再假设"以前编译通过的写法保真",每次整体重写都要按"这个变量实际是哪个类"重新判断,不能照抄旧文本里的类名前缀。
+2. **`CallFunction|函数名` 的实际 type_id 和 `read_graph_dsl`/`list_functions` 显示的函数名不是同一个字符串,而且这次连规律都不一致**:`list_functions` 显示函数名是 `FindNearestUnit_0`(带下划线),`read_graph_dsl` 把调用点显示成裸 `|FindNearestUnit_0`(坑48 的"裸函数名"现象,补 `CallFunction|` 前缀是标准修法),但补上前缀后依然报"does not exist"——最后用 `find_node_types(type_id_filter="FindNearestUnit")` 才搜出真正能建的是 `CallFunction|FindNearestUnit0`(**没有下划线**)。也就是说这个函数真实的内部名字和显示名字之间,不只是"少了 CallFunction| 前缀"这一种差异,**下划线本身也可能在显示层和真实 type_id 之间不一致**,遇到"报 does not exist"不要止步于"加前缀",要用 `find_node_types` 精确搜一遍确认真实字符串。
+3. **`self` 参数在 `read_graph_dsl` 输出里被静默吞掉,而且不是每处都吞,只吞了一小段**:同一份原文本里,前面大多数调用都规规矩矩带着 `_self` 作为第一个参数,但靠后的一小段(`ShowAttackRange`/`ClearHighlights`/`Assert` 各一次,刚好是 T8 那几行)显示成了"缺 self"的裸调用形式(比如 `(CallFunction|ShowAttackRange _spawnedunit_3)`,只有一个参数)。这几行在**没有改动过的历史代码里本来就必须有 self**(和同一函数其它九成调用点的写法完全同构),但 `read_graph_dsl` 只在这一小段漏显示了——原样抄录必然报"Could not connect pin SpawnedUnit to self"。**教训**:`read_graph_dsl` 会不会漏显示 `self` 参数,和"这段代码是不是最近改过"无关,是不可预测的局部反序列化失真,**每次要整体重写一个已有函数,遇到某个调用点看起来"参数比同类调用少一个"就要高度怀疑是 self 被吞了,补上再试,不要因为它是"原样照抄"就默认可信**。
+4. **重建函数图时,函数自己的局部变量(`graph` 参数绑定到该函数的变量,如 `SnapColD`/`SnapRowD`)会跟着 `remove_function_graph` 一起被删除,必须重新 `add_variable` 声明一遍才能在新函数体里继续用**——这条其实是坑66 教训 1 的直接推论(重建=删了重建,局部变量也是"这个函数的内容"的一部分),但因为这次局部变量藏在 `RunRegressionTests` 中间不起眼,直到写 DSL 时报"Variables|Default|SetSnapColD does not exist"才想起来要重新声明。**以后重建任何用到函数局部变量的既有函数,清单要先列全局部变量名字和类型,重建后第一步就是 `add_variable`/`add_object_variable` 补回来,不要等报错才发现漏了。**
+
+**最终结果**:四类问题全部修完后一次性 `write_graph_dsl`+`compile_blueprint` 通过,`StartPIE` 实测 T1–T9(除已知的 T7b/T7c 和约5%概率误报的 T6a)全部 PASS,新增的 T10a–T10h 全部 PASS(含专门用来卡"坏了会静默把第二个目标伤害算成 basic 倍率"这个坑69 场景的 `T10h_PerformAoeSkillAttack_ConsistentMultiplierAcrossTargets`)。
+
+### 坑69(自己踩自己写过的规矩):`PerformAoeSkillAttack` 第一版把"循环内重设 PendingSkillRowName"写成 `SetPendingSkillRowName(GetPendingSkillRowName())`,编译通过、`get_connected_subgraph` 也显示"连线正确",但这其实是坑3同一个坑的重演——纯 Get 节点没有独立求值时机,循环里现读现写等于没做快照(2026-08-29,AOE 移植阶段3,事后自查发现) #WriteGraphDSL #bind别名 #纯函数求值 #自己违反自己的规矩
+
+**背景**:阶段3计划里明确写了修法是"循环开始前只读一次 PendingSkillRowName 存下来,循环内每次迭代都从这个存下来的快照重新赋值"——这正是全文最上面硬规则第③条(坑3)早就总结过的"需要在副作用调用前后各读一次同一个纯属性时,必须显式 Set 到局部变量做快照,不能依赖对同一个纯表达式的重复读取"。但实际写 `write_graph_dsl` 时图省事,直接写了 `(Variables|Default|SetPendingSkillRowName (Variables|Default|GetPendingSkillRowName))`——语法上是"取当前值、设回去",`compile_blueprint` 通过,`get_connected_subgraph` 顺着 exec 链条追下去，连线也确实"哪里连到哪里"都对——但这条 Get 是纯节点,没有独立的求值时机,循环第 1 次迭代时它读到的是循环开始前的原始值(正确),但循环第 2 次迭代开始时,`ResolveCounterAttack` 已经在第 1 次 `TryAttack` 内部把 `PendingSkillRowName` 悄悄改写成了 `"basic"`,这条 Get 再次被拉取求值,读到的就是这个被污染的脏值,又原样设回去——等于这一整条"修复"从第二个目标开始就完全没生效,而且**编译和连线检查都测不出这个问题**,因为图的拓扑结构完全合法,问题出在"求值时机"这个纯节点语义层面,不是连线错误。
+
+**修法**:新增一个真正独立的函数局部变量 `SavedSkillRowTmp`(Name 类型,`graph` 参数指向本函数),循环开始前用一次 `SetSavedSkillRowTmp(GetPendingSkillRowName())`(只执行一次,在循环外),循环体内改成 `SetPendingSkillRowName(GetSavedSkillRowTmp())`——因为 `SavedSkillRowTmp` 在循环内从未被重新 `Set` 过,循环内的这个 Get 每次求值都读到的是同一份从未变过的快照值,不会受 `ResolveCounterAttack` 篡改 `PendingSkillRowName` 的影响。
+
+**教训**:
+1. **规划阶段写的"修法"文字描述("每次迭代都重设成保存的值")和实际 DSL 实现是否真的做到"保存"是两件事**——用同一个变量"读了又设回自己"不叫保存,叫抄近路,表面上文字对得上,实际语义完全不同,必须落地一个真正独立的新变量才算数。
+2. **`compile_blueprint` 通过 + `get_connected_subgraph` 连线正确,不能证明"求值时机"也对**——这次连线本身从头到尾都没有错,`get_connected_subgraph` 能验证的是"图连通、类型匹配",验证不了"这条纯 Get 求值时读到的到底是哪个时间点的值"。这类 bug 必须回到硬规则第③条(坑3)本身去核对:凡是"循环里要用到一个循环开始前就该定型、且循环体内其它调用可能会悄悄改写它"的值,一律要有一个专门的、循环体内绝不再被 `Set` 的独立局部变量兜底,不能图省事直接 Get 原变量。
+3. 这是本项目第二次在"该用局部变量快照"这件事上摔跟头(上一次是坑3本身),说明这条规则光写在备忘录顶部不够,以后每次涉及"循环内重复读取一个可能被循环体自身改写的值"的新函数,写完 DSL 之后要专门用 `find_nodes`+`get_node_infos` 确认:循环体内负责"重设"的 `Set` 节点,它的输入到底连的是原始变量的 Get,还是一个独立快照变量的 Get——前者几乎总是这个坑的复发。
+
+### 坑71:`WBP_DebugLoadout.FillSkillCombo` 是纯线性、无循环、内容已验证过的老函数,按坑1/66 的经验"这类简单文本可以放心整体 `write_graph_dsl` 重写",结果照样在 `ComboBoxString` 节点上翻车(2026-08-30,补 4 个 AOE 技能下拉选项) #WriteGraphDSL #UMG #ComboBoxString #declaring_class
+
+**背景**:`FillSkillCombo` 函数体是一长串 `ClearOptions`→30多个 `AddOption`→`SetSelectedOption`,没有分支也没有循环,是"结构最简单、最该放心整体重写"的那类函数(阶段2计划文档就是照着这个假设去处理 `SkillTokenToId`/`SkillIdToChinese` 的)。但把 `read_graph_dsl` 读出来的原文本 + 4 行新增 `AddOption` 一起喂给 `write_graph_dsl`,直接报 `Could not connect pin Combo to self`,`ClearOptions` 那一行就失败,函数内容完全没被写入(整体失败,不是部分污染)。
+
+**根因**:`ComboBoxString` 的 `ClearOptions`/`AddOption`/`SetSelectedOption` 这几个节点,在这个引擎版本里存在多个同名候选(坑33 已经记过"`ComboBoxString` 的这几个节点运行时经常拿不到默认值,必须 `create_node`+`declaring_class=/Script/UMG.ComboBoxString` 才能建对类型"),但坑33原本只验证过 `create_node` 路径,没验证过 `write_graph_dsl` 路径——这次证实 `write_graph_dsl` 内部对 `ComboBox|XXX` 这类 type_id **同样没有办法自动消歧declaring_class**,不管函数体多么线性简单,只要涉及这几个特定 UMG 节点,DSL 整体重写就会连错类型/连不上。
+
+**修法**:退回 `create_node`+`connect_pins`+`break_pins` 增量插入(`ComboBox|AddOption` 显式传 `declaring_class: {refPath: "/Script/UMG.ComboBoxString"}`),在既有最后一个 `AddOption`("近身战")和 `SetSelectedOption` 之间插入 4 个新节点,`self` 参数从 `FunctionEntry` 的 `Combo` 输出 pin 扇出连接(和其余 30+ 个既有 `AddOption` 节点的接法完全一致),`Option` 字符串走 `set_pin_value` 设字面量。`compile_blueprint` 通过,`read_graph_dsl` 复查确认原有选项一个没丢、新增4个都在正确位置。
+
+**教训**:"函数体是不是纯线性无循环"只回答了"能不能用 `write_graph_dsl` 整体重写"这个问题的一半——另一半是"这个函数体里用到的节点类型,`write_graph_dsl` 能不能正确消歧"。已知在这条红线上的节点类型(`ComboBoxString` 系列,见坑33)一律不能整体重写,不管外层函数逻辑多简单;遇到"看起来是文本问题但报的是 pin 类型不兼容"这类错误,先怀疑是不是撞上了某个已知需要 `declaring_class` 消歧的节点类型,而不是去抠字符串写法本身。
+
+### 坑73:`get_node_infos`/`read_graph_dsl` 读旧代码里 `SetInputMode_GameOnly`/`SetInputMode_GameAndUI` 显示成带下划线的类型名,但 `find_node_types`/`create_node` 真正能建的是无下划线版本(2026-08-30,`ToggleDebugPanel` 补输入模式切换) #TypeID #InputMode #下划线
+
+**背景**:给 `BP_TurnManager.ToggleDebugPanel()` 补"打开面板切 `GameAndUI`+显示鼠标、关闭切回 `GameOnly`+隐藏鼠标"逻辑时,想抄 `StartTurn` 里已经验证过在用的写法——`get_node_infos` 读 `StartTurn` 现有节点,显示的 type_id 是 `Input|SetInputMode_GameOnly`(带下划线)。直接拿这个字符串去 `find_node_types(type_id_filter="SetInputMode_GameOnly")` 搜,**返回空**;换成不带下划线的 `SetInputModeGameOnly`/`SetInputModeGameAndUI`/`InputMode` 做前缀搜索,才搜到真正能创建的是 `Input|SetInputModeGameOnly`/`Input|SetInputModeGameAndUI`(全部无下划线)。用 `get_node_type_pins` 拿这两个无下划线字符串去建预览节点,返回的 pin 信息里那个预览节点自己的 `type_id` 字段又显示回带下划线的 `Input|SetInputMode_GameOnly`——说明**这就是坑70点2(`FindNearestUnit_0` vs `FindNearestUnit0`)的同一类陷阱,这次撞在了引擎原生函数节点上,不止历史上出现过的自定义蓝图函数**:反序列化显示名和真正建节点用的 type_id 可能只差一个下划线,`find_node_types`/`get_node_type_pins` 两个工具在这件事上互相印证(用不带下划线的字符串能建、建出来再读回显示带下划线),但**只信 `get_node_infos`/`read_graph_dsl` 读到的旧代码显示名去抄,大概率抄不动**。
+
+`Class|PlayerController|SetShowMouseCursor`(原生 `PlayerController.bShowMouseCursor` 属性的 setter)反而是不带任何下划线歧义、`find_node_types` 用完整属性名 "PlayerController" 广撒网就能直接搜到的干净结果,同一次排查里两种情况都遇到了,说明**没有一概而论的规律,新增任何"看起来眼熟"的原生引擎节点前,一律先 `find_node_types` 用不带下划线/不带特殊符号的关键词广搜一遍,不要直接照抄旧代码里 `read_graph_dsl`/`get_node_infos` 显示的字符串**。
+
+### 坑74:MCP 连接中断不只是"这次调用失败",可能伴随蓝图编辑器未保存改动的整体丢失(2026-08-30,`ToggleDebugPanel` 补输入模式切换) #MCP连接 #未保存丢失 #save_assets
+
+**现象**:给 `ToggleDebugPanel()` 用 `create_node`/`connect_pins` 加完 6 个新节点、`compile_blueprint` 也拿到了干净的返回值(`null`,无错误)之后,MCP 连接报 `Unable to connect. Is the computer able to access the url?`。按以往经验(`/mcp` 手动重连即可恢复,见"MCP BlueprintTools实测细节"第11条),重连后第一件事是 `get_connected_subgraph` 复核连线——结果**这个函数只剩最初的 8 个节点,新加的 6 个全部消失**,`find_nodes` 也确认了同样的结果,不是查询/反序列化的问题。重新 `create_node` 补建时,新节点编号从 `K2Node_CallFunction_0` 重新起,而不是接着断线前已经用到的 `_6/_7/_8/_9`——说明**断线这次伴随的是蓝图这个"图"对象本身某种程度的重置(内存态被丢弃/重新加载),不是一次单纯的网络抖动那么简单**,`compile_blueprint` 曾经返回"通过"这件事**不代表改动已经持久化**,只代表那一刻内存里的图是自洽的。
+
+**应对**:
+1. 每完成一小段 `create_node`/`connect_pins`+`compile_blueprint` 且确认通过后,**立刻 `AssetTools.save_assets([])` 落盘**,不要攒到一整个功能都做完再存——保存的间隔就是潜在丢失的窗口大小。
+2. 连接中断重连后,**不能假设"重连前最后一次成功的操作结果还在"**,哪怕那次操作返回值明确是成功的;对任何"断线前完成、断线后要接着往下做"的图编辑,重连后的第一步必须是 `find_nodes`/`get_connected_subgraph` 重新核实现状,而不是直接往下续。
+3. 断线后重连,`create_node` 系列工具建出来的节点编号可能从 0(或某个更低的基线)重新计数——不能用"节点编号是否连续递增"去判断某次改动是否成功持久化,唯一可信的判断标准是重新 `find_nodes`/`get_node_infos` 实测查询。
+
+### 坑72:`BP_Unit.EventTick` 不是"一条线从头执行到尾"的单线程,里面混了至少三种不同"供电"方式的代码段,其中两段结构上完全执行不到——排查 AOE 瞄准态"移动/射程刷新要在 Aiming 时暂停"这个需求时才第一次被系统性发现(2026-08-30,阶段4 EventTick 网关插入) #EventTick #死代码 #ExecutionSequence #EnhancedInput坑41
+
+**背景**:计划文档(`zazzy-launching-dolphin.md`)描述 `EventTick` 是"现有两个连续移动用的 `AddMovementInput` 调用"、"`ClearAttackHighlightsOnly→ShowSkillRange`、`ClearLockIndicators→GetTargetsInRange→SetLockIndicator` 这两段"——听起来像总共 2~3 处调用。实际用 `get_node_infos` 从 `K2Node_Event_2`(Tick)开始逐节点回溯/前进后发现,`EventGraph` 里同名函数调用点数量远超预期(`AddMovementInput` 14 处、`ClearAttackHighlightsOnly` 6 处、`ClearLockIndicators` 6 处),且分属三种完全不同的"谁在驱动它执行"的情况:
+
+1. **真正在跑的主线程**(`Tick.then`→`Actor|GetAllActorsOfClass(BP_GridManager)`[`K2Node_CallFunction_715`]→`CastToBP_GridManager`[`DynamicCast_62`]→`GetTargetsInRange`[`716`]→`CastToPlayerController`[`DynamicCast_63`,处理"是否已 Possess"分支,两个分支后续汇合]→……一路向下,中途多次重复"`GetAllActorsOfClass`+`Cast`"式的"每次现查"(和项目"每个新按键都自己现查引用"的既有风格一致,只是被现查的对象是 GridManager/PlayerController 不是按键触发的一次性查询,所以在 Tick 里被反复现查了十几次)——本次要新加的 `Branch(NOT Aiming)` 网关全部插在这条主线程上的 10 个节点上(见 `UE蓝图状态.md` 对应小节的具体 refPath 列表)。
+2. **完全没有 exec 供电、结构性死代码**:`K2Node_ExecutionSequence_0`(`Utilities|FlowControl|Sequence`)自己的 `execute` 输入 pin 的 `connected_pins` 是空数组——没有任何东西触发它。它的 `then_1` output 接到 `CastToPlayerController`[`DynamicCast_0`]再接一整段"移动+看向+Col/Row同步+清高亮"逻辑(`AddMovementInput`[`35`/`36`]→`AddControllerPitchInput`[`38`]→`GetAllActorsOfClass`+`Cast`[`48`/`DynamicCast_1`]→`GetNearestTile`[`44`]/`SetActorLocation`[`49`]→`SetCol`/`SetRow`[`VariableSet_1`/`_2`]→`ClearAttackHighlightsOnly`[`72`]→…→`ClearLockIndicators`[`78`]→…)——这一整段图结构完整、内容看起来正是文档描述的"Col/Row 回写+高亮刷新"该有的样子,**但因为顶端的 Sequence 节点没人触发,整段永远不会执行**。没有查这段代码是哪次改动留下的(不在本次任务范围),只确认了它现在确实是死的,**没有动它**(删除/修复都有风险,且不影响本次 Aiming 网关的正确性——死代码不需要额外挡住)。
+3. **被 Enhanced Input 事件独占供电、必然死代码**(和坑41 是同一个根因的另一处受害者):`AddMovementInput`[`15`/`17`]这一对的 `execute` 链一路回溯到 `K2Node_EnhancedInputAction_1`(`IA_Move` 事件本身,不是 Tick),而项目里 Enhanced Input 全局不触发(坑41),所以这对调用和它前面挂着的调试 `PrintString("MOVE INPUT RECEIVED")`永远不会执行。同样没有动它。
+
+**教训**:
+1. **`get_connected_subgraph` 从 Tick 事件本身发起会返回极大的结果(本次实测 82万字符,直接超工具输出上限)**,因为 Tick 的 `DeltaSeconds` 输出数据 pin 会被十几处独立逻辑各自消费,传播范围覆盖几乎整个 EventGraph;排查这类"入口极度扇出"的事件,不要对着事件本身跑连通子图,改成对**具体某个可疑调用点的 `execute` 输入 pin 顺着 `connected_pins` 一路手动回溯**(每次一两个节点,`get_node_infos` 批量查),直到确认它到底连回了 Tick 本体还是连去了别的、可能供电不足的分支起点(`ExecutionSequence`/`EnhancedInputAction`/`InputKey` 等)。
+2. **`find_nodes` 按函数名搜出来的多个同名调用点,不能假设它们都在同一条活的执行链上**——项目历史上不同阶段各自往 Tick 里"追加",从未清理过旧的,新旧版本的调用点会同时以合法节点的形式留在图里,只是有的有电、有的没电;这和坑52 记录的"点击驱动的三代输入系统同时存在"是同一类"只加不删的历史包袱",只是这次出现在 Tick 而不是点击事件上。
+3. **一个 exec 输入 pin 的 `connected_pins` 为空数组,是"结构性无法执行"的权威判据**——不需要也不应该靠"这段代码看起来功能上很合理/很重要"去反推它一定在跑,MCP 反射工具在这一点上比读代码逻辑猜测靠谱得多。
+4. 本次为了保险,`Branch(NOT Aiming)` 网关**只插在了确认存在于 Tick 主线程上的 10 个调用点**,没有连带"顺手"给死代码那两段也插网关——给死代码插网关没有任何收益(它本来就不会执行),硬插反而是无意义的图膨胀,遇到类似情况不用纠结"要不要一并处理",跳过就是了。
+
+### 坑75:MCP 连接中断这次不只是丢了未保存的图编辑(坑74),还把编辑器当前打开的关卡整个换成了空白的 `/Temp/Untitled_1`(2026-08-30,验证技能栏修复时发现) #MCP连接 #关卡状态丢失 #get_current_level #load_level
+
+**现象**:修完 `SkillIdToChinese`/`SkillTokenToId` 后想开 PIE 实测,`StartPIE` 调用本身成功,但后续所有 `get_properties`/`find_actors` 对着"应该存在"的 `TestMap` 相关 refPath(比如 `/Game/Maps/UEDPIE_0_TestMap.TestMap:PersistentLevel.BP_TurnManager_C_1`)全部报"not valid Object"。一开始怀疑是坑62 那种"PIE 其实没在跑"或者实例编号变了(`_C_0` vs `_C_1`),但 `IsPIERunning()` 明确返回 `true`,换编号也试了不行。最后用 `find_actors`(不带任何过滤条件)兜底一查,返回的全是 `/Temp/Untitled_1`/`/Memory/...OpenWorld` 这种带大地形(Landscape)的默认模板关卡内容,完全不是项目自己的 `TestMap`——`SceneTools.get_current_level()` 确认编辑器当前打开的关卡确实是 `/Temp/Untitled_1`,不是 `/Game/Maps/TestMap`。
+
+**根因(推测,未深究引擎内部机制)**:本轮会话里发生过至少两次 MCP 连接中断(见坑74),其中一次导致编辑器当前打开的关卡被换成了一个从未保存过的空白模板关卡——大概率是编辑器进程本身在那次中断期间发生了某种重置/重新加载,新建了默认的 "Untitled" 关卡,而不仅仅是"丢了几个未保存的蓝图节点"这么局部的影响。这比坑74原本记录的范围更大:**连接中断可能连"当前在编辑哪个关卡"这个最基本的编辑器状态都保不住**。
+
+**修法**:`SceneTools.get_current_level()` 确认现状 →`SceneTools.load_level("/Game/Maps/TestMap")` 重新加载正确的关卡 → 再次 `get_current_level()` 确认切换成功,之后所有基于 `TestMap` 的 `find_actors`/`get_properties` 才恢复正常。
+
+**教训**:
+1. 任何一次 MCP 连接中断之后,**除了按坑74重新核实"刚才的图编辑是否还在"之外,还要额外核实"当前打开的关卡对不对"**——`SceneTools.get_current_level()` 是一次开销很低的检查,连接中断后、准备做任何 PIE 相关操作之前,应该养成先调一次的习惯,不要看到 `IsPIERunning()==true` 就默认"关卡状态一切正常"。
+2. 排查"明明 `IsPIERunning()` 是 true,但所有已知 actor refPath 都报 not valid Object"这类问题时,`find_actors`(不带过滤条件,直接看返回的 actor 长什么样)是比反复猜测实例编号更快定位问题的手段——一眼就能看出"这些压根不是我认识的关卡里的东西"。
+
+### 坑76:`BP_TurnManager.SkillIdToChinese`/`SkillTokenToId` 两个函数,**全部 35 条分支的 `return` 字面量在某次不明的历史改动里被集体替换成了空字符串**,导致"配装预设明明生效了,技能栏/自定义下拉却一直显示不出中文名"这个问题被误判成"用户没有正确应用配装"排查了两轮才找到真根因(2026-08-30,用户截图揭穿) #数据完整性 #ReturnValue #未察觉的静默坏数据
+
+**背景**:用户反馈"技能栏没有名字",第一轮排查(见 `UE蓝图状态.md` 对应小节)基于"`SkillSlots` 开局是空数组,需要先手动开配装面板选预设"这条合理但不完整的解释,顺带发现并修了"面板打不开/点不动"这个真实存在的输入模式坑,以为问题解决了。用户按修复后的流程(Ctrl 开面板→点 ELEM 预设)操作后截图反馈"还是没有"——**关键线索在截图里:遗物顶栏正确刷新成了"元素核心丨铁甲皮丨钢之意志",证明预设确实生效、`RefreshRelicBar` 这条链路完全正常,只有技能栏这一条链路显示不出来**。这排除了"配装没生效"的可能性,把嫌疑锁定到"`SkillSlots`→中文名"这条转换链路本身。直接读 live PIE 的 `SkillSlots`(确认是 `[ember,aqua,vine,hydro,leafblade]`,完全正确)和 `Txt_Skill0.Text`(是 `"1 "`,只有数字没有名字),再顺着 `RefreshSkillBar`→`CallFunction|SkillIdtoChinese` 读函数体,发现**这个函数 34 层 `if/elif`,每一层的 `(return "...")` 全部是空字符串** `""`,包括最早 2026-08-15 就存在的 `basic`/`ember`/`aqua` 这些老分支;反向的 `SkillTokenToId`(中文名→英文id,配装自定义下拉解析用)是同样的病——全部分支返回空串。
+
+**根因**:未查明具体是哪一次操作造成的(两个函数从建立到现在经手过很多轮"整体重写"/"追加分支",包括本项目 2026-08-15 最初创建、之后多次因为新增技能追加分支),但结果是**这两个函数的核心数据内容在某个时间点被整体清空成空字符串,此后一直没人发现**——因为项目里"游戏默认不配技能,需要先手动开面板选预设"这条路径,在此之前很可能从来没有人在配装生效之后真的去看过技能栏文字对不对(historical 验收记录基本都是看"预设按钮点了没报错"/"遗物顶栏刷新了"这类间接证据,没有一条断言真正检查过 `Txt_Skill0.Text` 里到底有没有中文名)。
+
+**修法**:对照项目里技能数据的唯一权威来源 `js/data/skills.js`,把两个函数全部 35 条分支(31 条原有技能 + 阶段2新增的4条 AOE 技能)逐一核对 id↔中文名,`write_graph_dsl` 整体重写(纯 `Utilities|String|EqualExactly`+`if/elif/return`,没有涉及 `ComboBoxString` 这类需要 `declaring_class` 消歧的节点,和坑71 的红线无关,可以放心整体写)。`SkillIdToChinese` 的 `else` 分支改成 `(return Token)`(未识别原样返回,匹配 `UE蓝图状态.md` 里"认不出则原样返回"的既有文档描述);`SkillTokenToId` 的 `else` 保留 `(return "")`(未识别返回空串,避免把非法值写进 `SkillSlots`)。
+
+**教训**:
+1. **"预设按钮点了、旁边的顶栏刷新了"不能证明"这条配装链路上所有下游 UI 都在正确显示"**——同一次 `ApplyPresetXxx` 调用里,`RefreshRelicBar`(遗物顶栏)和 `RefreshSkillMenuLabels→RefreshSkillBar`(技能栏)是两条独立的展示链路,一条工作正常不代表另一条也正常;下次类似"某个信息没显示出来"的反馈,要分别验证每一条独立的展示链路,不能因为看到"隔壁的东西刷新了"就推断"配装系统整体没问题"。
+2. **回归测试/验收记录里"某功能点了没报错"和"某功能显示的具体文字内容是对的"是两个不同强度的断言**,前者测不出这类"数据内容被清空但结构完好、编译和运行都不报错"的坏数据问题——这类问题只能靠"真的把最终显示给用户看的文字读出来,和期望值逐字比对"才能发现,`RunRegressionTests` 目前没有一条断言检查任何 UI 文本内容(全是数值/HP/数组长度这类),这是当前回归覆盖的一个盲区,值得以后补充。
+3. **排查"应用了配置但效果没体现"类问题,除了怀疑"配置有没有真的生效"(第一层)之外,同等重要的是要单独怀疑"生效的配置有没有被正确转换成最终展示形式"(第二层)**——本次两轮排查都栽在只验证了第一层(`SkillSlots` 数组内容确实对),第二层的转换函数(`SkillIdToChinese`)才是真正埋雷的地方,而且这类"数据被清空成空字符串"的坏法,`compile_blueprint`/`get_connected_subgraph` 完全测不出来(图结构、连线、参数类型全部合法),必须要么读 `read_graph_dsl` 的字面量内容,要么直接读运行时最终值,靠"编译通过/连线正确"这类结构性检查是查不出来的。
+
+### 坑77:"越界回绕"逻辑只处理了"下标比数量大"这一种越界,没处理"数量本身是 0"这种越界,`LockedTargetIndex` 用了两年多才第一次暴露(2026-08-30,`SetLockIndicator` 每 Tick 报 Accessed None) #边界条件 #空数组 #越界回绕 #EventTick
+
+**背景**:`BP_Unit.EventTick` 里锁定式索敌逻辑(2026-08-22 建立,见该日期章节)用 `Select((LockedTargetIndex >= 候选数量), 0, LockedTargetIndex)` 处理"候选数量变少导致原下标失效"的情况——这个写法只对"候选数量 ≥ 1 但下标碰巧比它大"这一种越界有效,回绕目标固定是字面量 `0`。**候选数量恰好是 0(当前技能射程内一个敌人都没有)时,`0 >= 0` 同样成立,回绕结果还是 `0`,但 `0` 对长度为 0 的数组仍然是非法下标**——`Utilities|Array|Get(acopy)` 在这种情况下直接返回 `None`(不产生自己的报错),下游把这个 `None` 传给需要真实对象引用的函数调用(`SetLockIndicator`)时才报"Accessed None"。这个坑从系统建立起就存在,一直没暴露是因为**日常测试/开发时手边永远有至少一个敌人在默认技能射程内**,直到这次用户切换到"横扫斩"(基础射程技能,`RangeBonus=0`)且离敌人较远时才第一次踩中候选数量为 0 的边界。
+
+**修法**:不是去改"越界回绕"本身的算法(那个算法对非空数组是对的,没必要动),而是在**消费这个可能为 None 的下标结果**的地方(`Array|Get` 之后、`SetLockIndicator` 之前)补一道 `Utilities|IsValid` 检查,`Is Not Valid` 时跳过这次调用——这是"生产端算法有盲区"和"消费端加保护"两种修法的取舍:生产端(越界回绕算法本身)要处理"数量为0"这个特例还得再套一层判断,不如在消费端一次性堵住"任何情况下都不能拿 None 去调用需要非空引用的函数"这个更通用的原则。
+
+**教训**:
+1. 写"下标越界回绕"类逻辑时,`回绕目标是否合法`本身也可能是假设——**默认"回绕到 0"这个决定隐含了"数组至少有一个元素"的前提,这个前提在写这段代码的当下可能顺理成章,但会随着上游数据源的变化(这里是"候选目标数量")在未来某个不显眼的场景下失效**,类似的"回绕/夹断到某个常量"写法,新增时应该多问一句"如果集合是空的,这个常量还合法吗"。
+2. **这类 bug 的报错信息(`Accessed None ... CallFunc_Array_Get_Item_N`)指向的是消费端节点(`SetLockIndicator`),但真正的根因在更上游的生产端(越界回绕算法)**——排查"Accessed None"报错不能止步于报错信息里点名的那个节点,要往前追一步,找到"这个 None 到底是从哪个上游计算出来的",本次是靠反向读 `execute` 输入链路(`GetArrayItem`←`Array|Get`的Array参数←`GetTargetsInRange`,Dimension参数←`SetLockedTargetIndex`←`Select`←`>=`比较)一路溯源找到的。
+
+### 坑78(自己踩自己写过的规矩,第二次):`IsCurrentSkillAoe` 把非纯函数 `IsAoeSkill` 直接嵌套进 `return` 表达式,exec pin 从未接上,函数恒定返回默认值(2026-08-30,阶段4 AOE 瞄准态排查到最后一环) #WriteGraphDSL #Exec不能嵌套 #坑34 #自己违反自己的规矩
+
+**背景**:本轮阶段4排查(F1/Ctrl 快捷键→技能栏空白→`SetLockIndicator`刷屏,一路修下来)最后卡在:`OnAimPressed` 明确打出了 `RMB Pressed, entering`,紧接着却总是 `IsCurrentSkillAoe=FALSE`——即使技能栏显示选中的确实是 AOE 技能"横扫斩"。而 `IsCurrentSkillAoe` 当时的写法是:
+```
+(fn IsCurrentSkillAoe (Unit)
+  (return (CallFunction|IsAoeSkill self (Combat|Loadout|GetSkillSlotName ...))))
+```
+直接读 `get_node_infos` 才发现:`IsAoeSkill`(内部是真实 if/elif 分支,带 exec pin,不是纯函数)这个 `CallFunction` 节点的 `execute` 输入完全没有连接——`FunctionEntry.then` 直接接到了 `FunctionResult.execute`,函数一进来就直接 Return,`IsAoeSkill` 从未真正跑过,它的 `ReturnValue` 停留在布尔默认值 `false`,导致 `IsCurrentSkillAoe` 恒定返回 `false`。
+
+**这正是本文件硬规则第①条早就写明的坑34**("带 Exec 的自定义函数[非纯函数]不能当纯表达式嵌套调用,否则会被 prune[Exec pin is not connected],返回值变成默认空值")——本轮自己新写 `IsCurrentSkillAoe` 时又把同一个坑踩了一遍,而且这次的表现形式比坑34原始案例更隐蔽:**`compile_blueprint` 完全不报错**(嵌套调用在语法上合法,只是被静默剪掉了 exec 连接),`get_connected_subgraph`/`read_graph_dsl` 之前也没有专门去查过这一条(因为看起来"逻辑很短很简单,应该不会有问题"),直到有了用户实测的诊断信息(`IsCurrentSkillAoe=FALSE`)明确指向这个函数本身,才回头用 `get_node_infos` 逐 pin 核实,发现 `execute` 真的没接。
+
+**修法**:改成显式 `bind` 落地成局部变量,再 `return` 那个变量:
+```
+(bind _result (CallFunction|IsAoeSkill _self _rowname))
+(return _result)
+```
+`write_graph_dsl` 对已有内容的函数是追加不是替换(坑1),重写后用 `delete_node` 清掉了旧的、从未真正连通过的死节点。
+
+**教训**:
+1. **"函数体只有一行 `return`,逻辑看起来极简单"不能作为"不用查连线"的理由**——这次的 bug 恰恰藏在这行"看起来最简单"的代码里,`return` 表达式内部嵌套的函数调用是不是纯函数,是判断"要不要先 `bind`"的唯一标准,和这行代码写起来"顺不顺手"没关系。
+2. **任何新写的、被其它已验证代码依赖的判断函数(哪怕只有一行),只要内部调用了自定义函数,写完就应该立刻 `get_connected_subgraph` 核实一遍,不能因为"逻辑短"就跳过这一步**——本轮 `OnAimPressed`/`RefreshAoePreview` 这类"看起来复杂"的函数反而每次都老老实实核对过连线,真正漏查的恰恰是这种"就一行,肯定没问题"的函数,以后不能按"复杂度"决定要不要验证,只按"是否嵌套了非纯函数调用"决定。
+
+### 坑79:`get_connected_subgraph` 从 `FunctionEntry` 发起遍历,会把"数据上还挂着但 exec 早已断开"的死节点也收进结果里——判断一个节点"是否真的在跑",必须专门核对 Exec 类型 pin 的连通性,不能看它出不出现在 `get_connected_subgraph` 的返回列表里(2026-08-30,`ClearAoeHighlightsOnly`/`RefreshAoePreview` 补光标高亮时二次踩到坑1/66) #WriteGraphDSL #GetConnectedSubgraph #死节点 #Exec连通性
+
+**背景**:坑78 修 `IsCurrentSkillAoe` 时已经发现过一次"`write_graph_dsl` 重写已有函数是追加不是替换,旧节点变成死节点但还留在图里"(坑1/66 的教训),这次给 `ClearAoeHighlightsOnly`(补充清除光标高亮)和 `RefreshAoePreview`(补充设置光标高亮)重写时又踩了一遍——而且这次因为函数体本身有 `ForEachLoop`/嵌套循环,`get_connected_subgraph` 返回的死节点数量更多(分别是 8 个和 17 个)、混在新链路里更不容易一眼看出来。**最容易踩的坑是:直接假设"`get_connected_subgraph(FunctionEntry)` 返回的所有节点 = 真正会执行的节点"**——这个假设是错的,`get_connected_subgraph` 会沿着**任何类型的 pin**(包括纯数据 pin)扩散,只要死节点和活节点共享哪怕一个数据来源(典型情况是 `FunctionEntry` 自己的参数输出 pin,同一个参数值同时喂给旧链路和新链路),死节点就会被一起收进结果,和"这个节点的 exec 链是否真的从 Entry 连过来"完全是两回事。
+
+**验证方法**:光靠肉眼读 `get_connected_subgraph` 的大段 JSON 找不出死节点(本次两个函数分别有 44 和 8+17=25 个节点混在一起),改用小脚本精确核对——对每个节点,只看它 `type_id` 为 `Exec` 的那些 pin(`execute`/`then`/`LoopBody`/`Completed`/`Is Valid` 等),检查其 `IN`(输入)方向的 `connected_pins` 是否为空:**一个非事件入口节点,如果它所有 Exec 类型的输入 pin 都是空的,它就是死节点,不管它在数据层面和活节点共享了多少个来源**。本次是用 Python 脚本对着保存到本地文件的 JSON 结果做的这个筛选,比人工翻几十个节点的 JSON 靠谱得多。
+
+**教训**:
+1. **`write_graph_dsl` 重写一个已有内容的函数之后,"清点死节点"这一步不能省,而且节点数量会随着函数复杂度(循环层数、分支数)非线性增长**——简单函数(如 `IsCurrentSkillAoe`)死节点只有 5 个,凭经验也能一眼看出来;稍微复杂一点的函数(带嵌套 `ForEachLoop`)死节点能有十几二十个,必须借助脚本化的"看 Exec pin 连通性"筛查,不能再靠"读一遍 JSON 找不对劲的地方"这种人工方式。
+2. **重写前先想清楚:这个函数是不是已经有内容**——如果是,`remove_function_graph`→`compile_blueprint`→`add_function_graph` 重建一遍是能从根源上避免这整类问题的做法(坑1 早就写了这个流程),这次两次(坑78、坑79)都是图省事直接对着已有内容的函数调 `write_graph_dsl`,省下的一步操作换来的是排查死节点的更多工作量,长期看不划算,以后只要确认函数"已有内容",一律先走重建流程,不要心存侥幸。
+
+### 坑81:两个不同蓝图上都叫 `ForecastWidget` 的变量,指向两套完全不同的 Widget 类(`WBP_DamageForecast` vs `WBP_AttackForecast`),只看变量名字/文档描述完全分不出来,必须 `get_node_infos` 读变量取值节点的真实输出 `type_id` 才能确认(2026-08-30,攻击预测面板开发) #跨蓝图同名变量 #命名混淆 #GetNodeInfos必查
+
+**背景**:实现"攻击前伤害预测面板"时,按之前规划(以为 `BP_GridManager.ForecastWidget` 就是要用的那个富文本面板)直接对 `Variables|Default|GetForecastWidget` 的结果调用 `Class|WBPAttackForecast|SetHpForecast`,`write_graph_dsl` 直接报错"Could not connect pin ForecastWidget to self. The pins may be incompatible types"——起初以为是自己哪里拼错了函数名,`get_node_infos` 读那个 `VariableGet` 节点的真实输出 pin 才发现它的 `type_id` 是 `"WBP Damage Forecast Object Reference"`,根本不是 `WBP_AttackForecast`。进一步排查发现项目里同时存在两套结构、命名都叫"预测/预报"的独立 Widget 系统:`BP_GridManager.ForecastWidget`(→`WBP_DamageForecast`,只有一个 `DamageText`,配套 `ShowDamageForecast`/`PredictDamage`/`PendingDefender`/`ConfirmPendingAttack`/`CancelPendingAttack`)和 `BP_TurnManager.ForecastWidget`(→`WBP_AttackForecast`,有 `Txt_HpInfo`/`Txt_AtkDmg`/`Txt_CounterDmg`/`Btn_Confirm`/`Btn_Cancel`,配套 `Class|BPTurnManager|ShowAttackForecast`/`CancelAttackForecast`)——两套变量名完全一样(`ForecastWidget`)、字段含义高度相似(都是"伤害预测+确认/取消"),分别挂在两个不同的蓝图上,是历史上两次独立、互不知情的尝试留下的产物,当前主流程(`PerformSkillAttack`)两套都不调用。
+
+**教训**:
+1. **`list_variables`/文档里的变量名相同,不代表引用的是同一个东西**——尤其是像"Forecast"/"Preview"/"Damage"这类通用词汇命名的变量,换一个蓝图查看前必须重新用 `get_node_infos` 核实一次真实的 `type_id`(对象引用类变量的 `type_id` 就是它的具体类名,比如 `"WBP Damage Forecast Object Reference"`),不能因为在 A 蓝图里查过一次、名字对得上就假设 B 蓝图里同名变量是同一个类。
+2. **`write_graph_dsl`/`connect_pins` 报"Could not connect pin ... incompatible types"这类错误时,大概率不是语法错了,是对某个变量/函数的真实类型/归属蓝图有错误假设**——遇到这类报错,第一反应应该是 `get_node_infos` 读一下报错涉及的那个具体 pin 的真实 `type_id`,而不是反复检查 DSL 语法本身。
+3. **项目里存在的"半成品/遗留系统"经常不止一份**——排查前不能只满足于"找到了一个看起来相关的系统就直接用",尤其是当它的字段结构和当前需求不完全吻合、或者归属的蓝图和预期不符时,应该多问一句"会不会还有另一份更合适的",用 `find_node_types` 搜关键词(这次搜 "AttackForecast" 才带出 `Class|WBPAttackForecast|Set*Forecast` 这一整套现成的、结构完全匹配需求的辅助函数)。
+
+### 坑80:World Space 的 `WidgetComponent` 用硬编码固定旋转"手算"对齐镜头,只在视轴正中心精确,镜头一改构图/单位一偏离画面中心就畸变到肉眼不可见——血条(含骷髅标记)"完全看不见"排查了大半天才定位(2026-08-30) #WidgetComponent #WorldSpace #Screen Space #视角畸变 #镜头构图变更
+
+**背景**:用户反馈"敌人血条旁边的骷髅还是没出现",一开始怀疑是骷髅本身的定位/可见性逻辑有问题(此前确实修过一次"定位在 WidgetComponent DrawSize 边界外导致被裁掉"的问题),但这次深入排查发现**问题比骷髅本身大得多——整条血条在正常游戏画面里都完全不可见,不是骷髅一个人的问题**。
+
+**排查方法**(关键在于没有停留在"读属性看起来都对"就下结论,而是做了对照实验):
+1. `get_properties` 核对 `HealthBarComponent`:`bVisible`/`bHiddenInGame`/`DrawSize`/`RelativeLocation`/挂载关系/`Space`/`GeometryMode` **全部正常**,单看属性完全找不出问题。
+2. 关键一步:**临时把 `DrawSize` 和 `RelativeLocation.z` 都大幅放大**(`100x14`→`400x100`,`z=120`→`250`),重新截图对比——如果放大后仍然什么都看不见,说明是更底层的渲染管线问题(比如没真正 `RegisterComponent`);如果放大后能看到东西,哪怕形状不对,也证明"渲染管线是通的,只是原始尺寸/形态下观感等于不可见"。本次是后者:放大后看到一条**扭曲成波浪形的细线**,不是矩形。
+3. 顺着"扭曲"这个线索查 `UserConstructionScript`:发现这个 World Space 面片(`GeometryMode=Plane`)的朝向是用 `Math|Transform|MakeTransform` **写死的固定 `Rotator` 字面量**,值是当初照着某个固定 `CameraActor` 的朝向手算出来的"镜面对称"值,让面片理论上"正对镜头"。
+
+**根因**:World Space 的 `Plane` 类型 WidgetComponent 不会自动朝向摄像机(不是天然的 billboard),它的朝向就是它自己的 `RelativeRotation`(经过 attach chain 变换后的世界朝向)。如果这个朝向是**针对镜头当前朝向手算的一个常量**,那这个常量**只对"摄像机视线方向 = 摄像机标称朝前方向"这一种情况精确成立**——也就是只有站在视轴正中心的单位才会看到一个方方正正的血条。其它单位(镜头到该单位的真实视线方向,和摄像机标称朝前方向有夹角)看到的面片会以一定角度侧对镜头,夹角越大、视觉上越接近"看不见的一条线"(退化到极限就是完全侧对、宽度趋近于0)。这个设计缺陷从写下那行硬编码就存在,只是早期镜头离场景近、构图集中在中心附近,夹角小到不明显;08-29~08-30 的"全景机位构图修法"把镜头拉远/改了取景范围后,大多数单位不再处于视轴中心,夹角被放大,这个原本"凑合能用"的手算朝向就大概率失真到不可见——**是老设计缺陷被新的镜头改动放大暴露,不是这次 AOE 相关工作引入的新 bug**。
+
+**修法**:不修朝向计算本身(继续手算+适配镜头是治标不治本,镜头以后再变还得重算),而是把 `WidgetComponent` 的 `Space` 从 `World` 改成 `Screen`——Screen Space 下组件只是把 `RelativeLocation` 对应的世界坐标投影成屏幕坐标,在该处画一个**天然永远正对镜头**的 2D 部件,`DrawSize` 语义也从"世界单位(cm)"变成"屏幕像素",不存在任何朝向/畸变问题,一劳永逸,以后镜头再怎么改都不用重新手算这个 Rotator。副作用:`DrawSize`/`RelativeLocation.z` 的合适取值在两种 Space 下完全不是一回事(像素 vs 世界单位、投影后视觉间距 vs 世界间距),切换 Space 后旧的数值经验不能照搬,要重新试出合适的值(这次是 `DrawSize (100,14)→(150,22)`,`z 120→40`)。
+
+**教训**:
+1. **World Space 的 `WidgetComponent` 默认不会自动朝向摄像机**——如果需求是"永远让玩家看得清、不用管镜头怎么摆",应该优先考虑 `Screen` Space,而不是手算一个固定朝向去"追"某一个特定镜头姿态;固定朝向只在"镜头姿态和单位相对位置都不再变"的强假设下成立,这个假设在一个会不断调镜头构图的项目里几乎注定会被打破。
+2. **"读组件属性显示一切正常"不能排除"看起来不像 bug 的视觉表现问题"**——`bVisible=true`/`DrawSize` 数值本身没有任何异常,如果只满足于核对这些标量属性就下结论"配置没问题",会完全漏掉"朝向导致的视觉畸变"这类靠属性值本身看不出来、必须靠实际截图才能发现的问题。往极端方向"暴力放大关键数值再截图对比"是低成本区分"渲染管线没通"和"渲染管线通了但观感等于不可见"的有效手段。
+3. **排查"某个东西应该出现在敌人身上但没出现"类反馈时,第一步应该先确认测试场景本身是否具备复现条件**——本次场上 4 个单位全是同一阵营(`side` 全部 `true`),压根没有可以显示"敌方骷髅标记"的敌人,如果一开始就查一下 `side` 属性分布,能更早排除"骷髅逻辑本身有没有 bug"这个方向,把精力集中到"血条本身为什么看不见"这个真正的大问题上。
+
+### 坑82:`read_graph_dsl` 打印出来的节点标识和 `write_graph_dsl`/`find_node_types` 真正认识的创建字符串,在好几类节点上都对不上——补 AOE 回归断言时一次性踩了 4 种(2026-08-30) #WriteGraphDSL #ReadGraphDSL #命名不对称 #IsValid宏
+
+**背景**:给 `RunRegressionTests` 补 T10i/T11 断言,先用 `read_graph_dsl` 读出完整现有内容再原样喂给 `write_graph_dsl`(避免坑1/66,走的是"整个函数删了重建"流程),结果**逐字照抄读出来的文本反而写不进去**,连续踩了 4 个不同的命名不对称:
+
+1. `Class|GridSlot|GetRow`(对一个实际是 `BP_Tile`/`BP_Unit` 的对象取 Row)——真正能创建的是 `Class|BPTile|GetRow`/`Class|BPUnit|GetRow`,`read_graph_dsl` 把两种不同 self 类型的 `GetRow` 节点都打印成了同一个 `GridSlot` 前缀,单看打印文本完全看不出实际 self 类型是哪个,必须按上下文(这个变量的产生来源是 Tile 还是 Unit)自己判断该用哪个。
+2. `|FindNearestUnit_0`(裸的、不带 category 前缀,还带了下划线)——真正能创建的是 `CallFunction|FindNearestUnit0`(**没有下划线**,`find_node_types` 一查便知)。
+3. `Variables|Default|GetSnapColD`/`SetSnapColD`——这两个变量**根本不存在**(不在 `list_variables` 里,也搜不到对应 `find_node_types`),原函数删除重建后就跟着消失了——因为它们本来就不是类成员变量,只是旧版本图里两个孤立的局部值,`read_graph_dsl` 打印时给它们编了看着像成员变量存取器的名字。修法是老老实实用 `bind` 局部变量重新实现同样的"存一下再读"语义,不要迷信打印出来的名字一定对应一个可创建的节点。
+4. `Variables|Default|GetbGameOver`/`SetbGameOver`——变量本体叫 `bGameOver`,但真正的存取器创建字符串是 `Variables|Default|GetGameOver`/`SetGameOver`(**去掉了 `b` 前缀**),`read_graph_dsl` 回显时又会**加回** `b` 前缀显示成 `GetbGameOver`。这是这几天第 N 次踩到"布尔变量的匈牙利记号前缀在存取器创建名里被去掉,但读图打印时又加回来"这个模式(参考坑73),这次首次在 `Variables|Default|Get/Set` 这一类节点上验证到同样的规律,不只是 `Class|X|GetY` 这类跨蓝图函数调用才有这个问题。
+
+另外,`Class|BPUnit|SetHP` 的参数顺序是 `(HP:Int, self:BPUnit)`,不是直觉上的 `(self, value)`——任何"设置某个实例的某个字段"类节点,写之前都应该先 `get_node_type_pins` 确认参数顺序,不能凭做 Setter 的直觉猜。
+
+**`Utilities|IsValid` 不能当纯表达式内联使用,哪怕看起来只是想要一个 bool**:`(not (Utilities|IsValid obj))` 这种写法会报 `Unreachable code after branch/return`——`IsValid` 在这套 DSL 里只有多出口(`"Is Valid"`/`"Is Not Valid"`)的宏形态,任何一次多出口节点调用都会终止当前的顺序执行流,后面所有语句必须写进某一个具体的出口分支里,不能指望它退化成一个能塞进表达式里的纯布尔值。判断"某个 Object 引用是否为 None"如果只需要在一个断言里用一次,只能整体用 `(Utilities|IsValid X (:"Is Valid" ... 剩下的所有语句 ...) (:"Is Not Valid" ... 剩下的所有语句复制一份 ...))` 的形态包住函数剩余部分(两个分支各自完整地把后续逻辑走一遍),没有更省事的写法;`==`/`!=` 也不能直接拿字面量 `None` 当右值(会报 `Undefined variable "None"`),这套 DSL 没有暴露空字面量。
+
+**教训**:
+1. **`read_graph_dsl` 是给人看的调试视图,不是"喂给 `write_graph_dsl` 保真回放"的序列化格式**——哪怕是"删掉整个函数重建"这种理论上最干净的流程,也不能假设读出来的文本能原样写回去,每一个不认识的 `type_id` 都要单独过一遍 `find_node_types`/`get_node_type_pins` 核实,尤其是变量存取器和跨类的同名方法。
+2. **`write_graph_dsl` 遇到语法/连线错误时的实际行为需要谨慎验证**——本次一开始怀疑"报错前已创建的节点会残留、每次重试都在累加垃圾节点",专门做了一次"删除重建后只写一次干净版本"和之前多次重试版本的 `read_graph_dsl` 对比,发现两者结构一致,**证明这次的重试没有产生垃圾节点堆积**——但不能因此得出"`write_graph_dsl` 保证任何情况下都会失败原子回滚"的结论,只是这次具体场景恰好没暴露问题;不确定的时候,`remove_function_graph`→`compile_blueprint`→`add_function_graph` 重建一遍、只在确认所有节点名都对了之后再一次性 `write_graph_dsl` 写入,仍然是最保险的做法。
+
+### 坑83:`CheckVictoryCondition` 检查的是**全场**是否还有敌方单位存活,不是"这次测试自己造的那几个敌人",导致"AOE 团灭触发胜负结算"这条断言在挂了 `bRunRegressionTestsOnBeginPlay` 的正常关卡里**永远无法可靠通过**——不是随机性假阳性,是测试设计本身和关卡真实开局状态冲突(2026-08-30) #RunRegressionTests #全局状态 #测试隔离性
+
+**背景**:补 AOE 回归断言,原计划里有一条"AOE 一次团灭多个敌人时,`bGameOver` 应该被置 `true`(验证胜负结算不会因为多杀而重复弹窗)"。写好断言后连续跑了 4 轮 PIE:测试自己生成的两个假敌人(`SetHP` 强制设成 1,quake AOE 命中)确实都死了(`T11a`/`T11b` 在 RNG 配合的轮次里稳定 PASS),但"`bGameOver` 应该变成 `true`"这条(`T11c`)**每一轮都 FAIL,包括两个假敌人都确认死亡的那一轮**——排除了随机 MISS 的可能性(那种情况下失败模式应该是偶发,不会每次都失败在同一条断言上)。
+
+**根因**:直接在 live PIE 里 `find_actors`+`get_properties` 核对了这张 `TestMap` 关卡在 `RunRegressionTests` 跑完之后场上所有 `BP_Unit`,发现除了测试脚本自己生成又销毁的临时单位之外,**这张关卡本身的正常开局流程会生成 4 个 `side=false` 的"敌方纹兽"单位,作为这次真实对局本该存在的敌人,从 `BeginPlay` 起就一直活着**。而 `CheckVictoryCondition()` 的判定逻辑是遍历 `GetAllActorsOfClass(BP_Unit)`**全场**所有单位、按 `Side` 分类,只要还有任何一个 `side=false` 的单位活着就判定"敌方还没输"——这个逻辑本身完全正确(它就应该看全局,不应该只看"某次攻击涉及的几个单位"),但意味着**任何只操纵自己临时生成的几个"假敌人"的局部测试,永远无法让"敌方全灭"这个全局条件成立**,因为关卡里那 4 个真实敌人根本没被这次测试的攻击波及。
+
+**处理方式**:这条"`bGameOver` 会被正确置位"的断言在当前"挂在真实关卡 `BeginPlay`、和正常对局共享同一个世界状态"的测试架构下**没有可靠的写法**——要么接受"先摧毁全场所有真实敌人再测"这种对正常游玩会造成破坏性副作用的做法(测试本应该无害地嵌在正常开局流程里,不应该顺手团灭真实对局),要么放弃这条断言。选择了后者:**删除 `T11c` 这条断言,只保留 `T11a`/`T11b`(验证 AOE 确实能同时杀死命中列表里的多个单位,这条不依赖全局敌人数量,可以可靠验证)**。`CheckVictoryCondition` 里"多杀不重复弹窗"的保护本身(`if not bGameOver` 短路)已经通过直接读源码逻辑确认——它是一段没有任何异步/延迟的线性代码,`SetGameOver true` 和后续跳过检查在同一帧同步完成,结构上不可能出现"两次弹窗"的竞态,不需要也没办法靠这套集成测试框架去额外验证这一点。
+
+**教训**:
+1. **写涉及"全局胜负判定"这类跨越"当前测试临时数据"和"整个游戏世界状态"边界的断言之前,先确认这个判定函数的作用域到底是"局部"还是"全局"**——`CheckVictoryCondition` 名字和用途都暗示了"全局"(判定的是整场对局的胜负,不是某一次攻击的局部结果),这类函数的断言天然没法在"共享同一个正在跑的真实关卡"的测试环境里被局部数据完全左右,写断言前应该先问一句"这个函数关心的状态,我的测试能不能真的控制住全部输入"。
+2. **一条断言反复在同一个位置 FAIL、且失败与否和"局部前提条件是否满足"无关,是"测试设计有结构性问题"的信号,不能默认套用"随机性假阳性,重跑即可"的老经验**——本项目已经有 T6a/T7b/T7c/T9 这几条公认的随机性假阳性,容易先入为主地把任何 FAIL 都归为"老毛病",这次是靠"局部前提(两个假敌人都死了)满足时断言依然 100% FAIL"这个反直觉现象,才倒逼着去核实全局状态,没有轻信"多跑几次总会过"。
+3. **`RunRegressionTests` 目前是嵌在关卡真实 `BeginPlay` 流程里跑的(靠 `bRunRegressionTestsOnBeginPlay` 开关),不是一个独立、干净、可控的沙盒环境**——它天然要和"这张关卡这一局到底放了哪些单位"共享世界状态,以后新增任何涉及"数全场单位数量/存活状态"的断言,都要先想清楚这个耦合关系,不能假设测试脚本生成的单位就是场上仅有的单位。
+
+### 坑84:固定机位下"屏幕方向↔逻辑坐标轴(Col/Row)"的映射不能凭直觉写,必须手算摄像机 Right/Up 向量;`for` 循环迭代变量上 `Class|GridSlot|GetRow` 会报"Could not connect pin"、需要换成 `Class|BPTile|GetRow`(2026-08-30,AOE 瞄准态 WASD 反向排查+蓝色射程高亮开发) #坐标系换算 #Camera #WriteGraphDSL #ReadGraphDSL #命名不对称
+
+**背景**:用户反馈瞄准态下"按了鼠标右键后,wasd的方向和玩家面向不同,完全不知道怎么移动"。`MoveAimCursor` 的 W/A/S/D 字面量映射(`DeltaCol`/`DeltaRow`)从功能建立起就是 W=`(0,-1)`、S=`(0,+1)`,凭"数组行号越大越靠下"的直觉写的,完全没考虑这个项目用的是固定机位(`CameraActor`,`Pitch=-55,Yaw=90`),不是自由视角。
+
+**手算方法(可复用)**:
+1. 先实测棋盘坐标轴和世界坐标的对应关系——不要假设,直接读几个已知 `Col`/`Row` 的 `BP_Tile` 世界坐标反推:本项目是 `Col`→世界 X(`Col+1`→`X+100`)、`Row`→世界 Y(`Row+1`→`Y+100`),两者都是同号递增。
+2. 再手算固定机位在这个朝向下,屏幕"右"/"上(远)"分别对应哪个世界方向——`Right=(sin(Yaw),-cos(Yaw),0)`(与 Pitch 无关,Pitch 只影响 Forward/Up,不影响 Right),`Up=Right×Forward`(叉乘顺序影响符号,先用 `Pitch=0` 的简单情况验证叉乘顺序对不对,水平机位时 `Up` 应该正好是 `(0,0,1)`,验证通过再代入真实 Pitch)。本项目算出来 `Right=(1,0,0)`(世界 +X)、`Up=(0,0.819,0.574)`(主要分量世界 +Y)。
+3. 把"棋盘坐标轴↔世界方向"和"屏幕方向↔世界方向"两张表拼起来,就能推出"屏幕方向↔ `DeltaCol`/`DeltaRow`"——本项目结论是屏幕右=`Col+1`,屏幕"上/远"=`Row+1`。
+4. 和现有 W/A/S/D 字面量比对:A/D(`Col∓1`)已经和推导结果一致,不用改;W/S(`Row`)的符号刚好反了,只需要把这两个键各自调用节点的 `DeltaRow` 字面量互换符号即可,不用碰 A/D 和 `MoveAimCursor` 函数体。
+
+**这个方法论比"改一次测一次玩家感觉对不对"的试错法更可靠**,尤其是在 MCP 没有可靠按键模拟能力、只能靠静态推导+连线核对来交付、要等用户下一轮实测才能拿到最终确认的场景下——手算能在"根本没法真人测试"的情况下依然给出有几何依据的判断,不是纯猜。
+
+**顺带踩的坑**:给 `ShowAimRange`(全新函数)/`RefreshAoePreview`(整体重建)写 `for` 循环时,照抄旧代码 `read_graph_dsl` 回显里的 `(Class|GridSlot|GetRow _array_element)`(在其它已编译多年的函数里,这个写法对 `BP_Tile` 类型的循环变量是能用的),结果在**新写**的 `for` 循环迭代变量上报错 `"Could not connect pin Array Element to self. The pins may be incompatible types."`——排查发现存在一个更直接对口的 `Class|BPTile|GetRow`(先 `find_node_types` 确认存在),换过去就正常编译。这是坑67/82"`read_graph_dsl` 回显文本和 `write_graph_dsl` 真正认识的创建字符串不对称"同一大类问题的又一次变体,新增的教训是:**这次连"换成哪个类名前缀"都需要重新用 `find_node_types` 试出来,不能假设"某个 type_id 字符串在旧代码里能用,新代码里换个位置(比如从 `Utilities|Array|Get` 的结果换成 `for` 循环的迭代变量)还照样能用"**——同一个显示名字背后可能对应不同的底层节点解析路径,上下文(数据来源是 `Array|Get` 还是 `for` 迭代变量)会影响哪个路径生效。
+
+### 坑85:`write_graph_dsl` 里连续多次调用**同一个带 2 个以上 Bool 参数的自定义函数**,后续调用的字面量参数会错位/漏传;判定"参数到底传对了没有",只能用 `get_node_infos` 逐个读该调用节点自己的 pin 字面量,不能相信"我在 DSL 里就是这么写的" #WriteGraphDSL #参数错位 #BoolParam #运行时验证
+
+**背景**:排查坑84"固定机位假设错了"那次修复(改成 `ComputeAimDelta(bForward,bPositive)` 实时算),需要在 PIE 里拿到真实运行时数据验证公式对不对(MCP 没有按键模拟能力,手算和连线核对都没法完全替代"真的跑一遍看数字对不对")。写了一个临时诊断函数 `TEMP_TestComputeAimDelta`,函数体里连续 4 次调用 `(CallFunction|ComputeAimDelta true true)`、`(CallFunction|ComputeAimDelta false false)`、`(CallFunction|ComputeAimDelta true false)`、`(CallFunction|ComputeAimDelta false true)`,分别对应 W/A/S/D 四个按键"应该"传的参数,配 `PrintString` 打印结果。`StartPIE` 拿到真实 log 后发现数字对不上手算预期,一度以为 `ComputeAimDelta` 函数体本身写错了。
+
+**根因**:`get_node_infos` 逐个读这 4 个调用节点自己的 `bForward`/`bPositive` 字面量,发现和 DSL 源码写的完全不一致——W 那次调用(源码写 `true true`)实际节点上是 `bForward=true, bPositive=false`;S 那次调用(源码写 `true false`)实际是 `bForward=false, bPositive=false`;D 那次调用(源码写 `false true`)实际是 `bForward=true, bPositive=false`;只有 A 那次(源码写 `false false`,凑巧和"全部落空"的默认值一致)看起来是对的。规律是:**`bPositive` 这个 pin 在全部 4 次调用里都变成了 `false`,`bForward` 拿到的值反而是源码里那次调用"本该给 bPositive 的值"**——像是"同一个函数被连续调用多次"时,`write_graph_dsl` 对这批调用节点的参数字面量赋值出现了错位/串位,而不是简单的"忘记赋值"(忘记赋值该表现为全部落到该参数的默认值,不会呈现这种"跟错了别的参数值"的规律)。目前没有继续深挖 `write_graph_dsl` 内部具体是怎么错位的(不在这次任务范围内,且核心目标——验证 `ComputeAimDelta` 本身正确性——已经用交叉验证的办法达成,见下)。
+
+**如何确认这不是`ComputeAimDelta`自己的bug**:虽然诊断函数传参传错了,但只要知道"这次调用实际收到的是哪一组 `(bForward,bPositive)`"(通过 `get_node_infos` 读出来的真实值,不是源码写的值),再手算这组真实参数"应该"算出什么 `(DeltaCol,DeltaRow)`,和 log 里打印出来的实际结果逐一比对——**四组全部精确吻合**。这说明 `ComputeAimDelta` 函数体内部的公式和连线本身完全正确,错的只是诊断脚本"怎么把参数传进去"这一层,两者是完全独立的问题,不能因为最终数字和"我以为传的参数"对不上就误判成函数体本身写错了。
+
+**教训**:
+1. **`write_graph_dsl` 里如果要连续多次调用同一个自定义函数(尤其是带多个同类型参数,比如两个 Bool),不能只信源码写的字面量,调完必须逐个 `get_node_infos` 读每一个调用节点自己的参数 pin,确认真实收到的值和源码写的一致**——这次的错位现象在 `compile_blueprint` 阶段完全没有任何报错或警告,是彻头彻尾的静默参数错位,不核实就会得出完全错误的排查结论(一度怀疑函数体本身错了)。
+2. **对"真正会被正式使用"的关键调用点(比如这次的 91-94 号 `ComputeAimDelta` 调用,W/A/S/D 四个按键实际接的那几个),干脆别赌 `write_graph_dsl` 的位置参数写法,改用 `create_node` 建空节点 + `set_pin_value` 显式挨个设置每一个字面量参数**——这种方式每一步都是独立的、可以单独核实的 API 调用,不存在"一次性写一大段 DSL,内部某个参数悄悄错位却整体不报错"这类批量操作特有的风险,这次实际交付用的 91-94 号节点就是用这种方式做的,已经二次核实过完全正确,和诊断函数用 `write_graph_dsl` 踩的坑是两回事。
+3. **诊断代码本身出 bug 是完全可能的,不能默认"我是为了验证而写的辅助代码,所以它一定是对的"**——花时间交叉核对"诊断代码实际做了什么"和"被测代码算出了什么",能把两类独立的错误(诊断代码的错 vs 被测代码的错)分开,避免把诊断代码自己的问题误判成被测代码的问题(或者反过来,放过被测代码里真正存在的问题)。

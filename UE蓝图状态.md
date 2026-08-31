@@ -417,7 +417,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | `DebugComponent`/`DebugWidget` | WidgetComponent / WBP_DebugLoadout | 同上,ZOrder=20,默认 Collapsed |
 | `bDebugPanelOpen` | Bool | ToggleDebugPanel 用,避免 GetVisibility 枚举和字符串比类型 |
 | `RefreshRelicBar()` | 函数 | `RelicBarWidget.SetBarText(Grid.RelicBarText)` |
-| `ToggleDebugPanel()` / `HideDebugPanel()` | 函数 | DBG 开关 / CLOSE |
+| `ToggleDebugPanel()` / `HideDebugPanel()` | 函数 | DBG 开关 / CLOSE。**2026-08-30 起 `ToggleDebugPanel()` 同时切输入模式**:打开面板→`SetInputModeGameAndUI`+`SetShowMouseCursor(true)`;关闭→`SetInputModeGameOnly`+`SetShowMouseCursor(false)`,原因和改动细节见下方"2026-08-30"节。`HideDebugPanel()` 本轮未同步改(仍只收起面板、不切输入模式),后续如果发现"用 HideDebugPanel 关闭时鼠标还留着"的问题,要在那边补同样的两行。 |
 | `ApplyDebugLoadout()` | 函数 | 读隐藏输入框(DoApply 可能先把非空下拉抄进去)。遗物 CSV → `RelicCsvToIds` → Parse。**解析件数 > 0** 才 `SetEquippedRelicIds` 并关 fallback;**件数为 0** 把 `bRelicFallbackToSlice` 设回 true,让 `ApplyStartingRelics` 再走切片 5 件,禁止空读把顶栏清掉。技能 Parse 件数 > 0 才 `SetSkillSlots`。然后回血、刷新顶栏和菜单。 |
 | `ApplyPresetSlice/Heavy/Elem()` | 函数 | 一键配装。直接 `ParseCommaSeparatedNames` 写死英文 id → Set 数组 → 关 fallback → 遗物/回血/刷新。不读输入框。 |
 | `RefreshSkillMenuLabels()` | 函数 | `GetSkillSlotName` → `SkillIdToChinese` → `WBP_ActionMenu.SetSkillButtonLabels`。`ShowActionMenu` 每次打开也会调。 |
@@ -629,6 +629,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - 已 `compile_blueprint` 通过、`save_assets` 落盘。A/D 平移和鼠标方向已人工 Play 验收通过;W 仍横着走的问题在下一节(第二轮)修复。
 
 ### 2026-08-20 第二轮:模型脸朝向和移动方向不对齐(A/D、鼠标已确认修好,W 仍横着走)
+> ⚠ **2026-08-29 起已否决/过时**:本节描述的 `StaticMesh` 组件、`Mewtwo_test` 模型资产已在骨骼网格迁移(见文末"2026-08-29 骨骼网格迁移"一节)中整体替换成 `CharacterMesh0`(`SkeletalMeshComponent`)+ `Mewtwo_TPose`,`StaticMesh.RelativeRotation` 这条修法对当前模型不再适用。当前的朝向补偿值和修法见文末坑64。本节保留仅作历史存档,不要照抄。
+
 `UE节点备忘录.md` 坑42 追加部分。根因:Mewtwo 模型资产的脸朝向是局部 **+Y** 不是 UE 约定的 +X,`StaticMesh` 组件的 `RelativeRotation` 一直是 `(0,0,0)`,胶囊体转向移动方向后模型脸依然侧着 90°。**用临时 actor + `CaptureViewport` 截图验证过**(从正后方看对称/从正前方确认对到脸)。
 - **`BP_Unit.UserConstructionScript`** 新增(接在既有血条搭建链路末尾,`K2Node_VariableSet_1`("SetHealthBarWidget")的 `then` 之后):`StaticMesh`(变量 Get,`K2Node_VariableGet_1`)→ `SetRelativeRotation`(`K2Node_CallFunction_5`,`NewRotation=(Pitch=0, Yaw=-90, Roll=0)`,`bSweep=false`,`bTeleport=false`)。
 - **踩坑**:`ObjectTools.set_properties` 直接改关卡里已放置实例的 `StaticMesh.RelativeRotation` 会返回 `true` 但读回来立刻还原成 `(0,0,0)`,不生效(SCS 组件的 Relative Transform 疑似有同步机制会冲掉直接反射赋值)。改成在 Construction Script 里插 `SetRelativeRotation` 节点才是真正持久生效的路径。
@@ -731,3 +733,294 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 **顺手发现,未处理**:开 PIE 时 `Output Log` 刷出几条 `Attempted to access BP_Unit_C_6 via property PendingEnemyUnit, but BP_Unit_C_6 is not valid (pending kill or garbage)`——`PendingEnemyUnit` 变量在某个之前的单位被 `DestroyActor` 之后没有清空,残留了一个失效引用。和这轮镜头改动无关,没有顺手修,留待下次处理。
 
 **验证方式**:`compile_blueprint`(两个蓝图)均通过,`save_assets` 落盘。开 PIE(临时把 `bRunRegressionTestsOnBeginPlay` 打开跑了一遍,验完立刻改回 `false`,没有留痕到关卡资产)看 `Output Log`:`T1`~`T6b`/`T8` 全部 `PASS`,**`T7b_RunEnemyTurn_MovesCloserToNearestTarget`/`T7c_RunEnemyTurn_VacatesOldTile` 两条 FAIL**——**这次没有新引入这两条失败**:这轮改动完全没碰 `RunEnemyTurn`/`MoveUnitTowardTarget`/`FindNearestUnit0`,`AttemptSkillAttack`/新函数只在被 `Possess` 的我方单位的 `EventTick`/按键路径上执行,和敌方 AI 回合的调用链没有交集,**推断是这轮之前(某次 TPS 迁移/AI 朝向修复改动)就已经破坏、只是没人在那之后重新跑过回归测试才没发现**,已如实记录、没有顺手修,留给用户决定要不要单独排期排查(参见"当日修复(续,第六轮)"第8条"敌方AI移动朝向修复"——很可能是那次改动引入,因为改动本身"没能实测",时间线吻合)。**没能验证的部分(和以往同一类限制)**:MCP 没有可靠按键模拟能力,`Tab` 切换目标手感、`E` 锁定攻击的真实命中率仍需人工 Play 验收;`SetLockIndicator` 的血条放大效果好不好看也需要肉眼确认。
+
+### 2026-08-29 待命结束回合(空格键) + AOE 范围技能移植(计划见 `C:\Users\AI_Work\.claude\plans\zazzy-launching-dolphin.md`)
+
+用户选定处理两个功能缺口:①TPS 直控模式下缺一个"不攻击、直接结束回合"的按键;②网页版原本设计的 AOE(横扫/地裂/岩崩/横扫斩)技能一直没移植。规划阶段用 MCP 直接读取当前**真实的、已编译**蓝图(不只是文档),发现两个原方案没预料到的真实 bug,会在阶段3实现时一并修——已记入 `UE节点备忘录.md` 坑65。
+
+**阶段1(本条已完成、已验证)——待命键**:`BP_TurnManager.StandbyAction()` 这个函数在 2026-08-16 行动菜单时代就已经存在(`HideActionMenu()`→`Grid.SetSelectedUnit(None)`→`EndTurn()`,前两步在 TPS 时代是无害空操作),TPS 时代一直没人接线用它。本轮只新增了一条按键路径,`BP_Unit.EventGraph` 新增:
+```
+Input|KeyboardEvents|SpaceBar (Pressed)
+  → Actor|GetAllActorsOfClass(BP_TurnManager)  [K2Node_CallFunction_811]
+  → Utilities|Array|Get(acopy) 取[0]            [K2Node_GetArrayItem_55]
+  → Utilities|Casting|CastToBP_TurnManager      [K2Node_DynamicCast_69]
+  → Class|BPTurnManager|StandbyAction           [K2Node_CallFunction_812]
+```
+和 Tab/E/1-5 键完全同款的"每次现查、不缓存引用"写法,`create_node`/`connect_pins`/`break_pins` 增量插入(SpaceBar 是全新按键,之前完全没被使用过)。**踩坑**:`Utilities|Array|Get(acopy)` 取出来的元素类型解析成基类 `Actor Object Reference`(不是 `BP_TurnManager`),不能直接接到 `StandbyAction` 的 `self` 参数(类型不兼容报错),必须额外插一个 `Utilities|Casting|CastToBP_TurnManager` 做显式向下转型——这是 `GetAllActorsOfClass`+`Array|Get` 这套"现查引用"模式的通用要求,不是这次特有的坑,以后同类查找都要记得加这道转型。`compile_blueprint` 通过,`get_connected_subgraph` 从 `SpaceBar` 节点逐跳核对到 `StandbyAction`,执行链完整无断点。**不需要**在按键处额外调用 `Grid.ClearHighlights()`/`ClearLockIndicators()`——下一个单位被 `Possess` 后自己 `EventTick` 第一帧的全局清理会自动处理,和"是攻击结束回合还是待命结束回合"无关。**待人工 Play 验收**:按空格键是否真的立刻结束当前回合、轮到下一个单位。
+
+**阶段2(本条已完成、已验证)——AOE 技能数据 + 中文名互查表**:`/Game/Data/DT_Skills` 新增 4 行(`sweep`横扫/`quake`地裂/`rockslide`岩崩/`cleave`横扫斩,数值来自网页版 `js/data/skills.js`,直接用 `DataTableTools.add_rows`+`set_rows` 写入,没有走 CSV 重新导入这条路——`js/data/ue_import/DT_Skills.csv` 也同步加了这4行备档,但游戏读的是 DataTable 资产本身,两者不会自动同步,以后再手改 CSV 记得也要手动同步一次 DataTable)。`BP_TurnManager.SkillTokenToId`/`SkillIdToChinese` 各追加4个 `elif` 分支(中文名⇄英文id双向互查),`WBP_DebugLoadout.FillSkillCombo` 待补4个下拉选项(**这一步这次没做**,见下方"未完成")。
+
+**本阶段踩到全场目前最贵的一个坑(坑66)**:给这两个已存在的函数用 `write_graph_dsl` 整体重写来插入新分支,第一次提交因为"函数图并非全新"导致节点重复(66+ 个分支而不是预期的34个);`remove_function_graph`+`add_function_graph` 清空重建后,又因为不知道原输出参数的真实内置名字是 `Result`(不是类比 `IsPhysicalSkill` 抄来的 `ReturnValue`)踩了签名不匹配;最后还牵连了 `ApplyDebugLoadout`/`RefreshSkillMenuLabels`/`RefreshSkillBar` 三个函数里总共 10 个调用点全部需要 `delete_node`+`create_node`+逐条 `connect_pins` 重建(改公共函数签名的标准代价,这次只是撞上了全部 10 个)。全部修复后两个蓝图 `compile_blueprint` 均通过,`get_node_infos` 逐个新建的调用节点核对过 exec/self/Token/Result 连线。详见 `UE节点备忘录.md` 坑66完整排查记录。
+
+**2026-08-30 补完**:`WBP_DebugLoadout.FillSkillCombo` 已追加"横扫"/"地裂"/"岩崩"/"横扫斩" 4 个下拉选项(`create_node`/`connect_pins` 在既有"近身战"→`SetSelectedOption` 之间插入 4 个新 `ComboBox|AddOption` 节点,`declaring_class=/Script/UMG.ComboBoxString` 消歧,照抄坑33的写法;`write_graph_dsl` 整体重写此函数会报 `Could not connect pin Combo to self` 编译失败——`ComboBox|AddOption` 这类 UMG 节点即使函数体本身是纯线性无循环文本,DSL 也无法正确消歧声明类,必须走 `create_node`+`declaring_class`,不能因为"文本结构简单"就默认可以用 `write_graph_dsl` 整体重写,还是要看节点类型)。`compile_blueprint` 通过,`read_graph_dsl` 复查确认 31 个原选项 + 4 个新选项全部还在。玩家现在可以通过配装 UI 直接选到这 4 个新 AOE 技能了。
+
+**阶段3(本条已完成、已验证)——AOE 判定 + 多目标伤害管线**:`BP_GridManager` 新增三个函数、改了一个既有函数:
+```
+IsAoeSkill(RowName: Name) → bool
+  照抄 IsPhysicalSkill 的写法,硬编码比较 "sweep"/"quake"/"rockslide"/"cleave",命中任一即 true。
+  用 Utilities|Operators|Equal(==)(不是 Utilities|Name|Equal(Name)——后者是只读形态,find_node_types 确认创建不出来)。
+
+GetAoeHitList(Defender: BP_Unit) → Array<BP_Unit>
+  局部变量 HitListTmp(函数作用域,每次调用自动清零,照抄 GetTargetsInRange 的 TargetsTmp 写法)。
+  先把 Defender 本体加入,再 GetAllActorsOfClass(BP_Unit) For Each:
+    Side==false(敌方) 且 HP>0 且 不是 Defender 本体 且 ManhattanDistance(Defender,该单位)==1 → 加入。
+  用 Class|BPUnit|GetCol/GetRow(不是 Class|GridSlot|GetRow——后者在这个新函数里报
+  "Could not connect pin Defender to self",尽管同一个 GetRow 在 ValidateSkillTarget/TryAttack 等已编译旧代码里用得好好的;
+  原因不明,新写 DSL 一律改用 BPUnit 版本绕过)。
+
+PerformAoeSkillAttack(Attacker: BP_Unit, Defender: BP_Unit)  [void]
+  局部变量 SavedSkillRowTmp(Name,函数作用域)
+  SetSavedSkillRowTmp(当前 PendingSkillRowName)     ← 循环开始前只执行一次,真正落地存一份快照
+  HitList = GetAoeHitList(Defender)
+  For Each HitList:
+    Set SelectedUnit = Attacker                      ← 每次迭代都重设
+    Set PendingSkillRowName = GetSavedSkillRowTmp()  ← 每次迭代都从快照变量读,不是从 PendingSkillRowName 自己读
+    TryAttack(该目标, false)
+  两条 Set 每次迭代都要重做,直接对应"坑65"里发现的两个坑:TryAttack 结尾无条件清空 SelectedUnit、
+  ResolveCounterAttack 会把 PendingSkillRowName 永久改写成 "basic"。**这里踩了一个本轮自己刚犯的新坑,已经改正**,见 `UE节点备忘录.md` 坑69:第一版实现把"每次迭代重设 PendingSkillRowName"直接写成了 `SetPendingSkillRowName(GetPendingSkillRowName())`——语法上编译通过,但因为 UE Blueprint 的 Get 节点是纯节点(无 exec、不缓存),这个 Get 每次被拉取时读的都是"当前"值,循环第二次起读到的已经是上一轮 `ResolveCounterAttack` 篡改过的脏值,等于完全没有修复原来的坑,只是把"读哪个变量"绕了一圈又绕回原地。现在改成真正落地一个独立的函数局部变量 `SavedSkillRowTmp`,循环开始前 `Set` 一次、循环内只读不写,才是真正的快照。
+
+PerformSkillAttack(既有函数,create_node/connect_pins/break_pins 增量插入,未整图重写)
+  在既有 Set PendingSkillRowName 之后、原来直连 TryAttack 之前,插入 Branch(IsAoeSkill(GetPendingSkillRowName())):
+    False(单体)→ 原路径直连 TryAttack,行为完全不变。
+    True(AOE)→ 改调 PerformAoeSkillAttack(Attacker, Defender)。
+  两条分支汇合到同一个既有的 GetAllActorsOfClass(BP_TurnManager)→Get[0]→EndTurn 尾巴(同一个 exec 输入有多个来源汇入,合法写法)。
+```
+`get_connected_subgraph` 从 `FunctionEntry_0` 逐跳核对过 `PerformSkillAttack` 全部改动后的连线,`BP_GridManager`/`BP_Unit` 均 `compile_blueprint` 通过。跑过 `RunRegressionTests`(临时把 `bRunRegressionTestsOnBeginPlay` 打开、`StartPIE`,验证完已改回 `false`、已 `StopPIE`):T1–T6b、T8、T9 全部 PASS;T7b/T7c 仍是既有未解决的失败(和这轮改动无关,历史遗留)。日志里 T8 和 T9 之间出现一条 `Accessed None trying to read (real) property Grid ... Node: Branch Graph: StartTurn Blueprint: BP_TurnManager` 的警告——核对过 `StartTurn` 的 DSL,它完全没有被这轮任何改动touch到(既没读写 SkillTokenToId/SkillIdToChinese,也不调用 PerformSkillAttack/IsAoeSkill/GetAoeHitList/PerformAoeSkillAttack),判定为既有的、和这轮改动无关的时序噪音,未继续深挖根因;测试本身没有中断,T9 照常 PASS。
+
+**AOE 专属回归断言(本条已完成,已写进 `RunRegressionTests` 永久保留)**:`RunRegressionTests` 末尾新增 T10 段,摆 1 我方攻击者(格36)+1 敌方防御者(格35)+1 正交相邻敌方(格34)+1 故意隔开的敌方反例(格64,`Tiles[TileIndex]` 的 `TileIndex=(Col-1)*8+(Row-1)`,11×8 网格),`PendingSkillRowName` 设成 `"quake"`:
+```
+T10a  GetAoeHitList 命中列表长度==2
+T10b  命中列表包含 Defender 本体
+T10c  命中列表包含正交相邻敌人
+T10d  命中列表不包含隔开的反例敌人
+T10e  PerformAoeSkillAttack 后 Defender 确实掉血
+T10f  PerformAoeSkillAttack 后相邻敌人确实掉血
+T10g  反例敌人 HP 完全不变
+T10h  Defender 和相邻敌人(属性完全相同)掉血量必须相等 —— 这是专门用来卡"坏了会把第二个目标悄悄按 basic 倍率结算"这个坑(坑69)的断言,如果 `SavedSkillRowTmp` 快照失效,这条会第一时间 FAIL
+```
+`StartPIE` 实测:T10a–T10h 全部 PASS。T6a/T7b/T7c 的既有已知问题(~5% 命中率误报/敌方AI寻路遗留 bug)不受影响。**未做**(计划里同一批但优先级更低的收尾项):`SelectedUnit` 结算后是否严格等于 `None`、AOE 多杀是否只弹一次胜负窗——这两条留给下次接手直接加断言,当前 T10 没覆盖。
+
+**阶段4(瞄准态UX)——地基部分已完成、已验证,交互接线部分尚未开始**:
+```
+BP_Unit 新增变量:Aiming(Bool——注意实际变量名是 "Aiming" 不是 "bAiming",add_variable 这次没有像历史上的 bHasMoved 那样自动加 b 前缀,以此变量的真实名字为准)、AimCursorCol(Int)、AimCursorRow(Int)。
+
+/Game/Maps/M_AoeHighlight(新建 Material):纯 Constant3Vector(1.0, 0.45, 0.0,橙色)接 MP_BaseColor,照抄 M_AtkHighlight 的极简结构(只有一个 Constant3Vector→BaseColor,没有额外的 Metallic/Roughness/ShadingModel 定制)。
+
+BP_Tile 新增:AoeHighlightMat(Material 对象引用,CDO 已设成 M_AoeHighlight)、AoeHighlighted(Bool)、SetAoeHighlight(bOn) —— 逐行照抄 SetAttackHighlight 的写法(SetAoeHighlighted(bOn) → bOn 为真则 SetMaterial(Mesh,0,AoeHighlightMat),否则 SetMaterial(Mesh,0,NormalMat))。
+
+BP_GridManager 新增:
+  ClearAoeHighlightsOnly() —— 照抄 ClearAttackHighlightsOnly:For Each Tiles,若该格 NOT Highlighted(不是移动高亮)则 SetAoeHighlight(该格,false)(bOn 留默认值 false,不显式传)。
+  GetEnemyUnitAtTile(Col,Row) → BP_Unit(局部变量 FoundEnemyTmp 兜底默认 None):GetAllActorsOfClass(BP_Unit) For Each,Side==false 且 HP>0 且 Col/Row 匹配就 Set FoundEnemyTmp,循环完 return。
+  RefreshAoePreview(CursorCol,CursorRow) [void]:ClearAoeHighlightsOnly → GetEnemyUnitAtTile(光标格) → IsValid(单分支写法,只写"Is Valid",没有"Is Not Valid"分支,和 ShowSkillRange 同构)→ GetAoeHitList(该敌人)→ For Each 命中单位 → 内层 For Each 全场 Tiles,Col/Row 都相等就 SetAoeHighlight(该 Tile,true)。
+
+三个新函数、SetAoeHighlight 均已 compile_blueprint 通过,RefreshAoePreview 额外用 get_connected_subgraph 从 FunctionEntry 逐节点核对过整条 exec 链路(含 IsValid 宏的 Is Valid/Is Not Valid 两个出口,确认走的是"Is Not Valid 留空、Is Valid 接主逻辑"这种已知安全写法,不是坑2/51 那种嵌套死代码)。
+```
+**阶段4交互接线部分(本条已完成、已验证,2026-08-30)**:
+
+- `BP_Unit` 新增 `Input|MouseEvents|RightMouseButton`(Pressed→`CallFunction|OnAimPressed`,Released→`CallFunction|OnAimReleased`)+ 离散 `Input|KeyboardEvents|W/A/S/D`(Pressed,各自 `Branch(Aiming)` 门槛为真才执行,`CallFunction|MoveAimCursor(DeltaCol,DeltaRow)`,W/S 走 Row∓1、A/D 走 Col∓1)。
+- `BP_Unit` 新增三个函数(`write_graph_dsl` 全新写,均用 `get_connected_subgraph`/`get_node_infos` 逐节点核对过 exec 链路无孤岛):
+  - **`OnAimPressed()`**:`Actor|GetActorOfClass(BP_GridManager)`→`Utilities|Casting|CastToBP_GridManager`→`IsValid`(Is Not Valid 留空)→`Grid.IsCurrentSkillAoe(self)`(新增,见下)→为真则 `Set Aiming=true`+光标初始化成自己当前 Col/Row+`Grid.RefreshAoePreview(该Col,该Row)`。
+  - **`OnAimReleased()`**:`Set Aiming=false`→查 Grid→`IsValid`→`Grid.ClearAoeHighlightsOnly()`。
+  - **`MoveAimCursor(DeltaCol,DeltaRow)`**:查 Grid→`IsValid`→`Grid.ManhattanDistance(self.Col,self.Row, AimCursorCol+DeltaCol, AimCursorRow+DeltaRow)`与`Grid.GetSkillEffectiveRange(self,SelectedSkillIndex)`比较,`<=` 才真的 `Set AimCursorCol/Row`+`Grid.RefreshAoePreview(新Col,新Row)`,超范围整次移动被拒绝、光标留原地。
+- `BP_GridManager` 新增 **`IsCurrentSkillAoe(Unit:BP_Unit)→Bool`**:`Combat|Loadout|GetSkillSlotName(自己的SkillSlots, Unit.SelectedSkillIndex)`查行名→`CallFunction|IsAoeSkill(该行名)`。存在原因和 `ValidateSkillTarget`(坑46)一样——跨实例判定逻辑要放在 GridManager 侧,BP_Unit 自己的函数图读不到"这次到底该不该走 AOE 分支"以外的东西。
+- `BP_Unit.EventTick` **补了 10 个 `Branch(NOT Aiming)` 网关**(1 个共享的 `GetAiming`+`NOTBoolean`,扇出到 10 个 `Branch.Condition`),分别插在 5 个"移动"入口(`DynamicCast_39/48/55/60/65`→原 `AddMovementInput` 对,即 `425/431`、`543/549`、`630/636`、`687/693`、`744/750`)和 5 个"射程/锁定高亮刷新"入口(`VariableSet_68/85/98/107/116`→原 `ClearAttackHighlightsOnly`,即 `442`、`560`、`647`、`704`、`761`,`ClearLockIndicators` 因为在同一条 exec 链路的下游、门口一关自动跟着不执行,没有单独再插)。**排查这 10 个插入点花了大量 `get_node_infos` 回溯,过程中意外发现 `EventTick` 里还有一整段"看起来很重要但实际执行不到"的死代码(`Utilities|FlowControl|Sequence` 节点自己的 `execute` 输入没有任何连线)以及一条被 Enhanced Input 事件独占供电、Enhanced Input 全局不触发导致必然死代码的 `AddMovementInput` 对——这两段都刻意没有触碰(不在本次任务范围,风险未知),完整现象记入 `UE节点备忘录.md` 坑72,以后排查"EventTick 里某段逻辑到底有没有真的在跑"直接去查那条就行,不用重新溯源。**
+- `BP_Unit.AttemptSkillAttack` 顶部插入 `Branch(Aiming)`(`create_node`/`connect_pins`,没有动原有函数体其余部分):True→新函数 **`AttemptAimAttack()`**(查Grid→IsValid→`Grid.GetEnemyUnitAtTile(AimCursorCol,AimCursorRow)`→IsValid→有敌人就 `Grid.PerformSkillAttack(self,该敌人,SelectedSkillIndex)`,没有就 `PrintString("AIM: 光标下没有目标")`);False→原来的 `FunctionEntry.then` 目标(`MacroInstance_0`,即原有 `LineTraceByChannel`/`CastToBP_Unit`/`ValidateSkillTarget` 那整套非瞄准态逻辑),完全没改动,行为不变。
+- **验证**:两个蓝图 `compile_blueprint` 均通过;`RunRegressionTests`(`StartPIE`,`bSimulate:true`)跑了两轮——第一轮 T10f/T10h 出现 FAIL,第二轮全 PASS,和已知的命中率随机性假阳性(T6a/T7b/T7c 同类)吻合,不是本次改动引入的回归(T10 断言走的是 `RunRegressionTests`→`PerformAoeSkillAttack` 的直接函数调用路径,完全不经过这次改的任何输入/Tick/AttemptSkillAttack 代码);标准 PIE(`bSimulate:false`)跑一轮读 Output Log,除了已知的 `StartTurn` "Accessed None...Grid" 警告和引擎级 GameFeatureData 噪音外没有新增报错。**未能实测**(MCP 无可靠鼠标长按/键盘模拟能力,同已知限制):RMB 长按手感、WASD 光标移动手感、E 键瞄准态命中体验,均需人工 Play 验收。
+- `WBP_DebugLoadout.FillSkillCombo` 补 4 个 AOE 技能下拉选项**已完成**(阶段2遗留项,由另一次会话/进程补上,过程见 `UE节点备忘录.md` 坑71:`write_graph_dsl` 整体重写在 `ComboBoxString` 系列节点上会连错类型,退回 `create_node`+`declaring_class` 增量插入解决)。
+
+至此 `zazzy-launching-dolphin.md` 计划的四个阶段全部完成、全部验证过(仅剩人工 Play 手感验收这一项,计划文档本身就把它列为"MCP 做不到,只能人工"）。
+
+### 2026-08-29 骨骼网格迁移(Mewtwo_TPose)+ 动画状态机 + 朝向修复(⚠ 本节之前从未同步过文档,是补记——这轮之前的会话直接在 UE 里做完了下述全部改动,没有按 harness 规范同步 `UE蓝图状态.md`/`UE节点备忘录.md`,导致接手时文档和实际蓝图状态完全脱节,教训见对话总结)
+
+**模型资产**:`CharacterMesh0`(`BP_Unit` 的 `SkeletalMeshComponent`)换成 Mixamo 导入的 `/Game/Meshes/Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`(取代旧的 `Mewtwo_test` 静态网格+旧骨骼网格系列,旧资产已确认零引用后删除,见下方"资产清理")。当前(2026-08-29 验收通过)确认生效的 Transform:`RelativeLocation=(0,0,-80)`,`RelativeRotation=(0,270,0)`(**Yaw=270,不是 90**——90 是这套模型刚换上时的初始校准值,实际差了180度导致 moonwalk,详见 `UE节点备忘录.md` 坑64,270 才是最终验收通过的值),`RelativeScale3D≈(54.294,54.294,54.294)`,`AnimationMode=AnimationSingleNode`。
+
+**新增变量**(均 `AnimationAsset` 对象引用类型,除非标注):`IdleAnimAsset`→`Idle_import_Anim`、`WalkForwardAnim`→`Walking_import_Anim`、`WalkBackwardAnim`→`UnarmedWalkBack_import_Anim`、`ReactionAnim`→`Reaction_import_Anim`、`DyingAnim`→`Dying_import_Anim`、`PunchAttackAnim`→`PunchingBag_import_Anim`、`MagicAttackAnim`→`MagicSpellCasting_import_Anim`、`CurrentLocoAnim`(追踪上次播放的 locomotion 动作,CDO 默认值是 `None`)、`bIsActionPlaying`(Bool,攻击/受击/死亡等"一次性动作"播放期间置 true,阻止 `UpdateLocomotionAnim` 打断)。
+
+**新函数**:
+- **`UpdateLocomotionAnim()`**(每 Tick 末尾调用一次):`bIsActionPlaying` 为 false 时,读 `GetVelocity()`,速度 `<5` 判 Idle,否则用速度和 `GetActorForwardVector` 的点乘正负号判 WalkForward(>0)/WalkBackward(≤0);每个分支写法是 `(if NotEqual(target,current) then (SetCurrentLocoAnim target) (PlayAnimation mesh target true))`——**这不是 if/else,是"then 分支里两条语句顺序执行":第一条设变量、紧接着第二条才真正调用 `PlayAnimation`,只有 target 和 current 不同才会执行这两步,相同则整个分支不执行(不会重复 Play)**;`read_graph_dsl` 打印出来乍看容易被误读成"设置变量"和"实际播放"是互斥的 if/else 两支,不是——这套写法已经过两轮独立核实(DSL 文本 + `get_node_infos` 逐节点核对 exec 连线)确认是对的,以后不要因为文本长得像 if/else 就怀疑它有 bug。
+- **`PlayHitReaction()`/`PlayPhysicalAttackAnim()`/`PlayElementalAttackAnim()`/`PlayDyingAndDestroy()`**:各自 `Set bIsActionPlaying=true` → 播放对应 AnimSequence(`bLooping=false`)→ `Utilities|Time|SetTimerbyFunctionName`(不是 `Delay`,Function 图不能放 latent 节点)等 `Animation|GetPlayLength` 秒后回调 `EndActionAnim()`(`Set bIsActionPlaying=false`)或 `FinishDying()`(找 `BP_GridManager` 实例,先 `DestroyActor(self)` 再 `CheckVictoryCondition`,顺序不能反,否则临死单位会被判定成"还活着")。
+- 攻击时到底放物理还是元素动作,由 `BP_GridManager.IsPhysicalSkill(RowName)`(硬编码比较 `DT_Skills.csv` 的 `basic`/`heavy`/`powerstrike` 三个 `TypeName=normal` 的技能行名)决定,接在 `TryAttack` 伤害结算之前。
+
+**资产清理**(全部先 `get_referencers` 确认零引用/仅测试引用再删):`/Game/Mewtwo_anim/` 整个文件夹(旧骨骼网格 `Mewtwo_MagicHeal` 系列+12个旧 AnimSequence+关联 PhysicsAsset/Skeleton+`CS_Mewtwo` 过场序列,用户明确要求"删除,彻底不用")、`/Game/Maps/BP_Unit_Rebuild`(废弃的并行蓝图)、`/Game/Meshes/Mewtwo_test/StaticMeshes/Mewtwo_test`(旧静态网格,删前先把 `Setup()` 里敌我染色的 `SetMaterial` 调用点从这个组件改接到 `CharacterMesh0`)、10 个 Mixamo 动画导入时产生的重复网格副本(如 `PunchingBag_import`,只留 AnimSequence)、TestMap 里 3 个棋盘外的遗留 `SkeletalMeshActor`(标签"MEWTWO_MAGICHEAL")。
+
+**已知一次性修复,均已验收通过**(详见 `UE节点备忘录.md` 对应坑号):
+- `EventTick` 里两处 `CastToPlayerController` 的 `CastFailed` 输出 pin 未接线,导致所有未被 `Possess` 的单位(AI 单位)整个 tick 后半段(含 `bIsAIMoving` 分支)完全不执行——AI 移动 bug 的真正根因,已接线补上。
+- 鼠标视角"斜的":两个 `GetInputMouseDelta` 节点里,`AddControllerPitchInput` 接错源接到了另一个节点的 `DeltaX`(取反后当 pitch 用),两个节点各自的 `DeltaY` 都完全没接;改成正确节点的 `DeltaY→AddControllerPitchInput`。
+- 全体单位悬空:`CharacterMesh0.RelativeLocation.Z` 从初版按 T-pose 参考包围盒算出的 `-36.977`(没考虑真实播放动作后姿势的实际高度)调到用户实测认可的 `-80`。
+- **moonwalk(本轮最后修的,也是最容易复发的一个)**:见 `UE节点备忘录.md` 坑64,`CharacterMesh0.RelativeRotation.Yaw` 90→270。
+
+**加新动画的标准流程,已固化为 skill `ue-add-animation`**(见 `ue-add-animation/SKILL.md`)——以后再加任何 Mixamo 动作(比如新技能动作、新状态动画),按 skill 里的步骤走,不要凭记忆重新摸索。
+
+### 2026-08-30 技能栏空白排查 + Debug 面板开关补输入模式切换 + F1 快捷键 + UI 提示(本条已全部完成、已验证)
+
+**背景**:用户反馈"屏幕下方的技能UI看不到技能名称了"。排查(直接读 live PIE 状态)确认:`BP_GridManager.SkillSlots` 开局是空数组,`BP_TurnManager.EventBeginPlay` 只会自动调 `ApplyStartingRelics()`(遗物自动生效),**没有任何调用给 `SkillSlots` 赋初始值**——`RefreshSkillBar()` 在开局直接读这个空数组,所以技能栏显示"数字+空白"。`WBP_DebugLoadout` 面板(能一键应用 SLICE/HEAVY/ELEM 预设填上 `SkillSlots`)默认 `Visibility=Collapsed`。**和用户确认:这是预期行为(面板本来就要手动打开选预设),不是本次 AOE 改动引入的回归,不改这部分逻辑**。
+
+**追问"控制台"(即 `WBP_DebugLoadout`)怎么打开**:排查发现它原本只能靠鼠标点 `WBP_RelicBar.Btn_Debug`(顶栏"DBG"按钮)打开,**没有任何键盘快捷键**——但 TPS 直控模式下 `StartTurn` 会把鼠标切到 `SetShowMouseCursor(false)`+`SetInputMode_GameOnly`(锁鼠标转视角,见坑40),所以进游戏后根本看不见鼠标指针,点不到这个按钮。用户要求:①加 F1 快捷键;②`Btn_Debug` 下面加一行小 UI 提示文字。
+
+**`BP_TurnManager.ToggleDebugPanel()` 补输入模式切换**:用 `create_node`/`connect_pins` 在原有 if/else 两支的尾部(`SetbDebugPanelOpen` 之后)各追加了一段"查 `Game|GetPlayerController(0)` → 切输入模式 → 切鼠标显隐"——打开面板那支加 `Input|SetInputModeGameAndUI`(PlayerController=当前PC,其余参数留引擎默认:`InWidgetToFocus`留空、`InMouseLockMode=DoNotLock`、`bHideCursorDuringCapture=true`、`bFlushInput=false`)+ `Class|PlayerController|SetShowMouseCursor(true)`;关闭那支加 `Input|SetInputModeGameOnly`(`bFlushInput=false`)+ `SetShowMouseCursor(false)`,让面板打开时能看见并点到鼠标、关闭后无缝切回 TPS 转视角模式。**中途 MCP 连接断了一次,第一版改动(节点已建好、`compile_blueprint` 也通过了)在断线后整个丢失**(`find_nodes` 复查发现新节点全部不见,只剩原来 8 个;重连后新建节点的编号从 `K2Node_CallFunction_0` 重新起,而不是接着断线前的 `_6/_7/_8/_9`,说明断线这次伴随了蓝图编辑器状态的重置,不是单纯网络抖动),**重连后原样重做了一遍**,这次编译通过后立刻 `get_connected_subgraph` 从 `FunctionEntry` 走了一遍两条支路确认真正连通,并且**当场 `AssetTools.save_assets([])` 落盘**,避免再丢一次。
+
+**`BP_Unit.EventGraph` 新增 F1 快捷键**:`Input|KeyboardEvents|F1`(Pressed)→ 完全照抄 `SpaceBar→StandbyAction` 的写法:`Actor|GetAllActorsOfClass(BP_TurnManager)`→`Utilities|Array|Get(acopy)`取索引0→`Utilities|Casting|CastToBP_TurnManager`(**这里必须显式 Cast,和 SpaceBar 那条线的真实结构一致——之前文档摘要没提到 Cast 这一步,这次翻旧节点确认了 SpaceBar 链路本来就有 Cast,不是新增行为**)→`Class|BPTurnManager|ToggleDebugPanel`。`get_connected_subgraph` 确认整条链从 `InputKey.Pressed` 到 `ToggleDebugPanel` 完全连通,`compile_blueprint` 通过。
+
+**`WBP_RelicBar` 加 UI 提示**:用 `UMGToolSet.WrapWidgets` 把 `Btn_Debug` 包进一个新的 `VerticalBox`(替换掉它在 `BarBox`(HorizontalBox)里原来的位置,不影响其它兄弟节点),再用 `UMGToolSet.AddWidget` 往这个 `VerticalBox` 里加一个新 `TextBlock`(`Txt_DebugHint`,排在 `Btn_Debug` 下方),`ObjectTools.set_properties` 设置文字"F1"、字号9、灰色(0.6,0.6,0.6)、水平居中。`CompileWidgetBlueprint` 通过,`GetWidgetDescription` 复查确认层级正确(`VerticalBox_0`→[`Btn_Debug`(含"DBG"), `Txt_DebugHint`("F1")])。**因为改了 `WBP_RelicBar` 的内部结构,按坑9 同步重新 `compile_blueprint` 了持有它的 `BP_TurnManager`**。
+
+**验证**:`StartPIE`(`bSimulate:false`)+`CaptureEditorImage` 截图确认——右上角"DBG"按钮下方正确显示灰色小字"F1",布局符合预期;技能栏(见上一条排查)仍是"1/2/3/4/5"五个空标签,和已确认的"未应用配装"预期一致,没有新增异常。`StopPIE` 干净退出。**未能实测**:实际按 F1 键能否真的弹出面板(MCP 无可靠键盘模拟能力,同项目一贯的已知限制),需要人工 Play 验收。
+
+**新踩的坑(已记入 `UE节点备忘录.md` 坑74)**:MCP 连接中断可能伴随蓝图编辑器未保存状态的整体丢失(不只是这次调用失败),排查/确认方法和应对策略见备忘录条目——以后每完成一小段 `create_node`/`connect_pins` 图编辑并 `compile_blueprint` 通过后,应尽快 `save_assets` 落盘,不要攒到一大段改完再存。
+
+**2026-08-30 追加修复:F1 和编辑器/测试环境本身的快捷键冲突,改绑 LeftCtrl**:用户反馈"F1在测试的时候还有别的作用",`delete_node` 删掉原来的 `Input|KeyboardEvents|F1` 节点,新建 `Input|KeyboardEvents|LeftCtrl` 节点,只重新接上 `Pressed→GetAllActorsOfClass` 这一条线(下游 `GetArrayItem→Cast→ToggleDebugPanel` 那段完全没动,原样复用),`compile_blueprint` 通过、`get_node_infos` 复核连线、`save_assets` 落盘。`WBP_RelicBar.Txt_DebugHint` 的提示文字也同步从"F1"改成"Ctrl"(第一次改漏了,只换了按键没换 UI 提示文字,用户截图指出后才发现补上)。现在打开调试面板的快捷键是**左 Ctrl**,不是 F1,UI 提示也对得上。
+
+**2026-08-30 真正的根因(用户截图揭穿):`SkillIdToChinese`/`SkillTokenToId` 两个函数的每一条 `return` 语句全部被写成了空字符串 `""`,不管传进去哪个技能 id/中文名,一律返回空**。用户按 Ctrl 打开面板、点了"元素流(ELEM)"预设(截图里遗物顶栏正确刷新成"元素核心|铁甲皮|钢之意志",证明预设确实应用成功、`SkillSlots` 也确实被正确写入了 `[ember,aqua,vine,hydro,leafblade]`),但底部技能栏依旧只有"1/2/3/4/5"——直接读 live PIE 状态实锤 `SkillSlots` 是对的、`Txt_Skill0` 的 `Text` 却是`"1 "`(数字后面跟一个空格,没有名字)。顺藤摸瓜读 `RefreshSkillBar`→`SkillIdtoChinese`→读到的函数体是 34 层 `if/elif`,**每一层的 `(return "...")` 字面量全是空字符串**,连最初 2026-08-15 就有的 `basic`/`ember`/`aqua` 等老分支也不例外——这明显不是"这次改坏的",是更早某次(可能是本轮之前某次不透明的"整体重写"操作)把两个函数的真实中文/英文对照值集体替换成了空字符串,一直没人发现,因为没人在"游戏本身默认不配技能、需要先手动开面板选预设"这条路径上真正跑到过底。已经对照 `js/data/skills.js`(项目里技能数据的唯一权威来源)把两个函数的全部 35 个分支(31 个原有 + 阶段2新增的4个 AOE)逐一核实重写:`SkillIdToChinese`(英文id→中文名,含未识别原样返回)和 `SkillTokenToId`(中文名→英文id,反向,未识别返回空串,配装解析用)。`write_graph_dsl` 整体重写(纯 `EqualExactly`+`if/elif/return`,无特殊 UMG 节点,和坑71 的红线无关,可以放心整体写)。
+
+**验证**:改完之后又踩了一次坑74同款的连接中断丢改动(见下文坑75),重做后每写完一个函数立刻 `compile_blueprint`+`save_assets`。最终验证:临时把 `BP_GridManager` **CDO** 的 `SkillSlots` 设成 `[ember,aqua,vine,hydro,leafblade]`(模拟 ELEM 预设生效后的状态,因为 MCP 没法模拟点击面板按钮)→`StartPIE`→直接读 live `Txt_Skill0`/`Txt_Skill4` 的 `Text`,分别是 `"1 火花"`、`"5 飞叶刃"`,和预设内容完全对上→`StopPIE`→**把 CDO 的 `SkillSlots` 改回空数组 `[]`**(这只是验证用的临时值,不该变成新的默认行为)→`save_assets`。**结论:技能栏显示问题现在是真的修好了,用户只要用 Ctrl 打开面板选一个预设,技能栏就应该正确显示中文名了。**
+
+### 2026-08-30 阶段4瞄准态验收失败排查中——`OnAimPressed` 临时加了诊断 PrintString(本条未完成,等用户实测反馈)
+
+用户验收通过待命/技能栏修复后,反馈"范围攻击的攻击范围、鼠标右键的锁定都没"(阶段4的 RMB 瞄准态完全没反应)。直接读 live PIE 状态排查:`SelectedUnit`(`BP_Unit_C_0`)的 `Aiming=false`、`AimCursorCol/Row` 仍是初始值 `0/0`(从未被 `OnAimPressed` 写过,因为 Col/Row 是 1 起始的棋盘坐标,`0` 不是合法位置,只能是"从没设置过"),但 `SkillSlots[0]="cleave"`(用户已经通过自定义配装正确装备了一个 AOE 技能在当前选中的槽位 0)。`get_connected_subgraph`/`read_graph_dsl` 逐节点复核了 `OnAimPressed`→`IsCurrentSkillAoe`→`IsAoeSkill` 整条链路,**图结构和逻辑完全正确,没有被之前几次 MCP 断线污染**,理论上应该能正常工作。`BP_TacticsController`/`BP_Unit` 也没有发现其它可能抢占 `RightMouseButton` 输入的竞争绑定。由于 MCP 没有可靠的鼠标长按模拟能力,无法自己复现,**临时在 `OnAimPressed` 里插了 3 个 `PrintString`(`bPrintToScreen=true`,游戏画面上会直接弹字,不用开 Output Log)**:入口一条"RMB Pressed, entering"、`IsCurrentSkillAoe` 判断的 True/False 分支各一条,用来在用户下次真人按键时定位到底卡在哪一步(输入没到 / AOE判断错了 / 判断对了但后续预览没画出来)。`compile_blueprint` 通过、`get_connected_subgraph` 复核连线正确、已 `save_assets`。**下一步:等用户按 1 号槽位(cleave)+ 长按右键的实测反馈,看屏幕上弹出的是哪一条(或者完全没弹),再决定往哪个方向继续排查;排查完这一轮记得把这 3 个诊断 PrintString 删掉,不要留在正式版里。**
+
+### 2026-08-30 血条加敌我标记(骷髅图标),本条已完成、已编译验证(尚未经 PIE 视觉确认,见下)
+
+用户要求"方便理解"的两个 UI 改动之一:敌方单位血条最前面加骷髅标记区分敌我。第二个改动(高亮"会被打到的敌人")经 `AskUserQuestion` 确认范围**只针对 AOE 技能预览**,不需要给单体锁定再加一套"射程内但未选中"的弱高亮——这部分并入上面还在排查的阶段4瞄准态问题,不是独立新工作。
+
+**`WBP_HealthBar`**:`UMGToolSet.AddWidget` 新增 `TextBlock Txt_EnemyMarker`(`bIsVariable=true`),`CanvasPanelSlot` 定位在血条(`0..100,0..14`)左侧外部 `offsets={left:-16,top:0,right:-2,bottom:14}`,文字用 `"☠"`(U+2620,避免用彩色 emoji "💀" 触发 Slate 字体渲染问题)、红色 `(1,0.15,0.15,1)`、字号12、居中、默认 `Visibility=Collapsed`。新函数 **`SetIsEnemy(bEnemy: Bool)`**:`create_node`/`connect_pins` 手搭(`Widget|SetVisibility` 历史上有和 SceneComponent 版本混淆的坑50,不赌 `write_graph_dsl`),`Branch(bEnemy)`→True 分支 `SetVisibility(Txt_EnemyMarker, Visible)`,False 分支 `SetVisibility(Txt_EnemyMarker, Collapsed)`。`get_connected_subgraph` 复核两条分支都真正连通。**跨蓝图函数调用名是 `Class|WBPHealthBar|SetIsEnemy`(去掉 `WBP_` 下划线),但该控件自己内部的 `bIsVariable` 取值节点是 `Variables|WBP_HealthBar|GetTxt_EnemyMarker`(保留 `WBP_` 下划线)——两种命名规则在同一个资产上并存,和 `WBP_SkillBar` 之前的坑是同一类现象(见 `UE节点备忘录.md` 坑6 相关记录的老结论,这次是再次印证,不用另开新坑号)。**
+
+**`BP_Unit.Setup(bAlly)`**:`write_graph_dsl` 整体重写(函数本身纯线性无循环,已确认过内容,新增一行没有涉及任何红线节点类型),在原有"改材质"分支后面加一行 `Class|WBPHealthBar|SetIsEnemy(HealthBarWidget, NOT bAlly)`,再调用原有的 `UpdateHealthBar()`。`compile_blueprint` 通过,`get_node_infos` 核对新节点的 `self`/`bEnemy` 参数来源和 exec 链路都正确接入。已 `save_assets`。
+
+**尚未验证**:这个改动只在 `Setup()`(单位生成时)生效,当前 PIE 场上已存在的单位不会带这个新逻辑;需要用户下次重启 Play 才能看到骷髅标记实际效果,和阶段4瞄准态调试是同一次重启验证,还没拿到用户"看到骷髅了"的实测确认。
+
+### 2026-08-30 修复 `SetLockIndicator` 每 Tick 报 "Accessed None" 的真实 bug(本条已完成、已验证)——和 AOE 瞄准态是两个独立问题
+
+用户报告控制台每帧刷屏报错(`Accessed None trying to read (real) property CallFunc_Array_Get_Item_2 in not an UClass. Node: SetLockIndicator`)。排查(静态读图,未依赖任何鼠标/键盘模拟):`EventTick` 主线程里"锁定式索敌"逻辑(`GetTargetsInRange`→按 `LockedTargetIndex` 取数组元素→`SetLockIndicator`)有一个**从 2026-08-22 系统建立起就存在的真实 bug**——`LockedTargetIndex` 的"越界回绕"逻辑是 `Select((LockedTargetIndex >= 候选数量), 0, LockedTargetIndex)`,只处理了"下标比候选数量还大"的情况,回绕结果永远是 `0`;但当候选数量本身是 **0**(当前选中技能射程内一个敌人都没有,比如切到"横扫斩"这种低射程技能后离敌人较远)时,`0 >= 0` 也成立,回绕后依然是 `0`,而 `0` 对一个空数组来说仍然是越界——`Array|Get` 在空数组上取不到东西,拿到的是 `None`,后面直接拿这个 `None` 去调 `SetLockIndicator` 就报"Accessed None"。**这个坑和这次 AOE/RMB 相关的改动完全无关**,是老代码里一直潜伏、只是之前测试时手边永远有敌人在射程内所以没触发过的边界条件,这次用户测试"横扫斩"这类特殊技能时才第一次暴露。
+
+**修法**:`EventTick` 主线程里这段逻辑一共有 **5 处重复的"章节"**(和坑72记录的"只加不删"历史一致,`SetLockIndicator` 调用点 449/567/654/711/768,另有一处 80 是坑72已确认的孤立死代码,不用管),给每一处的"取数组元素→`SetLockIndicator`"之间插入 `Utilities|IsValid` 判断(`create_node`/`connect_pins`,不动周围任何既有逻辑):`Is Valid`→照常调用 `SetLockIndicator`;`Is Not Valid`→**直接跳转到原本 `SetLockIndicator.then` 指向的下一个节点**(用 Blueprint exec pin 天然支持"多个来源汇入同一个输入"的特性做的旁路,不是新开一条独立分支,`get_node_infos` 复核过目标节点的 `execute` 输入现在有两个 `connected_pins`)——这样"没有候选目标"时干净跳过这次调用,不影响 Tick 剩余部分继续跑。副作用验证:旁路生效时下游 `SetCurrentLockedUnit` 依然会执行(数据 pin 直接接的是可能为 `None` 的 `Array|Get` 输出,和 exec 路径无关),把 `CurrentLockedUnit` 正确设成 `None`,这正是"没有可攻击目标"时应有的语义,不是纯粹的错误抑制。
+
+**验证**:`compile_blueprint` 通过,5 处改动逐一 `get_node_infos` 复核连线。切 `bRunRegressionTestsOnBeginPlay=true` 跑一轮 `StartPIE`(`bSimulate:true`)+`LogsToolset.GetLogEntries` 读日志:本轮跑下来**没有任何新的 `SetLockIndicator`/`Array_Get_Item` 报错**(日志里能查到的所有该报错记录时间戳都早于这次修复,是用户此前反馈时的旧记录),已知的 T6a/T7b/T7c/T9 假性 FAIL(命中率随机性/AI寻路已知问题,和这次改动无关)照常出现,没有新增回归。`StopPIE`、`bRunRegressionTestsOnBeginPlay` 复位为 `false`,已 `save_assets`。
+
+### 2026-08-30 AOE 瞄准态真正的根因:`IsCurrentSkillAoe` 自己写错了,`IsAoeSkill` 的 exec pin 从未被接上(本条已完成、已验证)
+
+修好 `SetLockIndicator` 刷屏之后,用户成功看到了 `OnAimPressed` 里的诊断信息:`RMB Pressed, entering OnAimPressed` 正常触发,但紧接着是 `IsCurrentSkillAoe=FALSE, skipping`——即使技能栏当时明确显示选中的是"1 横扫斩"(AOE 技能)。这证明输入本身完全正常(镜头能转、按键能收到),问题出在判断逻辑内部。
+
+**根因**:`Class|BPGridManager|IsCurrentSkillAoe` 当初(本轮更早些时候)是这样写的:
+```
+(fn IsCurrentSkillAoe (Unit)
+  (return (CallFunction|IsAoeSkill self (Combat|Loadout|GetSkillSlotName (Variables|Default|GetSkillSlots) (Class|BPUnit|GetSelectedSkillIndex Unit)))))
+```
+`IsAoeSkill` 不是纯函数(内部是真实的 if/elif 分支,带 exec pin),但这里把它的调用**直接嵌套在 `return` 表达式内部**,而不是先 `bind` 成一个局部变量再 `return` 那个变量。`get_node_infos` 直接读实际图结构才发现:`IsAoeSkill` 这个 `CallFunction` 节点的 `execute` 输入 pin **完全没有连接**,真正的 `FunctionResult`(Return 节点)的 `execute` 输入直接接的是 `FunctionEntry.then`——也就是说函数一进来就直接 Return 了,`IsAoeSkill` 从未真正执行过,它的 `ReturnValue` 输出 pin 上停留的只是布尔类型的默认值 `false`,`IsCurrentSkillAoe` 因此**恒定返回 `false`**,不管技能是什么。这正是 `UE节点备忘录.md` 硬规则第①条早就写明的坑34("带 Exec 的自定义函数不能当纯表达式嵌套调用,否则会被 prune"),这次是自己在阶段4新写的代码里又踩了一遍。
+
+**修法**:改写成显式 `bind` 再 `return`:
+```
+(fn IsCurrentSkillAoe (Unit)
+  (bind _self self)
+  (bind _rowname (Combat|Loadout|GetSkillSlotName (Variables|Default|GetSkillSlots) (Class|BPUnit|GetSelectedSkillIndex Unit)))
+  (bind _result (CallFunction|IsAoeSkill _self _rowname))
+  (return _result))
+```
+`write_graph_dsl` 是对已有内容的函数**追加不替换**(坑1),重写后 `get_connected_subgraph` 发现旧的、`execute` 从未连过的死节点(`VariableGet_0/1`、`CallFunction_0/1`、`FunctionResult_1`)原样留在图里,和新链路通过 `FunctionEntry` 的 `Unit` 输出 pin 共享数据扇出——`delete_node` 清掉这 5 个死节点,`compile_blueprint` 通过,`get_connected_subgraph` 复核新链路完整:`Entry.then→IsAoeSkill.execute(真正连上了)→FunctionResult.execute`,`RowName` 由 `GetSkillSlotName` 正确提供。已 `save_assets`。
+
+**当前状态**:这是本轮排查链条里最后一环真正的逻辑 bug,已经修好并验证连线正确,但**还没拿到用户"技能栏选中 AOE 技能后长按右键,真的看到 `IsCurrentSkillAoe=TRUE, Aiming ON` 且橙色范围预览出现"的实测确认**——理论上现在应该正常工作了,下一步是请用户再测一次。`OnAimPressed` 里的 3 条诊断 `PrintString` 暂时保留,等这轮测试确认没问题后再删掉。
+
+### 2026-08-30 用户实测反馈"Aiming ON 但完全没有高亮"+"移动时按右键会重复移动一下",两个真实问题都已修复(本条已完成、已验证连线,尚未拿到用户"这次真的看到高亮了"的最终确认)
+
+用户按 A 键挪了光标后反馈"完全不行"。直接读 live PIE 状态排查:`AimCursorCol/Row` 一直等于角色自己当前的 `Col/Row`,从没真正挪动过;而且 `Col` 本身在 `Aiming=true` 期间还发生了变化(从 7 变成 6)。定位到两个独立问题:
+
+1. **没有任何"光标在哪"的视觉反馈,靠盲按 WASD 几乎不可能精确落在敌人格子上**——之前的设计只在光标真的落在敌人身上时才会出现橙色 AOE 命中预览,光标本身在移动过程中完全不可见,相当于"蒙眼走格子"。**这是"高亮完全不行"的根本原因,不是逻辑判断错了**(`GetAoeHitList`/`GetEnemyUnitAtTile`/`RefreshAoePreview` 这几个函数逐一重新核对过连线,都是对的)。
+   - **修法**:新增一个独立的"光标位置指示"高亮,和"AOE 会命中谁"的橙色高亮分开、颜色也不同(青色 `M_CursorHighlight`,`(0.2,0.9,1.0)`),不管光标格子上有没有敌人,只要在瞄准态,光标当前所在的格子就会显示这个青色标记。`BP_Tile` 新增 `CursorHighlightMat`(Material 对象引用,CDO 设成 `/Game/Maps/M_CursorHighlight`)、`CursorHighlighted`(Bool)、函数 **`SetCursorHighlight(bOn)`**(逐行照抄 `SetAoeHighlight`/`SetAttackHighlight` 的写法,`create_node`/`connect_pins` 手搭,`get_connected_subgraph` 复核过完整连通)。`BP_GridManager.ClearAoeHighlightsOnly()` 顺带在同一个 for 循环里也清一遍 `CursorHighlighted`(`write_graph_dsl` 整体重写,新增一行 `(Class|BPTile|SetCursorHighlight _array_element)`——**试出来一个之前不知道的行为:漏传的 `bOn` 参数会自动用函数定义时的字面量默认值`false` 补上,不会报错**,不用每次都手写全部参数)。`BP_GridManager.RefreshAoePreview` 在原有"清空→找光标格敌人→命中预览"逻辑最前面插入一段新的 for 循环:遍历所有 `Tiles`,找到 `Col/Row` 等于 `CursorCol/CursorRow` 的那一格,调 `SetCursorHighlight(true)`——这段放在敌人判定**之前**,如果光标格恰好真的有敌人、进入了命中预览分支,后续 `SetAoeHighlight(true)` 会把这一格从青色覆盖成橙色(同一个材质槽后写覆盖前写,这次是刻意利用这个特性做优先级)。
+   - **同样踩到坑1**:`write_graph_dsl` 重写 `ClearAoeHighlightsOnly`/`RefreshAoePreview` 这两个已有内容的函数后,旧版本的节点(分别是 8 个和 17 个)原样留在图里、通过 `FunctionEntry` 的参数输出 pin 和新链路共享数据扇出,`get_connected_subgraph` 从 `FunctionEntry` 发起的遍历会把这些"数据上关联但 exec 上早已断开"的死节点也纳入结果——不能只看"这个节点出现在 get_connected_subgraph 里"就认为它活着,这次改用写小脚本对比"节点是否真的在从 Entry 出发的 exec 链路上"(逐个读 `execute`/`then` 等 Exec 类型 pin 的 `connected_pins`)才准确定位到死节点,`delete_node` 清掉后 `find_nodes` 复查节点数量precisely等于新链路应有的数量,`compile_blueprint` 通过。
+
+2. **瞄准态开始时角色可能还带着刚才走路的残余动量,导致进入瞄准的瞬间又滑了一小步,看起来像"重复移动"**——`BP_Unit.EventTick` 里"世界坐标→逻辑 Col/Row"的同步(`GetNearestTile`)是每 Tick 无条件执行的,不受 `Aiming` 影响(移动输入 `AddMovementInput` 虽然已经被 `Branch(NOT Aiming)` 挡住,但角色物理身上的速度不会瞬间归零,`CharacterMovementComponent` 会用几帧时间自然减速滑行,滑行期间 Col/Row 跟着世界坐标继续同步,看起来就像"点了右键之后角色还在自己动")。
+   - **修法**:`BP_Unit.OnAimPressed` 里 `Set Aiming=true` 之后,紧接着调用 `Components|Movement|StopMovementImmediately`(目标是 `GetCharacterMovement()`)把速度直接清零,再继续设置光标初始位置——`create_node`/`connect_pins` 插入,不涉及任何已有内容的函数重写,没有坑1的风险。`get_node_infos` 确认 `SetAiming(true).then→StopMovementImmediately.then→SetAimCursorCol...` 连通。
+
+**验证**:`BP_Tile`/`BP_GridManager`/`BP_Unit` 三个蓝图逐一 `compile_blueprint` 通过,`M_CursorHighlight` 材质 `recompile` 通过,所有新增/改动的连线都用 `get_node_infos`/`get_connected_subgraph`(必要时配合脚本比对死节点)复核过,已 `save_assets`。**还没有拿到用户下一轮实测的确认**——下一步请用户重启 Play,瞄准态下移动光标应该能看到青色标记跟着走,移动时按右键也不应该再看到额外的滑步。
+
+### 2026-08-30 血条(含骷髅标记)"完全不可见"的真根因:World Space + 固定朝向的 WidgetComponent 配合最新镜头构图,已在近摄像机边缘位置严重畸变到肉眼不可见(本条已完成、已验证)
+
+用户反馈"敌人血条旁边的骷髅还是没出现",直接问"给我别的方案"。没有直接猜测/重做骷髅定位,而是先用 `CaptureEditorImage` 截了当时 PIE 画面裁剪放大到角色头顶区域——**发现根本不是骷髅位置问题,是整条血条本身在正常截图里完全不可见**,连一个像素的色块都没有。
+
+**排查过程**(全部基于 live PIE 状态直接读取,没有靠猜):
+1. `get_properties` 核对 `HealthBarComponent`(`WidgetComponent`)本身:`bVisible=true`、`bHiddenInGame=false`、`DrawSize=(100,14)`、挂载正确(`AddComponent` 的 `bManualAttachment=false`,自动挂在 `RootComponent` 上,`RelativeLocation=(0,0,120)`)、`Space=World`、`GeometryMode=Plane`——单看这些属性全部正常,不能解释"完全不可见"。
+2. 做了个对照实验:临时把 `DrawSize` 从 `(100,14)` 暴力放大到 `(400,100)`、`RelativeLocation.z` 从 `120` 提到 `250`,重新截图——**这次能看到一条内容,但是扭曲成一根细长的绿色波浪线,不是矩形**,而且弹出了"Video memory has been exhausted"警告。这证明渲染管线本身没坏(放大后能看到东西),但原始尺寸下这个"能看到"的东西已经因为畸变+过小,实际观感上和"不存在"没区别。
+3. 顺藤摸瓜查 `UserConstructionScript`:血条的朝向是用 `Math|Transform|MakeTransform` **硬编码写死的固定旋转 `(Pitch=55, Yaw=-90, Roll=0)`**,当初这个值是照着当时的固定 `CameraActor`(`Pitch=-55, Yaw=90`)手算出来的"镜面对称"朝向,让这块 `Plane` 类型的 World Space 面片正对镜头。这个手算朝向只对**镜头正前方视轴上**的单位精确成立;镜头到某个具体单位的真实视线方向,只要该单位不在视野正中心(偏左右、偏近远),和镜头的"标称朝向"就会有夹角,这块面片因此会以一定角度侧对镜头——正是"变成细长扭曲线"的原因。24-08-29~08-30 提交的"全景机位构图修法"把镜头拉远/改了构图后,画面里绝大多数单位都不再处于视轴正中心,这个原本"凑合能用"的固定朝向手算就大概率失真到不可见的地步,这次的表现是长期潜伏设计缺陷被最新镜头改动放大暴露,不是这次 AOE 工作引入的新 bug。
+
+**修法**(改用 Screen Space,从根源上避免任何朝向计算/畸变问题):
+- `BP_Unit.UserConstructionScript` 里 `UserInterface|SetWidgetSpace` 的 `NewSpace` 参数字面量从 `"World"` 改成 `"Screen"`(用 `set_pin_value` 直接改字面量,不做整图重写——这个函数是纯线性调用链,但没必要冒险重写,直接改一个已定位到的 pin 更安全)。Screen Space 下 WidgetComponent 只是把 `RelativeLocation` 对应的 3D 世界坐标投影成一个屏幕坐标,再在该处画一个**始终正对镜头、不会因为朝向计算错误而畸变**的 2D 部件,`DrawSize` 的单位也从"世界单位(cm)"变成"屏幕像素"。
+- 同一个 `MakeTransform` 节点:`DrawSize` 由 `(100,14)` 调到 `(150,22)`(Screen Space 下这是**屏幕像素**,不是世界单位,尺寸观感和之前完全不是一回事,不能照搬旧数值),`Location.z` 由 `120` 调到 `40`(去掉了 Screen Space 不再需要的那部分"世界单位安全间距",实测让血条紧贴头顶上方,不再飘在天上一大截)。
+- `WBP_HealthBar` 内部 Canvas 布局同步调整为配合新的 `150x22` 画布:`HealthProgressBar` 的 `CanvasPanelSlot_0` 从 `offsets=(0,0,100,14)` 改成 `(left=20,top=0,right=130,bottom=22)`(注意这是 point-anchor 语义,`right`/`bottom` 是宽高不是绝对边距),`Txt_EnemyMarker` 的 `CanvasPanelSlot_1` 从原来重叠在血条左边缘内部改成独立占据左侧 `(0,0,20,22)` 的专属区域——骷髅和血条现在是"左右并排",不再互相重叠遮挡。
+- `compile_blueprint`(`WBP_HealthBar` 用 `UMGToolSet.CompileWidgetBlueprint`,`BP_Unit` 用普通 `compile_blueprint`,坑9 的依赖顺序)→`save_assets([])`→`CaptureEditorImage` 反复验证,最终三个单位头顶的绿色血条清晰可见、方正不畸变、紧贴头顶。
+
+**顺带排除的另一个假设(结论:`SetIsEnemy` 逻辑本身没有 bug)**:一开始怀疑过 `SetIsEnemy` 的 `bEnemy=true` 分支里 `Widget|SetVisibility` 调用在 `read_graph_dsl` 打印出来的文本里**看不到第二个参数**,担心是又一次"漏传参数导致悄悄退化成默认值"(坑78/34 那种模式)。直接 `get_node_infos` 读该 pin 的真实字面量——`InVisibility="Visible"`,**是对的,只是 DSL 文本打印器本身在这个例子里省略了等于该 pin 定义时默认值的字面量,不代表节点真的没收到这个值**。这是一次虚惊,但再次印证了 `UE节点备忘录.md` 里反复强调的规矩:**怀疑连线问题时必须 `get_node_infos` 读真实 pin 值,不能只信 `read_graph_dsl` 的文本渲染结果**。
+
+**顺带发现的场景限制(不是 bug,只是这次没法验证骷髅)**:当前 PIE 测试地图里全部 4 个 `BP_Unit`(`BP_Unit_C_0~3`)的 `side` 属性全部是 `true`(全部同一阵营),**场上根本没有 `side=false` 的敌方单位**,所以不管骷髅逻辑对不对,这次测试里都不可能真的看到骷髅出现——这是测试场景本身的限制,不是代码问题。已经用临时手段验证过骷髅本身能正确渲染:直接对 `BP_Unit_C_1` 的 `Txt_EnemyMarker` 强制 `set_properties(Visibility=Visible)`(仅用于这次视觉验证,验证完已经改回 `Collapsed`,没有改动任何蓝图逻辑),截图确认骷髅图标清晰显示在血条左侧专属区域内,和血条不重叠。**结论:骷髅标记的代码逻辑是正确的,用户如果想在实际对局里看到骷髅效果,需要在有真正敌方(`side=false`)单位的对局场景里测试,而不是当前这个"全员同阵营"的调试地图。**
+
+**当前状态**:血条可见性问题已经彻底解决并肉眼验证。骷髅标记逻辑已验证正确,但受限于当前测试地图没有敌方单位,还没有在"真实敌我混战"场景里得到最终视觉确认——下一步建议用户换一个有敌方单位的关卡/场景再看一次。
+
+**2026-08-30 用户验收通过**:用户在有真实敌方单位的场景测试后确认骷髅标记正常显示,本条(血条可见性 + 骷髅敌我标记)整体验收完成。
+
+### 2026-08-30 攻击前伤害/命中率/暴击率预测面板(本条已完成、已用真实 PIE 数据验证核心路径,部分分支靠读连线保证正确性)
+
+用户要求:攻击前弹出一个面板,显示这次攻击对目标造成的伤害、以及目标反击会对我造成的伤害,切换技能(1-5键)时数值实时刷新。经 `AskUserQuestion` 确认:面板是**纯提示信息**,E 键照常直接攻击,不需要二次确认;范围只覆盖单体锁定流程,AOE 瞄准态(已有橙色高亮预览)不显示这个面板。
+
+**关键发现:项目里同时存在两套互不相关、但命名极其相似的"伤害预测"半成品**,这次工作前完全没意识到有两套,是排查过程中才发现的:
+- `BP_GridManager.ForecastWidget`(类型 `WBP_DamageForecast`):只有一个 `DamageText` + `ConfirmButton`/`CancelButton`,配套 `ShowDamageForecast`/`PredictDamage`(公式极简单 `ATK/(DEF+9)`,不含技能倍率/属性克制/暴击,坑76 附近的历史遗留),`PendingDefender`/`ConfirmPendingAttack`/`CancelPendingAttack` 都挂在这一套上。
+- `BP_TurnManager.ForecastWidget`(类型 **`WBP_AttackForecast`**):有 `Txt_HpInfo`/`Txt_AtkDmg`/`Txt_CounterDmg` 三个独立文本 + `Btn_Confirm`/`Btn_Cancel`,配套 `Class|WBPAttackForecast|SetAtkForecast`/`SetCounterForecast`/`SetHpForecast`(接收现成字符串直接刷文本,不用自己摸 TextBlock)、`Class|BPTurnManager|ShowAttackForecast`/`CancelAttackForecast`。**这一套的字段结构完全就是这次要做的功能需要的形状**,采用它、不用 `WBP_DamageForecast`。
+- 两套的挂载机制相同(`UserConstructionScript` 建组件只为触发 `bIsVariable` 初始化,真正显示走 `EventBeginPlay` 的 `AddToViewport`,默认 `Collapsed`,坐标 `(500,400)`),都源自更早"点击选目标→确认/取消攻击"的交互模型,当前"自动锁定最近敌人+按1-5切技能+按E攻击"的主流程(`PerformSkillAttack`)完全不调用任一套的 Show/Confirm/Cancel,两套都是孤儿代码。**用 `get_node_infos` 读 `Variables|Default|GetForecastWidget` 节点的真实输出 pin 类型(`WBP Damage Forecast Object Reference` vs 若在 `BP_TurnManager` 里读到的会是 `WBP Attack Forecast Object Reference`)才发现这个区分——只看变量名字完全看不出来是两套不同的东西。**
+
+**新增(`BP_GridManager`,纯计算,不碰任何 UI)**:
+- **`GetSkillCritChance(RowName: Name) -> Crit: Int`**:`Utilities|GetDataTableRow(DTSkills变量, RowName)`→找到就 `Utilities|Struct|BreakSkillRow` 取 `Crit` 字段返回,找不到返回 `0`。`write_graph_dsl` 全新写(空函数,没有坑1风险)。
+- **`PreviewAttackForecast(Attacker, Defender, RowName) -> Damage: Int, HitChance: Int`**:内部 `bind saved=GetPendingSkillRowName()`→`SetPendingSkillRowName(RowName)`→用 `Attacker.Atk/AtkType`、`Defender.Def/AtkType`、`Attacker.Side`、`Defender.Side` 调已验证过的 `PreviewSkillDamage`(不掷随机数,预览安全)和 `GetSkillHitChance`(自带遗物命中加成)→算完立刻 `SetPendingSkillRowName(saved)` 还原,不会污染这个跨函数共享的全局变量。
+- **`RefreshAttackForecast(Attacker, Defender)`**:先 `GetAllActorsOfClass(BP_TurnManager)→Get[0]→CastToBP_TurnManager`(每次现查,不缓存——和 `BP_Unit` 里一路的既有写法一致)拿到真正持有 `WBP_AttackForecast` 的 `TurnManager.ForecastWidget`;`Utilities|IsValid(Defender)`不合法就整个面板 `Collapsed`;合法但 `Attacker.Aiming=true`(AOE 瞄准态)也 `Collapsed`;否则查 `Attacker.SelectedSkillIndex` 对应的技能行名,调 `PreviewAttackForecast`(我方)算伤害/命中率,`GetSkillCritChance` 算暴击率,拼成"我方: 伤害X 命中Y% 暴击Z%"塞进 `SetAtkForecast`;如果 `伤害>=Defender.HP`(这一下就能击杀),反击行直接显示"反击: 无(目标将被击杀)",否则再用 `PreviewAttackForecast(Defender, Attacker, "basic")`(反击固定用 `basic`,照抄 `ResolveCounterAttack` 的既有约定)算反击数值拼进 `SetCounterForecast`;`Txt_HpInfo` 用 `SetHpForecast` 显示 `Defender` 的 `HP/MaxHP`;最后把 `Btn_Confirm`/`Btn_Cancel` 强制 `SetVisibility(Collapsed)`(这次是纯提示面板,不需要这两个遗留按钮,但不删除它们背后的 `ConfirmPendingAttack`/`CancelPendingAttack` 逻辑),`ForecastWidget` 本体 `SetVisibility(Visible)`。字符串拼接全部用显式 `Utilities|String|Append`(A,B)两两拼接分步 `bind`,没有依赖 DSL 的 `+` 对字符串是否生效(没测,不确定,干脆不赌)。
+
+**`BP_Unit.EventGraph` 的 `EventTick` 接线**:这段 lock-on 逻辑历史上被追加过 5 次重复"章节"(坑72),这次没有凭经验挑一个,而是从 `Event Tick.then` 开始逐节点 `get_node_infos` 顺 Exec pin 真的走了一遍,确认第 5(最后一个)章节 `SetLockIndicator`(`K2Node_CallFunction_768`)之后的 `SetCurrentLockedUnit`(`K2Node_VariableSet_118`)——它的 `execute` 输入本身就是坑77修复时留下的"Is Valid/Is Not Valid 双源汇入"写法,`then` 原本单线接到 `UpdateLocomotionAnim`(`K2Node_CallFunction_769`,这个节点的 `execute` 输入还另外汇入了两条别的分支,是整个 Tick 里更大的一个汇聚点)——这确认了 `VariableSet_118` 就是这一帧里 `CurrentLockedUnit` 真正最终、不会再被覆盖的写入点。新插入 `Grid.RefreshAttackForecast(self, self.CurrentLockedUnit)`(`self`=`Attacker` 直接复用已有的 `K2Node_Self_16`,`Grid` 复用同一条 Tick 链路更早已经 Cast 好的 `BP_GridManager` 引用 `K2Node_DynamicCast_62`,不用重新 `GetAllActorsOfClass`),用 `break_pins`/`connect_pins` 精确断开+重接 `VariableSet_118.then→CallFunction_769.execute` 这一条边、插入新节点,`CallFunction_769.execute` 上原有的另外两条汇入边完全没有被动到。
+
+**验证**:三个函数逐一 `get_node_infos` 核对每个 pin 的真实连线来源(不只信 DSL 文本),`compile_blueprint`(先 `BP_GridManager` 后 `BP_Unit`)全部一次通过、`save_assets` 及时保存。真实 PIE 验证:找到一对自然锁定的单位(`BP_Unit_C_1` 我方 Atk12/Def7 锁定 `BP_Unit_C_2` 敌方 Def5/Atk10/HP13),读到面板 `Visibility=Visible`、`Txt_AtkDmg="我方: 伤害7 命中100% 暴击0%"`、`Txt_CounterDmg="反击: 伤害4 命中95% 暴击0%"`、`Txt_HpInfo="HP: 13/20"`,`CaptureEditorImage` 截图确认屏幕左侧清晰可见这三行文字。**受限于当前 PIE 会话里 `ObjectTools.set_properties` 对 `BP_Unit`/`BP_GridManager`/`BP_TurnManager` 这几个 Character 派生或核心 Actor 的任何属性(哪怕是字符串这种最简单的类型)一律写入失败(读取完全正常)——这个限制在改动前对不相关的属性上试过也一样失败,和这次改动无关,是当前这个 MCP/PIE 连接的环境限制,不是本次改动引入的问题——没能用强制改属性的方式验证"没有目标时隐藏"/"瞄准态隐藏"/"一击必杀时反击行显示'无反击'"这三个分支**,这三条分支已经通过 `get_node_infos` 逐 pin 核对连线正确(`Utilities|IsValid` 的 Is Not Valid 分支、`aiming` 的 Branch、`dmg>=defHP` 的 Branch 都读到了预期的目标节点),但还没拿到运行时实际触发的确认,建议用户下次实测时留意这三种情况。
+
+**当前状态**:核心路径(有效锁定目标时算出正确的伤害/命中率/暴击率并显示)已经用真实数据验证。三个边界分支(无目标/瞄准态/一击必杀)靠连线核对保证正确,建议用户实测时留意确认。
+
+### 2026-08-30 补上 AOE 回归测试(T10 系列)明确留下的两个收尾断言(本条已完成,T10i 已验证稳定 PASS,T11a/T11b 验证通过但受已知随机命中率影响,原计划的第三条断言 T11c 确认不可行、已放弃)
+
+之前 T10 系列验收时明确留了"下次接手直接加断言"的两项:①`PerformAoeSkillAttack` 结算完之后 `SelectedUnit` 是否严格变回 `None`;②AOE 一次团灭多个敌人时胜负结算是否只弹一次窗口。
+
+**`RunRegressionTests` 重建方式**:这是一个已有大量内容(30+ 条断言)的函数,按坑1 的既定流程 `remove_function_graph`→`compile_blueprint`(确认删除生效,此时会报"找不到 RunRegressionTests"这个预期内的编译错误,因为 `EventBeginPlay` 里的 `Branch(bRunRegressionTestsOnBeginPlay)→RunRegressionTests(self)` 调用节点还在)→`add_function_graph` 重新建一个同名空函数→`write_graph_dsl` 整体写入"原有全部内容 + 新增的 T10i/T11 断言"。过程中连续踩了 4 类"`read_graph_dsl` 打印文本和真实可创建节点名对不上"的坑(`GetRow` 的 self 类型混淆、`FindNearestUnit0` 的下划线、`SnapColD`/`SnapRowD` 根本不是变量、`GetGameOver`/`SetGameOver` 的 `b` 前缀被去掉),详见 `UE节点备忘录.md` 坑82。
+
+**T10i**(加在 T10h 断言之后、清理 T10 临时单位之前的位置):`Utilities|Array|ContainsItem`/`Utilities|IsValid` 判定 `Variables|Default|GetSelectedUnit` 现在应该是无效(None)——`Utilities|IsValid` 在这套 DSL 里只有 exec 分支形态,没有纯表达式用法,所以整个函数从这一步往后的所有语句(T11 的搭建 + 清理 + `REGRESSION_TESTS_DONE` 打印)被迫复制成两份,分别塞进 `"Is Valid"`(bug 场景,断言传 `false` 制造 FAIL)和 `"Is Not Valid"`(正常场景,断言传 `true`)两个分支里——不好看但是必须这么写,原因见坑82。
+
+**T11a/T11b**(新场景,不复用 T10 的单位):生成 1 个我方单位 + 2 个正交相邻的敌方单位,敌方两个都强制 `Class|BPUnit|SetHP(1, 该单位)` 削到 1 滴血,`SetPendingSkillRowName("quake")` 后 `PerformAoeSkillAttack`,断言两个敌方单位 `HP<=0`(T11a 打的是直接目标,T11b 打的是正交相邻那个)。**这两条依赖真实掷骰命中判定**(quake 的 `Hit=85`,~15% 概率单次 MISS),连续跑了 5 轮 PIE,T11a/T11b 各自出现过 1-2 次因为 MISS 导致的假性 FAIL,和项目里已有的 T6a/T7b/T7c 是同一类"随机性假阳性,重跑即可"——**不是这次改动引入的新问题**,只是第一次有断言去真正检验 AOE 命中判定的确定性结果,把这类既有的随机性表现暴露了出来。
+
+**T11c 被放弃(不是测试写错了,是这条断言在当前测试架构下本来就不可能可靠通过)**:原计划第三条断言是"团灭后 `bGameOver` 应该变成 `true`"。连续 4 轮 PIE 验证,哪怕 T11a/T11b 都确认 PASS(两个假敌人真的死了),**T11c 依然 100% FAIL,无一例外**——直接读 live PIE 场上单位揪出根因:`TestMap` 这张关卡真实开局会生成 4 个 `side=false` 的"敌方纹兽"作为这局对战本该存在的真实敌人,`CheckVictoryCondition()` 判定的是**全场**是否还有 `side=false` 单位存活,不是"这次测试自己操纵的那几个敌人"——测试脚本自己造的 2 个假敌人团灭对全局判定毫无影响,场上那 4 个真实敌人一直都在。这是全局状态判定函数天然没法被局部测试数据左右的架构性限制,不是随机性问题,详见 `UE节点备忘录.md` 坑83。已经删掉 T11c 断言,只保留可靠可验证的 T11a/T11b;`CheckVictoryCondition` 本身"多杀不重复弹窗"的保护(`if not bGameOver` 短路,同步无异步间隙)已经通过读源码逻辑结构确认足够可靠,不需要也没法靠这套集成测试去验证这一点。
+
+**验证**:5 轮 `bRunRegressionTestsOnBeginPlay=true` + `StartPIE(bSimulate:true)` + `GetLogEntries` 读日志,T10i 每轮都 PASS;T11a/T11b 在 RNG 配合的轮次里都 PASS;T1-T10h 原有断言没有出现除已知的 T6a/T7b/T7c 之外的新增 FAIL。验证完 `bRunRegressionTestsOnBeginPlay` 复位为 `false`(`get_properties` 确认读到 `false` 之后才 `save_assets`,严格按坑15 的既定顺序防止关卡被意外落盘成 `true`)。
+
+### 2026-08-30 用户反馈"AOE招数按右键后没有移动范围高亮、按不了E攻击"——排查结论:不是回归,是`SkillSlots`为空导致1-5键永远选不到AOE技能(本条排查已完成,未发现需要修复的代码)
+
+用户报告直接怀疑是刚做完的攻击预测面板/回归测试改动引入的回归。逐节点排查(不是只读 `read_graph_dsl` 文本,凡是关键节点全部用 `get_node_infos` 核对真实 pin 连接):输入按键(`E`→`AttemptSkillAttack`,`RMB Pressed/Released`→`OnAimPressed`/`OnAimReleased`,`WASD`→`Branch(Aiming)`→`MoveAimCursor`)→`OnAimPressed`(`GetActorOfClass`→`CastToBP_GridManager`→`IsCurrentSkillAoe`→`Branch`→`SetAiming(true)`→`StopMovementImmediately`→设置光标初始位置→`RefreshAoePreview`)→`AttemptSkillAttack`(`Branch(Aiming)`→`AttemptAimAttack`)→`AttemptAimAttack`(`GetEnemyUnitAtTile`→`IsValid`→`PerformSkillAttack`)→`MoveAimCursor`(`ManhattanDistance`≤`GetSkillEffectiveRange`才移动光标+刷新预览)→`BP_Tile.SetCursorHighlight`(`Branch(bOn)`→`SetMaterial`)——**这一整条链路,每一个节点的 Exec/数据 pin 连接全部正确,和设计文档完全一致,没有发现任何断线、接错、或被最近两次改动(攻击预测面板的 `EventTick` 插入、`RunRegressionTests` 重建)误伤的痕迹**。这两次改动分别插在 Tick 链路里锁定索敌逻辑之后的一个单纯线性位置(`SetCurrentLockedUnit_118.then`→新插入的 `RefreshAttackForecast`→原来的下一个节点,纯粹的"中间插一刀"没有动分支结构)和完全不同的另一个蓝图(`BP_GridManager.RunRegressionTests`),两者都离 AOE 瞄准态的实际交互逻辑很远,可以排除。
+
+**真正命中的线索**:顺手读了一下当前 PIE 里 `BP_GridManager` 的 `SkillSlots`,是空数组 `[]`。项目里 `Combat|Loadout|GetSkillSlotName` 对空 `SkillSlots` 的既定行为是**回退到固定的 basic/heavy/ember/aqua/vine 五个单体技能**(这在多处文档里反复确认过,`SkillSlots` 需要用户手动打开调试面板选预设/自定义配装才会真正写入)。也就是说:**只要用户没有先按 Ctrl 打开调试面板、手动把一个 AOE 技能(横扫/地裂/岩崩/横扫斩,这几个都是 `bEnabledInSlice=False`,不会自动进默认配装)塞进 1-5 号槽位里,不管按数字键选哪个槽,`SelectedSkillIndex` 对应到的都只会是回退用的单体技能之一**——`IsCurrentSkillAoe` 会一直老老实实返回 `false`,`OnAimPressed` 会一直走"IsCurrentSkillAoe=FALSE, skipping"这条分支(`Aiming` 永远不会被设成 `true`),自然没有任何高亮;`AttemptSkillAttack` 也因为 `Aiming=false` 会一直走非瞄准态的原有单体攻击逻辑,不会进入 `AttemptAimAttack`。**这完全解释了用户报告的两个现象,而且是代码按设计正常工作的结果,不是 bug。**
+
+**结论/给用户的建议**:AOE 招数要先在调试面板(Ctrl 打开)里手动装配到某个 1-5 槽位才能选中,不能指望默认配装或者"随便按个数字键"就能选到——这是当前既定设计(AOE 技能 `bEnabledInSlice=False`),不是这次改动引入的问题。建议用户下次先确认技能栏底部显示的技能名确实是"横扫/地裂/岩崩/横扫斩"其中之一,再按住右键测试瞄准态。如果确认已经选中 AOE 技能、光标也确认在射程内(`GetSkillEffectiveRange`=攻击者 `AtkRange`+技能 `RangeBonus`,大多数 AOE 技能这个值很小,光标只能在自己周围小范围移动,不是全图自由移动)但仍然没有高亮/E键无效,才需要进一步排查,那种情况下请提供当时技能栏显示的具体技能名和角色/敌人的相对位置。
+
+### 2026-08-30 瞄准态 WASD 方向修正 + 蓝色射程范围高亮 + 范围内敌人预高亮(本条已完成、已静态验证连线,受限于环境未能实机模拟按键)
+
+用户装上 AOE 技能后确认能正常攻击了,同时提了两个新反馈:①瞄准态下 WASD 移动光标的方向和玩家在画面上的直觉方向对不上;②希望一进入瞄准态就用蓝色高亮显示技能射程内所有光标可达的格子,并且射程内的敌人不需要靠光标悬停就能直接看出来是可选目标(现状只有青色"光标当前位置"+橙色"光标悬停命中预览"两层,都要移动光标才看得到)。
+
+**问题①根因(手算验证,非猜测)**:`BP_Unit.MoveAimCursor` 的 W/A/S/D 四个按键(`EventGraph` 里 `Branch(Aiming)`→各自调用 `MoveAimCursor`)当前字面量是 W=`(0,-1)`、A=`(-1,0)`、S=`(0,+1)`、D=`(+1,0)`。棋盘坐标轴实测(读 `BP_Tile_C_0/1/8` 的 `Col/Row`+世界坐标核对):**Col 对应世界 X 轴、Row 对应世界 Y 轴,两者都是同号递增**(`Row+1`→`Y+100`,`Col+1`→`X+100`)。固定机位 `CameraActor`(`Pitch=-55,Yaw=90,Roll=0`)的屏幕方向用 `Right=(sinYaw,-cosYaw,0)`、`Up=Right×Forward` 手算:`Right=(1,0,0)`(世界 +X)、`Up=(0,0.819,0.574)`(主要分量世界 +Y)——也就是说**屏幕右=Col+,屏幕"上/远"=Row+**。对照现有映射:D=`(+1,0)`(Col+,屏幕右)、A=`(-1,0)`(Col-,屏幕左)**这两个本来就是对的**;W=`(0,-1)`(Row-,实际是屏幕下/近)、S=`(0,+1)`(Row+,实际是屏幕上/远)**这两个刚好反了**——是最初写这段代码时把"数组行号越大越靠下"的直觉套用到了 3D 世界坐标上,没考虑摄像机朝向。**修法**:只改了 W 键调用节点(`K2Node_CallFunction_7`)的 `DeltaRow` 字面量从 `-1`→`+1`,S 键调用节点(`K2Node_CallFunction_16`)的 `DeltaRow` 从 `+1`→`-1`(`set_pin_value` 精确改两个字面量,没有动 A/D 和 `MoveAimCursor` 函数体本身),`compile_blueprint` 通过、`get_node_infos` 复核两个节点新值。**这个手算过程本身是可复用的方法论,已经写进 `UE节点备忘录.md` 坑84,以后镜头再改、或者其它需要"屏幕方向↔逻辑坐标轴"换算的功能可以直接抄这个算法,不用重新试错。**
+
+**问题②实现**:新增第三层高亮——蓝色"射程范围"背景层,和已有的青色"光标位置"、橙色"命中预览"共存,三层通过"后写覆盖前写"的既有材质槽机制叠加(项目里 `SetXHighlight(bool)` 系列函数一直是这个模型,没有独立的合成/优先级系统)。
+- `BP_Tile` 新增 `AimRangeHighlighted:Bool` + `AimRangeHighlightMat:Material`(新建 `/Game/Maps/M_AimRangeHighlight`,`Constant3Vector(0.2,0.5,1.0)`→`MP_BaseColor`,蓝色,和已有黄/红/橙/青都不冲突)+ 函数 `SetAimRangeHighlight(bOn)`(逐行照抄 `SetCursorHighlight` 的写法,全新空函数直接 `write_graph_dsl`,没有坑1风险)。
+- `BP_GridManager` 新增 `ShowAimRange(Attacker)`:遍历 `Tiles`,`ManhattanDistance(Attacker.Col/Row, 该格.Col/Row) <= GetSkillEffectiveRange(Attacker, Attacker.SelectedSkillIndex)` 就 `SetAimRangeHighlight(true)`。`BP_Unit.OnAimPressed` 在原有"设置光标初始位置"之后、`RefreshAoePreview` 之前插入这个调用(整函数按坑1流程 remove/add/write 重建,不是增量追加)。
+- 新增 `ClearAimRangeHighlightsOnly()`:遍历 `Tiles` 逐个 `SetAimRangeHighlight(false)`,只在 `BP_Unit.OnAimReleased`(退出瞄准态)里跟在原有 `ClearAoeHighlightsOnly` 后面调用一次——**不**放进 `ClearAoeHighlightsOnly` 本体,因为那个函数每次光标移动(`RefreshAoePreview`)都会调用一次,如果蓝色状态也跟着被清零,光标一动整个蓝色范围背景就会消失,起不到"一直显示"的效果。
+- 关键的"层级重绘"逻辑改在 `RefreshAoePreview` 里:`ClearAoeHighlightsOnly()`(把所有格子的青色/橙色材质槽都强制写回 Normal,包括之前是蓝色的格子——`SetXHighlight(false)` 一律直接设 `NormalMat`,不管这一槽之前逻辑上"应该"是什么颜色)**执行完之后**,新增一个循环:遍历 `Tiles`,只要 `GetAimRangeHighlighted()==true`(这个 Bool 本身没被清过,只是材质被上一步强制盖掉了)就按"该格有没有敌人"分两种重新上色——`GetEnemyUnitAtTile` 有效就 `SetAoeHighlight(true)`(橙),否则 `SetAimRangeHighlight(true)`(蓝)。这样每次光标移动都会先把整个范围背景+范围内敌人重新刷一遍蓝/橙,再照原样叠加光标当前格的青色和真正命中列表的橙色——效果是:瞄准态下范围内的格子始终蓝色打底,范围内站着敌人的格子始终橙色(不用光标移过去),光标经过的当前格额外青色,光标真正悬停在敌人身上时命中列表内的格子橙色跟橙色底色视觉上无缝(同一个材质)。`RefreshAoePreview` 整函数同样按坑1流程重建。
+- **踩坑**(已写入坑84):`(Class|GridSlot|GetRow _array_element)` 这个写法(照抄自旧代码 `read_graph_dsl` 的回显文本)在**新写的** `for` 循环迭代变量上会报 "Could not connect pin Array Element to self",换成 `Class|BPTile|GetRow`(先用 `find_node_types` 确认存在)就正常——这是坑67/82"DSL 回显文本和真正可创建的 type_id 不对称"同类问题的又一次复现,而且这次连"改用哪个类名前缀"都需要重新用 `find_node_types` 试出来,不能照抄读出来的文本。
+
+**验证**:`M_AimRangeHighlight` 材质 `recompile` 通过;`BP_Tile`/`BP_GridManager`/`BP_Unit` 三个蓝图逐一 `compile_blueprint` 通过,`ShowAimRange`/`RefreshAoePreview`(含 "Is Valid"/"Is Not Valid" 双分支)的关键连线全部用 `get_node_infos` 逐 pin 核实过,不是只信 `write_graph_dsl` 不报错或 `read_graph_dsl` 的回显文本。`StopPIE`+`StartPIE` 重开一局后截图确认非瞄准态下画面完全正常(血条清晰、技能栏正常、没有任何异常蓝色残留),`GetLogEntries` 确认重开局后没有新的 Blueprint 编译/运行时报错。**受限于环境未能验证的部分**:这次 PIE 会话里 `set_properties` 对 `BP_GridManager.SkillSlots`、`BP_Unit.Aiming` 等多个属性的写入请求全部静默失败(和攻击预测面板那次报告的环境限制一样),导致没法在不依赖真人长按鼠标右键的前提下强制触发瞄准态来截图验证蓝色/橙色范围高亮的实际视觉效果,也没法用按键模拟验证 WASD 方向是否真的感觉对了——这两点的正确性目前只有"手算推导+逐 pin 连线核对"的静态保证,还需要用户下一轮实测确认。
+
+### 2026-08-30 用户反馈"WASD方向还是不对,应该跟着鼠标视野走"——上面这版"固定机位手算"从根上就假设错了,已改成实时读镜头朝向动态计算(本条已完成、已用运行时真实数据验证公式正确)
+
+用户实测上面那版修复后反馈:"1 还不行 不是我的鼠标视野的方向上下左右。2 可以了"——蓝色范围高亮没问题,但 WASD 方向的"手算一次、写死成字面量"完全没解决问题。
+
+**根因**:上一版的前提假设错了。项目不是站在一个固定不动的 `CameraActor` 上看棋盘,`BP_Unit` 自己有 `TPSCamera`/`SpringArm`,角色 `Possess` 后玩家是用**鼠标自由转动第三人称镜头**的(`EventTick` 里能看到 `AddControllerYawInput`/`AddControllerPitchInput` 读鼠标增量)——镜头朝向实时变化,不是能提前手算好写死成常量的东西,不管怎么调字面量,玩家一转镜头就又不对了。
+
+**修法**:直接抄 `EventTick` 里已经验证过手感正确的普通移动代码用的同一个数据源:`Pawn|GetControlRotation(CastToPlayerController(GetController(self)))`,只取 `.yaw`(`MakeRotator(0,0,yaw)` 清零 Pitch/Roll),和移动代码保持完全一致的朝向基准。新增全新函数 `BP_Unit.ComputeAimDelta(bForward:Bool, bPositive:Bool) -> DeltaCol:Int, DeltaRow:Int`(`add_function_graph`+`add_function_param`+`write_graph_dsl`,不碰任何已有函数,零坑1风险):读同一个 Yaw,按 `bForward` 用 `Math|Float|SelectFloat` 在 `GetForwardVector`/`GetRightVector` 之间线性混合出方向向量(避免对 Vector 类型做条件分支选择——`Math|Float|SelectFloat` 的 `A`/`B`/`bPickA` 三个 pin 用 `get_node_type_pins` 核实过,`bPickA=true` 选 `A`),按 `bPositive` 再乘 ±1,`BreakVector` 取 `.x/.y`、比较绝对值大小决定这次该动 `Col` 还是 `Row`、比较正负决定 `+1`/`-1`,两个结果作为 `DeltaCol`/`DeltaRow` 返回。
+
+**接线**:不改 `MoveAimCursor` 函数体,只改 W/A/S/D 四个按键各自调用 `MoveAimCursor` 时传的参数来源——原来是死字面量,现在改成先调 `ComputeAimDelta(bForward,bPositive)`(W=(true,true)、S=(true,false)、A=(false,false)、D=(false,true)),把它的两个输出接到 `MoveAimCursor` 的 `DeltaCol`/`DeltaRow` 输入 pin。`create_node`(4 个新 `CallFunction|ComputeAimDelta` 节点,type_id 必须用 `CallFunction|ComputeAimDelta`,不是显示名 `|ComputeAimDelta`,又是一次坑67/73同类"显示名≠创建名")+`set_pin_value`(显式设置 4 个节点各自的 `bForward`/`bPositive` 字面量)+`break_pins`/`connect_pins`(原来"`Branch(Aiming).then`→`MoveAimCursor.execute`"这条边断开重接成"→`ComputeAimDelta.execute`→`then`→`MoveAimCursor.execute`",数据 pin 同步接上)。每一步都用 `get_node_infos` 复核过真实连线。
+
+**验证(这次是运行时真实数据,不是纯手算)**:MCP 没有按键模拟能力,改用"临时在 `BeginPlay` 延时几秒后直接调用 `ComputeAimDelta` 并 `PrintString` 结果"的办法拿到 `GetLogEntries` 里的真实运行时输出。核对时发现诊断函数自己在 `write_graph_dsl` 里连续 4 次调用 `ComputeAimDelta` 传的字面量参数被写错位了(诊断代码的问题,见 `UE节点备忘录.md` 坑85),但交叉核对"诊断函数实际传入的参数"和"手算这组参数应该得到什么结果"完全吻合——这反而证明了 `ComputeAimDelta` 函数体本身的公式和连线是对的,错的只是诊断脚本的传参方式;正式的 91-94 号调用节点用 `set_pin_value` 显式设置、`get_node_infos` 二次核实过字面量,和诊断函数的坑无关。诊断验证完毕后所有临时节点/临时函数已 `delete_node`/`remove_function_graph` 清理干净,`BeginPlay` 恢复原状,`compile_blueprint` 确认无残留。当前机位(实测 `Yaw=0`)下真实运行时输出:W→`(+1,0)`、S→`(-1,0)`、A→`(0,-1)`、D→`(0,+1)`,和"Col对应世界+X、W应该往镜头朝向挪"完全吻合。
+
+**当前状态**:公式和连线已有真实运行时数据佐证(不同于上一版纯手算无实证),但因为镜头朝向会随玩家转动而变化,不同 Yaw 下的完整手感仍需要用户一边转镜头一边实测 WASD 才能最终确认。

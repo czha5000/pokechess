@@ -30,3 +30,7 @@ bugbuzz,虫鸣,1.45,90,5,1,12,bug,,0,False,2,False
 airslash,气旋斩,1.5,88,10,1,6,flying,,0,False,2,False
 nightshade,夜阴,1.5,88,15,1,5,ghost,,0,False,2,False
 closecombat,近身战,1.7,90,10,0,7,fighting,,0,False,2,False
+sweep,横扫,1.0,85,0,0,0,normal,,0,False,1,False
+quake,地裂,1.2,85,0,0,11,ground,,0,False,1,False
+rockslide,岩崩,1.2,82,0,1,8,rock,,0,False,1,False
+cleave,横扫斩,1.25,85,0,0,0,normal,,0,False,1,False
