@@ -14,3 +14,7 @@ Thumbs.db
 # balance 脚本运行时输出(过程性数据,不入库)
 balance/scan_progress.txt
 balance/scan_single.txt
+# Claude Code hooks 运行时哨兵文件(每次会话临时状态,不入库)
+.claude/hooks/.ue_docs_dirty
+# 个人本地权限配置,不共享
+.claude/settings.local.json
