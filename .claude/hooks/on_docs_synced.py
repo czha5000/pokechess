@@ -13,7 +13,17 @@ for _stream in (sys.stdin, sys.stdout, sys.stderr):
     except Exception:
         pass
 
-TARGET_NAMES = ("UE蓝图状态.md", "UE节点备忘录.md")
+# 2026-09-01:文档拆分后,"算作已同步"的目标从 2 份扩到 4 份。
+#   UE蓝图状态.md   —— 蓝图结构快照(改了变量/函数/连线必须写这里)
+#   UE节点备忘录.md —— 案例档案(踩了新坑写这里,编号连续)
+#   UE硬规则.md     —— 坑的结论提炼(能提炼成通用规则的,同时写这里)
+#   UE规则对齐表.md —— 改了战斗规则、与 web 的对齐状态有变化时写这里
+TARGET_NAMES = (
+    "UE蓝图状态.md",
+    "UE节点备忘录.md",
+    "UE硬规则.md",
+    "UE规则对齐表.md",
+)
 
 
 def main() -> int:

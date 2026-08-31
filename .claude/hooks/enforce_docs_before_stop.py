@@ -30,10 +30,13 @@ def main() -> int:
         sentinel = os.path.join(project_dir, ".claude", "hooks", ".ue_docs_dirty")
         if os.path.exists(sentinel):
             sys.stderr.write(
-                "本次会话有 compile_blueprint 改动还没同步进 "
-                "UE蓝图状态.md / UE节点备忘录.md。"
-                "先更新这两份文档(或至少相关的一份,并说明为什么另一份不需要改),"
-                "再结束这一轮——这是 UE协作Harness规范.md 的硬性要求,不是可选项。\n"
+                "本次会话有 compile_blueprint 改动还没同步进 harness 文档。"
+                "按改动性质写进下列之一(写哪份就说明为什么其它份不需要改),再结束这一轮:\n"
+                "  · UE蓝图状态.md   —— 改了变量/函数/EventGraph 结构\n"
+                "  · UE节点备忘录.md —— 踩到新坑(完整现象/根因/修法,编号接着排)\n"
+                "  · UE硬规则.md     —— 那个坑能提炼成通用规则(结论一行 + 见坑XX)\n"
+                "  · UE规则对齐表.md —— 改了战斗规则,与 web 的对齐状态有变化\n"
+                "这是 UE协作Harness规范.md 的硬性要求,不是可选项。\n"
             )
             return 2
     except Exception:
