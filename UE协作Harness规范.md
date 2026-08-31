@@ -20,7 +20,7 @@
 - **读**:`SceneTools.find_actors`/`get_current_level` 读关卡里的 actor 列表;`ObjectTools.get_properties`/`get_class`/`list_properties` 读变量值、Class Defaults、CDO(注意 Class 本身的 refPath 读不到实例属性,要用 `Default__<ClassName>` 这个 CDO 路径)。
 - **写**:`SceneTools.add_to_scene_from_class`/`remove_from_scene` 增删 actor;`AssetTools.save_assets` 落盘。写操作会立刻反映在 `.umap`/`.uasset` 二进制文件里,能被 git 捕捉到。
 
-**2026-08-13 追加验证:`BlueprintTools` 图级别编辑已验证可用**(修复 `BP_Tile` 的 `Set SelectedUnit` 断线 bug,见 `UE蓝图状态.md`)。完整链路:`list_graphs` 定位图 → `read_graph_dsl` 看整体结构(排查用)→ `find_nodes(title=...)` 按标题定位具体节点 → `get_node_infos` 读节点的输入/输出 pin 明细(哪些接了、接到哪、类型是什么)→ `connect_pins(output_pin, input_pin)` 接线 → `compile_blueprint` 编译验证(失败会直接抛出报错文本,成功返回 null)→ `save_assets` 落盘。**结论:小范围、定位明确的图编辑(接一根线、改一个节点)可以直接走 MCP,不必再退回剪贴板协议**;但大范围新增节点/重构 Function 内部逻辑仍建议走剪贴板协议(`ue-blueprint-paste-gen` skill 生成的粘贴块经过连线完整性校验,MCP 这条路径目前没有等价的"整体校验"能力,节点越多手工逐个接线出错概率越高)。
+**2026-08-13 追加验证:`BlueprintTools` 图级别编辑已验证可用**(修复 `BP_Tile` 的 `Set SelectedUnit` 断线 bug,见 `UE蓝图状态.md`)。完整链路:`list_graphs` 定位图 → `read_graph_dsl` 看整体结构(排查用)→ `find_nodes(title=...)` 按标题定位具体节点 → `get_node_infos` 读节点的输入/输出 pin 明细(哪些接了、接到哪、类型是什么)→ `connect_pins(output_pin, input_pin)` 接线 → `compile_blueprint` 编译验证(失败会直接抛出报错文本,成功返回 null)→ `save_assets` 落盘。**结论:小范围、定位明确的图编辑(接一根线、改一个节点)可以直接走 MCP,不必再退回剪贴板协议**;但大范围新增节点/重构 Function 内部逻辑仍建议走剪贴板协议(`ue/tools/paste_gen.py` 生成的粘贴块经过连线完整性校验,MCP 这条路径目前没有等价的"整体校验"能力,节点越多手工逐个接线出错概率越高)。
 
 **2026-08-15 追加**:`BlueprintTools` 实际比本节原先记录的丰富得多——除 `find_nodes`/`get_node_infos`/`connect_pins`/`compile_blueprint` 外,还有 `read_graph_dsl`/`write_graph_dsl`(S-表达式 DSL,整图读写,配 `get_graph_dsl_docs` 查语法)、`create_node`/`break_pins`/`find_node_types`/`get_node_type_pins`/`add_function_graph`/`add_function_param` 等。经本轮实测(新建 `BP_GridManager.IsTileOccupied` 函数并接入 `ShowRange`):**全新 Function 直接用 `write_graph_dsl` 整体生成可靠;修改现有、内部含 Macro 节点(如 `ForEachLoop`)的 Function 不要把 `read_graph_dsl` 的文本直接回写**(反编译对 Macro 内部逻辑可能失真),改用 `create_node`+`connect_pins`+`break_pins` 只新增/改动目标节点——本质上还是"小范围定位明确的改动"这条准则,只是现在"小范围"里已经能包含"新增几个节点、插入一段 exec 链路"这种量级,不必再退回剪贴板协议。踩坑细节见 `UE节点备忘录.md` 的"MCP `BlueprintTools` 实测细节"一节。
 
@@ -36,7 +36,7 @@
 
 以下场景仍然用剪贴板协议:
 - 编辑器没开着,或 MCP server 没启动(`ModelContextProtocol.StartServer` 手动起)。
-- Blueprint 图逻辑的**大范围新增/重构**(一次要加好几个节点、搭一整条新链路)——`ue-blueprint-paste-gen` skill 生成的粘贴块有连线完整性自动校验,MCP 逐个 `connect_pins` 手工接线在节点多的时候出错概率更高、没有等价的整体校验。小范围改动(接一根线、查/改单个节点)直接走 MCP,见 0.1 节。
+- Blueprint 图逻辑的**大范围新增/重构**(一次要加好几个节点、搭一整条新链路)——`ue/tools/paste_gen.py` 生成的粘贴块有连线完整性自动校验,MCP 逐个 `connect_pins` 手工接线在节点多的时候出错概率更高、没有等价的整体校验。小范围改动(接一根线、查/改单个节点)直接走 MCP,见 0.1 节。
 
 流程和原则不变(见第 2、3 节)。
 
@@ -52,6 +52,7 @@
 | `UE蓝图状态.md` | 每个蓝图的变量/函数/GUID/EventGraph 结构快照 | **每次改动蓝图后** |
 | `UE节点备忘录.md` | 踩过的坑 + 验证过能用的 FunctionReference 清单 | 每次踩到新坑 |
 | `UE测试用例.md` | 功能验收清单(PASS/FAIL) | 每次新增/验证功能 |
+| `UE规则对齐表.md` | **UE 与 web 的规则逐条对照**:每条标 已对齐/故意简化/待办/不一致。改战斗规则前必查 | 每次新增或改动战斗规则 |
 | `UE协作Harness规范.md` | 本文件,协议本身 | 协议变化时 |
 | `UE美术管线.md` / `UE过场动画管线.md` | 美术/动画相关的独立手册,和蓝图协作无关 | 按需 |
 | `ue-add-animation/SKILL.md` | 给角色新增/替换动画的操作 SOP(导入→接线→验收,含朝向类 bug 的排查方法论) | 流程本身变化时 |
@@ -83,7 +84,8 @@
 - 这套 hooks 是**新加的一次性设置**,只有从下一次会话/重启开始才会真正生效——写这套 hooks 的这次会话本身没有被它约束过(因为写的时候 `.claude/settings.json` 还没被加载)。
 - 只按"文件名"判断有没有同步,不检查内容质量——往文档里随便加一个空行也能让哨兵消失。这挡的是"完全没同步、直接遗忘"这种最常见的失败模式,不能替代人工判断"写得够不够详细"。
 - Stop 钩子只能拦"结束这一轮回复",拦不住"用户主动打断/Ctrl+C"这类情况。
-- 三个脚本都用 Python 写(`.claude/hooks/*.py`),Windows 上 `python3` 默认 stdin/stdout 走 `cp1252` 编码,处理不了中文文件名/中文提示文本会直接抛异常——已在每个脚本开头显式 `reconfigure(encoding="utf-8")` 修掉,这是实测踩出来的坑,不是纸上谈兵,以后再加同类 hook 脚本记得照抄这一步,别重新掉进去。
+- 三个脚本都用 Python 写(`.claude/hooks/*.py`),Windows 上 `python3` 默认 stdin/stdout 走 `cp1252` 编码,处理不了中文文件名/中文提示文本会直接抛异常——已在每个脚本开头显式 `reconfigure(encoding="utf-8")` 修掉,这是实测踩出来的坑,不是纸上谈兵。
+  ⚠️ **2026-09-01 扩大适用范围**:上面这句原本只说"以后再加同类 **hook** 脚本记得照抄",作用域写窄了,结果同一个坑又犯了两次(`ue/tools/paste_gen.py` 从 Linux 云端环境带过来直接崩;以及一个随手写的一次性文本替换脚本)。**现在的规则是:本项目里任何会输出中文的 Python 脚本——hook、工具、临时诊断脚本一律——开头先 `reconfigure(encoding="utf-8")`,不因为"就跑一次"而省。** 完整记录见 `UE节点备忘录.md` 坑86。
 
 ---
 
@@ -93,7 +95,7 @@
 2. **复杂逻辑做成独立 Function**,不要在 EventGraph 里见招拆招打补丁。Function 出错时整体重新生成替换;EventGraph patch 出错时需要逐线诊断,成本高得多。
 3. **反馈按需索取**:默认只要"新增节点+其直接邻居"回传,不要整张 EventGraph。只有怀疑有旧节点/其他逻辑冲突时才升级为整图回传。
 4. **生成粘贴块前查备忘录**,别对函数名/pin 类型现猜——猜错的代价是节点被静默丢弃或编译报错,通常要再来一整轮才能发现。
-   - **生成粘贴块一律走 `ue-blueprint-paste-gen` skill**:写 Python 脚本 + pin 注册表模式生成文本,生成后自动校验所有连线完整性,再交付给用户,不要手写大段 K2Node 文本。这条规则是从多轮"连线看着对、实际类型没解析上"的返工里总结出来的,是硬性要求,不是建议。
+   - **生成粘贴块一律走 `ue/tools/paste_gen.py`**:写 Python 脚本 + pin 注册表模式生成文本,生成后自动校验所有连线完整性,再交付给用户,不要手写大段 K2Node 文本。这条规则是从多轮"连线看着对、实际类型没解析上"的返工里总结出来的,是硬性要求,不是建议。
 5. **每次改动后立刻更新配套文档**(状态、备忘录、测试用例),不要攒到"以后一起补"——攒着就等于下个会话/压缩后要重新推导一遍。**新排查结论必须回头改写已被否决的旧条目**(标「误判/已否决」),禁止只在续接区追加一条新判断,让互相矛盾的「当前真相」并存。验收通过后只保留最终根因;中间假设不能继续当现状用。
 6. **验证要有明确 PASS/FAIL 口径**,不接受"应该可以了"这种模糊结论。标记任务完成前,必须对照 `UE测试用例.md` 里的相关项全部确认。**2026-08-15 起新增自动回归测试机制**(`BP_GridManager.RunRegressionTests`,详见 `UE蓝图状态.md` 末尾一节)——改完蓝图逻辑,能写成纯逻辑断言的都优先加进去,MCP 跑一次 PIE 就有结果,不用每次都劳烦用户点鼠标;涉及视觉/交互的仍然走 `UE测试用例.md` 人工清单。
 7. **人类只做机械动作**:粘贴、Compile、Play 测试、按清单报 PASS/FAIL、遇到报错整段贴回来。所有判断性工作(为什么错、怎么修、下一步做什么)由 agent 做,不要把判断丢给人类。

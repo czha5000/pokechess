@@ -166,9 +166,11 @@
 
 - ❌ **视觉位置(世界坐标/SetActorLocation)和逻辑位置(自定义 Col/Row 整数变量)是两套独立数据,UE 不会自动同步**——本轮真实踩过两次:`SpawnUnit` 只把新单位摆到了正确的世界坐标,从没 `Set Col`/`Set Row`;`BP_Tile` 的移动逻辑只做了 `SetActorLocation`,同样没更新 `SelectedUnit.Col/Row`。表现是"单位看起来在正确位置,但所有基于 Col/Row 的逻辑判断(比如曼哈顿距离)全部失效",而且不报任何错误,只能靠打印实际数值才能发现。**教训:任何"挪动/生成一个用逻辑坐标系统追踪位置的 Actor"的地方,都要显式检查——有没有在改视觉坐标的同时,也把逻辑坐标（自定义 Col/Row 这类变量）同步写掉,不能想当然认为"位置对了"就等于"坐标对了"。**
 
-## 生成粘贴块的标准流程(已固化为 skill)
+## 生成粘贴块的标准流程(工具在 `ue/tools/paste_gen.py`)
 
-从这一轮开始,**所有粘贴块生成都走 `ue-blueprint-paste-gen` 这个 skill**,核心是:写 Python 脚本 + pin 注册表模式生成文本(而不是手打)→ 生成后自动校验连线完整性 → 大文本写成 txt 文件交付,不直接堆进聊天。细节见 skill 内容,这里不重复。
+**所有粘贴块生成都走脚本,不手打**,核心是:写 Python 脚本 + pin 注册表模式生成文本 → 生成后自动校验连线完整性(每条 `LinkedTo` 引用的 `(NodeName, PinId)` 都必须存在,校验不过直接 `exit(1)`)→ 大文本写成 txt 文件交付,不直接堆进聊天。
+
+> ⚠️ **2026-09-01 更正**:这里原本写的是"走 `ue-blueprint-paste-gen` 这个 skill,细节见 skill 内容"——但**这个 skill 在本仓库里根本不存在**(`.claude/skills/` 没有这个目录),等于规范强制了一个拿不到的工具。实际可用的实现是 `ue/tools/paste_gen.py`(419 行),当时只存在于遗留分支 `cursor/ue-step5-defk-formula-a3e8` 上,已抢救进 `main`。用法 `python3 ue/tools/paste_gen.py --help`,配套说明见 `ue/README.md`。
 
 ## MCP `BlueprintTools` 实测细节(2026-08-15,修 ShowRange 占位检查时踩的坑)
 
@@ -930,3 +932,25 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 1. **`write_graph_dsl` 里如果要连续多次调用同一个自定义函数(尤其是带多个同类型参数,比如两个 Bool),不能只信源码写的字面量,调完必须逐个 `get_node_infos` 读每一个调用节点自己的参数 pin,确认真实收到的值和源码写的一致**——这次的错位现象在 `compile_blueprint` 阶段完全没有任何报错或警告,是彻头彻尾的静默参数错位,不核实就会得出完全错误的排查结论(一度怀疑函数体本身错了)。
 2. **对"真正会被正式使用"的关键调用点(比如这次的 91-94 号 `ComputeAimDelta` 调用,W/A/S/D 四个按键实际接的那几个),干脆别赌 `write_graph_dsl` 的位置参数写法,改用 `create_node` 建空节点 + `set_pin_value` 显式挨个设置每一个字面量参数**——这种方式每一步都是独立的、可以单独核实的 API 调用,不存在"一次性写一大段 DSL,内部某个参数悄悄错位却整体不报错"这类批量操作特有的风险,这次实际交付用的 91-94 号节点就是用这种方式做的,已经二次核实过完全正确,和诊断函数用 `write_graph_dsl` 踩的坑是两回事。
 3. **诊断代码本身出 bug 是完全可能的,不能默认"我是为了验证而写的辅助代码,所以它一定是对的"**——花时间交叉核对"诊断代码实际做了什么"和"被测代码算出了什么",能把两类独立的错误(诊断代码的错 vs 被测代码的错)分开,避免把诊断代码自己的问题误判成被测代码的问题(或者反过来,放过被测代码里真正存在的问题)。
+
+### 坑86:在 Linux/云端写的 Python 工具脚本,拿到本机 Windows 一跑就崩(cp1252),这是坑的**第二次**复发 #编码 #Windows #跨环境 #工具链
+
+**现象**:`ue/tools/paste_gen.py`(粘贴块生成器)在本机执行 `python3 ue/tools/paste_gen.py calc_damage`,直接抛 `UnicodeEncodeError: 'charmap' codec can't encode characters`,连 `--help` 都打不出来——因为帮助文本和节点注释里有中文。
+
+**根因**:Windows 上 `python3` 的 `sys.stdout`/`sys.stderr` 默认编码是 **cp1252**,写中文直接抛异常。这个脚本写于 Cursor Cloud 的 Linux 环境(默认 UTF-8),在那边跑得好好的,**跨到 Windows 才暴露**。
+
+**这已经是同一个坑的第二次**:`UE协作Harness规范.md` 1.5 节记录过 `.claude/hooks/*.py` 三个脚本全部踩过并修掉,规范原话是"**以后再加同类 hook 脚本记得照抄这一步,别重新掉进去**"。当时那句话的作用域写窄了(只说了 hook 脚本),没覆盖到"工具脚本"。
+
+**修法**(照抄 hooks 的写法,加在 import 之后):
+```python
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+```
+`stdin` 也要读中文的话一并加上。用 `try/except` 包住是因为 `reconfigure` 在某些被重定向/包装过的流上不存在。
+
+**扩大后的规则(取代 1.5 节那句窄版)**:**这个项目里任何会输出中文的 Python 脚本,不管是 hook、工具、还是临时诊断脚本,开头一律先 `reconfigure(encoding="utf-8")`。**
+
+**顺带一提,同一轮里我自己又踩了第三次**:写了个临时的 `python3 - <<'PY'` 脚本做文本批量替换,末尾 `print()` 中文进度又崩了一次(文件替换本身已经写成功,只有打印失败)。说明这个坑对"随手写的一次性脚本"同样成立,不能因为"就跑一次"就省掉这三行。
