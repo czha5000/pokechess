@@ -16,7 +16,7 @@ function reachableIds(){if(run.cur===null)return run.map[0].map(n=>n.id);const n
 function enterNode(n){run.cur=n.id;
   if(n.type==='event')showEvent(n);
   else if(n.type==='shop')showShop(n);
-  else if(n.type==='rest'){run.pool.forEach(m=>{const cur=(m.curHp!=null?m.curHp:m.maxhp);m.curHp=Math.min(m.maxhp,cur+Math.ceil(m.maxhp*ascRestHeal(run.ascSel||0)));});log('🏕 休整:全队回复 30% 生命。','#7fe0a0');showRest(n);}
+  else if(n.type==='rest'){const _pct=ascRestHeal(run.ascSel||0);run.pool.forEach(m=>{const cur=(m.curHp!=null?m.curHp:m.maxhp);m.curHp=Math.min(m.maxhp,cur+Math.ceil(m.maxhp*_pct));});log(`🏕 休整:全队回复 ${Math.round(_pct*100)}% 生命。`,'#7fe0a0');showRest(n);}
   else startDeploy(n);}
 
 // 事件 / 休整
