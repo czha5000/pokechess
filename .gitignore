@@ -18,3 +18,6 @@ balance/scan_single.txt
 .claude/hooks/.ue_docs_dirty
 # 个人本地权限配置,不共享
 .claude/settings.local.json
+# Python 缓存(ue/tools/、.claude/hooks/ 下的脚本会产生)
+__pycache__/
+*.pyc
