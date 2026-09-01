@@ -26,7 +26,7 @@
 
 ## 一、⚠️🐞 需要优先处理的(行为不一致 / 自相矛盾)
 
-### 1. 🐞 暴击:预测面板显示暴击率,结算永远不暴击
+### 1. ✅ 已止血(2026-09-01)· 暴击:预测面板曾显示暴击率,而结算永远不暴击
 
 | | |
 |---|---|
@@ -43,13 +43,13 @@
 
 **后果**:玩家装了夜阴,面板告诉他"暴击 15%",打一百次一次也不会暴击。**这是游戏对玩家撒谎**,比"没做暴击"严重得多。
 
-**两条修法,二选一(需要决定)**:
-- **(a) 补齐结算**:`ComputeSkillDamage` 加暴击掷骰(`RandomIntegerInRange(0,99) < Crit` → 伤害 ×3)。工作量小(已有 `GetSkillCritChance` 可复用),但会显著提高伤害方差,20 HP 的单位更容易被秒,需要重新验平衡。
-- **(b) 先摘掉显示**:`RefreshAttackForecast` 暂时不拼"暴击Z%"这一段,等结算真做了再加回来。**成本几分钟,建议先做这个止血**,(a) 排期再做。
+**已做:(b) 摘掉显示(2026-09-01)**。`RefreshAttackForecast` 的两条 Append 链已改成只拼 `"…伤害X 命中Y%"`,暴击段移除,面板不再承诺兑现不了的东西。改法和保留项见 `UE蓝图状态.md` 2026-09-01 那节第 1 条。
+
+**仍待做:(a) 补齐结算** —— `ComputeSkillDamage` 加暴击掷骰(`RandomIntegerInRange(0,99) < Crit` → 伤害 ×3)。工作量小(两个 `GetSkillCritChance` 调用**刻意保留在 exec 链上**了,直接把返回值接回去即可),但会显著提高伤害方差,20 HP 的单位更容易被秒,**需要重新验平衡**,所以单独排期。做完之后回来把显示加回去,两边要同时改。
 
 ---
 
-### 2. ⚠️ AOE 会引发逐目标反击,web 完全不引反击
+### 2. ✅ 已修(2026-09-01)· AOE 曾会引发逐目标反击,web 完全不引反击
 
 | | |
 |---|---|
@@ -60,10 +60,12 @@
 
 **这条从来没有人决定过**,是实现细节渗出来的副作用。
 
-**修法**:给 `TryAttack` 加一个 `bAllowCounter` 布尔参数(默认 true),`PerformAoeSkillAttack` 传 false。
-⚠️ 注意 `add_function_param` 改公共函数签名会牵连所有调用点(坑66 的教训:上次改 `SkillTokenToId` 签名牵出 10 个调用点全部要重建)。改之前先 `find_nodes` 数清楚 `TryAttack` 有几个调用点。
+**已按低风险方案实现(2026-09-01)**,没有改任何函数签名(规避坑66):
+- `BP_GridManager` 新增 `bSuppressCounter`(Bool,CDO 默认 false)。
+- `ResolveCounterAttack` 入口加一道 `Branch(NOT bSuppressCounter)` 闸门,原有的 `(and HP>0 距离<=AtkRange)` 判定完全没动,只是被包在外层。
+- `PerformAoeSkillAttack` 入口 `Set true`,`ForEachLoop` 的 `Completed` 出口(原本空着)`Set false`。
 
-替代方案(零签名改动):`PerformAoeSkillAttack` 循环前设一个 GridManager 成员变量 `bSuppressCounter=true`,`ResolveCounterAttack` 开头判断它,循环结束后复位。更丑但风险低,和项目里 `CounterDefenderRef` 的既有做法同构。
+**验证**:`RunRegressionTests` 跑过,T10a–i / T11a / T11b 全套 AOE 断言依旧全绿(反击伤害打在攻击者身上,不影响这些断言对目标掉血的检查);无新增失败。**仍待人工 Play 验收**:放一个 AOE 打多个敌人,确认攻击者不再连吃多次反击;以及单体攻击的反击**没有**被误伤(仍应正常触发)。
 
 ---
 
@@ -141,7 +143,7 @@ js/data/config.js  ──┘
 js/data/combat_tables.js   「纯数值」展平表
         ↓  node js/data/export_ue_csv.js
 js/data/ue_import/*.csv    仓库内备份
-UE Saved/Import/*.csv      ⚠️ 路径硬编码在脚本第 48 行
+UE Saved/Import/*.csv      需设环境变量 UE_IMPORT_DIR(2026-09-01 起,原为硬编码绝对路径)
         ↓  UE 编辑器导入
 DT_Skills / DT_Relics      UE DataTable 资产
 ```

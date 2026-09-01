@@ -114,6 +114,10 @@
 
 ### ⑧ 其它
 
+- **MCP 的工具集名和参数 schema 会变,本仓库文档里写死的调用写法可能已经过时。** 新会话第一次调 MCP 就要预期这一点:报 `Toolset 'X' not found` 或 `input param "Y" is required` 时,不要怀疑自己写错了业务参数,先把真实 schema 拉出来对一遍——`describe_toolset` 输出很大(72KB)读不进上下文,让它落盘后用 python 解析 `d['tools']` 的 `name`/`inputSchema.required` 一次拿全。2026-09-01 实测:工具集已全部改成全限定名(`editor_toolset.toolsets.blueprint.BlueprintTools`),`compile_blueprint` 要 `blueprint:{refPath}` 且是**资产路径不是 `_C` 类路径**,`set_properties` 的 `values` 是 **JSON 字符串**。完整新旧对照见坑87。
+- **`create_node` 建 bool 变量的 Get/Set,type_id 要去掉 `b` 前缀**:变量真名是 `bFoo`,但 type_id 必须写 `Variables|Default|GetFoo`(UE 对 bool 显示名会剥掉 `b`)。别猜,先 `find_node_types` 确认。(见坑88)
+- **临时改 CDO 开关做验证,收尾必须同时检查关卡放置实例**——实例一旦被写过就不再跟随 CDO,只把 CDO 改回去等于没改干净(回归测试开关就这么漏过一次,会导致此后每次 Play 都自动跑测试)。改完两处都要复读确认,关卡也要 `save_assets`。(见坑89,坑35 同机制)
+- **给 `Development|PrintString` 加开关,不需要 Branch**:它的 `bPrintToScreen` 是 index 2 的**数据 pin**,直接把一个 bool 变量 Get 接进去就行——一个变量扇出到多个 print,零 exec 结构改动,`bPrintToLog` 保持 true 则日志仍在。比包 Branch 安全得多。
 - **MCP 连接是会话级的:端口通 ≠ 这个会话能用。** 如果会话启动时编辑器没开(MCP `ConnectionRefused`),那么**即使中途把编辑器开起来、8001 端口 `Test-NetConnection` 显示通了,本会话也永远连不上**——MCP 客户端只在会话启动时建连,不会中途重连,`ToolSearch` 依然找不到 `mcp__unreal-mcp__*`。**正确顺序是:先开 UE 编辑器,再开会话。** 顺序反了只能重启会话,不要在那儿反复试。(2026-09-01 实测,一整轮 UE 待办因此全部没做成)
 - 粘贴是纯增量的:新节点内部互相连线可靠生效,但新节点连到"已经存在于图里的旧节点"不会生效,这类连线必须让用户手动拖。(见'剪贴板粘贴技术的硬规则'第1条)
 - K2Node_VariableGet/Set 读取"不是 self 自己"的变量时,`MemberParent`/`SelfContextInfo=NotSelfContext`/self pin 的 `PinSubCategoryObject` 三件套必须齐全,漏一个轻则 pin 退化成泛型报错,重则编译器去错误的类里找变量。(见'剪贴板粘贴技术的硬规则'第2条)

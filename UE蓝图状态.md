@@ -1037,3 +1037,65 @@ BP_GridManager 新增:
 **验证(这次是运行时真实数据,不是纯手算)**:MCP 没有按键模拟能力,改用"临时在 `BeginPlay` 延时几秒后直接调用 `ComputeAimDelta` 并 `PrintString` 结果"的办法拿到 `GetLogEntries` 里的真实运行时输出。核对时发现诊断函数自己在 `write_graph_dsl` 里连续 4 次调用 `ComputeAimDelta` 传的字面量参数被写错位了(诊断代码的问题,见 `UE节点备忘录.md` 坑85),但交叉核对"诊断函数实际传入的参数"和"手算这组参数应该得到什么结果"完全吻合——这反而证明了 `ComputeAimDelta` 函数体本身的公式和连线是对的,错的只是诊断脚本的传参方式;正式的 91-94 号调用节点用 `set_pin_value` 显式设置、`get_node_infos` 二次核实过字面量,和诊断函数的坑无关。诊断验证完毕后所有临时节点/临时函数已 `delete_node`/`remove_function_graph` 清理干净,`BeginPlay` 恢复原状,`compile_blueprint` 确认无残留。当前机位(实测 `Yaw=0`)下真实运行时输出:W→`(+1,0)`、S→`(-1,0)`、A→`(0,-1)`、D→`(0,+1)`,和"Col对应世界+X、W应该往镜头朝向挪"完全吻合。
 
 **当前状态**:公式和连线已有真实运行时数据佐证(不同于上一版纯手算无实证),但因为镜头朝向会随玩家转动而变化,不同 Yaw 下的完整手感仍需要用户一边转镜头一边实测 WASD 才能最终确认。
+
+### 2026-09-01 执行评估报告的 UE 待办队列前 4 条(本条已完成、已跑回归验证)
+
+MCP 重连后一次做掉 4 条,全部 `compile_blueprint` 通过、`save_assets` 落盘、跑过 `RunRegressionTests` 确认无新增失败。
+
+**⚠ 先记一条环境变化(踩了才发现,见 `UE节点备忘录.md` 坑87)**:MCP 工具集的名字和参数 schema 变了,本文档此前记的写法**全部失效**:
+- 工具集名 `BlueprintTools` → **`editor_toolset.toolsets.blueprint.BlueprintTools`**(全限定名);其它同理,如 `AssetTools` → `editor_toolset.toolsets.asset.AssetTools`、PIE 控制在 `EditorToolset.EditorAppToolset`、日志在 `EditorToolset.LogsToolset`。
+- `compile_blueprint` 的参数从 `blueprint_path:"...:BP_X_C"` 变成 **`blueprint:{refPath:"/Game/Maps/BP_X.BP_X"}`**(要 Blueprint 资产路径,不是 `_C` 类路径)。
+- `save_assets` 需要 `asset_paths:[...]`;`set_properties` 的参数叫 `values` 且是 **JSON 字符串**;`find_actors` 的 `name`/`tag`/`collision_channels` 都是必填。
+- 排查手段:`describe_toolset` 输出 72KB 太大读不进上下文,存盘后用 python 解析 `d['tools']` 的 `name`/`inputSchema.required` 即可一次拿全。
+
+**1. 摘掉预测面板的暴击显示**(`BP_GridManager.RefreshAttackForecast`)
+
+原来面板拼的是 `"我方: 伤害X 命中Y% 暴击Z%"`,而 `ComputeSkillDamage` 的公式里**根本没有暴击**(见本文件 2026-08-15 那条:"不含技能倍率/属性克制/命中率/暴击/…")。`DT_Skills` 里有 16 个技能带非零暴击率(夜阴15%/飞叶刃12%/铁尾·近身战10%…),`GetSkillCritChance` 会如实读出来显示——**等于游戏对玩家撒谎**。详见 `UE规则对齐表.md` 第一节 #1。
+
+没有整图重写(坑1:`write_graph_dsl` 对已有函数是追加不替换,且这里有 `IsValid` 宏)。改用最小手术,两条 Append 链各 3 步:
+```
+我方链:  A4(op_10) 的 B 字面量 "% 暴击" → "%"
+         break op_12.out → SetAtkForecast(CallFunction_23).Msg
+         connect op_10.out → SetAtkForecast.Msg          (绕过 A5/A6)
+反击链:  同构,op_16 / op_18 / SetCounterForecast(CallFunction_30)
+```
+然后 `delete_node` 清掉因此孤立的 6 个**纯**节点(`op_11/12/17/18` 两对 Append + `CallFunction_22/29` 两个 ToString)。
+
+**刻意保留**两个 `GetSkillCritChance` 调用(`CallFunction_16`/`CallFunction_26`):它们是**非纯节点、在 exec 链上**(`CallFunction_26.then → SetCounterForecast.execute`),删掉要重接 exec、有丢线风险;而且等暴击结算真做了还要用。现在它们的返回值不再被使用,`read_graph_dsl` 里表现为裸语句 `(CallFunction|GetSkillCritChance _self _returnvalue)`。**这不是遗漏,是有意的。**
+
+验证:`read_graph_dsl` 复读确认两行都变成 `"…伤害X 命中Y%"`,暴击段已消失。
+
+**2. 拆掉 E 键定时炸弹**(`/Game/Input/IMC_TacticsControl`)
+
+原来 `Mappings` 有 7 条,最后两条是死映射:`LeftMouseButton→IA_Attack`(鼠标攻击 2026-08-22 就废弃了)和 `E→IA_EndTurn`。而 legacy `E` 键绑的是**攻击**——本文件之前就写明"如果以后修好了 Enhanced Input 触发问题,E 会同时触发攻击和结束回合"。已用 `set_properties` 把 `Mappings` 覆写成只剩前 5 条(W/S/A/D 移动 + Mouse2D 视角),炸弹拆除。
+
+**核实过没有误伤**:改完 `get_properties` 复读,5 条映射的 `modifiers` refPath(`InputModifierNegate_1/2/3`、`InputModifierSwizzleAxis_0/1`)全部完好。PIE 日志里出现过一批 `Failed to find object 'Class …InputModifierNegate_1'` 警告,时间点正好是这次写入——**是 `set_properties` 解析时先按 Class 试探失败的瞬态噪音,不是真丢**,最终状态已复读确认正确。
+
+**3. AOE 不再逐目标引发反击**(`bSuppressCounter` + `ResolveCounterAttack` + `PerformAoeSkillAttack`)
+
+web 版 AOE 完全不引反击,UE 版因为 `PerformAoeSkillAttack` 逐个调 `TryAttack`、而 `TryAttack` 必定触发 `ResolveCounterAttack`,变成"打 3 个吃 3 次反击"。**没人决定过这个行为**,是实现细节渗出来的。
+
+按 `UE规则对齐表.md` 给的低风险方案做(**不改函数签名**,规避坑66 那种"改公共函数签名牵连 10 个调用点"):
+- `BP_GridManager` 新增 `bSuppressCounter`(Bool,CDO 默认 **false**,已核实)。
+- `ResolveCounterAttack` 入口插一道闸门:`FunctionEntry.then → Branch(NOT GetbSuppressCounter)`,`True` 接原来的第一个节点(`CallFunction_2`),`False` 留空。原有的 `(and HP>0 距离<=AtkRange)` 判定**一点没动**,只是被包在外层。
+- `PerformAoeSkillAttack`:入口 `Set bSuppressCounter=true`(插在 `FunctionEntry.then` 和 `SetSavedSkillRowTmp` 之间),`ForEachLoop` 的 **`Completed`** 出口(原本是空的)接 `Set bSuppressCounter=false`。
+
+⚠ **`b` 前缀的坑**:`add_variable` 建的变量真名是 `bSuppressCounter`(`get_node_infos` 读 Get 节点的输出 pin 名确认),但 `create_node` 要用的 type_id 是 **`Variables|Default|GetSuppressCounter` / `SetSuppressCounter`(去掉 b)**——直接写 `GetbSuppressCounter` 会报 "does not exist"。和历史上 `Aiming`/`bAiming` 是同类现象,记入坑87。
+
+**4. 诊断 `PrintString` 统一挂 `bDebugVerbose` 开关**(`BP_Unit`)
+
+`BP_Unit` 新增 `bDebugVerbose`(Bool,默认 false)。**没有加 Branch 门控**——`Development|PrintString` 的 `bPrintToScreen` 本身就是 index 2 的**数据 pin**,直接把变量 Get 接进去即可:一个开关控制全部、零 exec 结构改动、默认关闭屏幕输出但 `bPrintToLog` 仍为 true(Output Log 里查得到)。
+- `OnAimPressed`:3 条 `AOE_DEBUG:` 全部接上(一个 Get 扇出到 3 个 pin)。
+- `AttemptAimAttack`:1 条 `"AIM: 光标下没有目标"` 接上。
+
+**文档更正**:本文件此前记的"`AttemptSkillAttack` 里有 5 条 `PrintString`"**已经过时**——那 5 条在 2026-08-22 锁定式索敌重写 `AttemptSkillAttack` 时就随整个函数体被替换掉了,现在该函数里一条 `PrintString` 都没有(已 `read_graph_dsl` 核实)。
+
+**回归验证(`StartPIE` bSimulate,读 `GetLogEntries`)**
+```
+PASS: T1 T2 T3 T4 T5 T6b T7a T8 T9 T10a-i T11_pre T11a T11b
+FAIL: T6a   ← 已知命中率随机假阳性(见测试用例"已知测试抖动")
+FAIL: T7b T7c ← 既有历史遗留失败,和本轮无关
+```
+**AOE 全套断言(T10a–i、T11a/b)在反击抑制改动后依旧全绿**,说明没有破坏 AOE 伤害管线(反击伤害本来就打在攻击者身上,不影响这些断言对目标掉血的检查)。
+
+⚠ **验完发现坑35 又复现了一次**:把 CDO 的 `bRunRegressionTestsOnBeginPlay` 改回 `false` 之后,**`TestMap` 里放置的 `BP_GridManager_C_1` 实例仍然是 `true`**——放置实例保留自己的覆盖值,不跟随 CDO。已单独对实例 `set_properties` 改回 false 并复读确认,`TestMap` 一并 `save_assets`。以后凡是"临时改 CDO 开关做验证",**收尾必须同时检查关卡实例**,只改 CDO 等于没改干净。

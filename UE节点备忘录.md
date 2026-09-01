@@ -832,3 +832,61 @@ for _stream in (sys.stdout, sys.stderr):
 **扩大后的规则(取代 1.5 节那句窄版)**:**这个项目里任何会输出中文的 Python 脚本,不管是 hook、工具、还是临时诊断脚本,开头一律先 `reconfigure(encoding="utf-8")`。**
 
 **顺带一提,同一轮里我自己又踩了第三次**:写了个临时的 `python3 - <<'PY'` 脚本做文本批量替换,末尾 `print()` 中文进度又崩了一次(文件替换本身已经写成功,只有打印失败)。说明这个坑对"随手写的一次性脚本"同样成立,不能因为"就跑一次"就省掉这三行。
+
+### 坑87:MCP 工具集名字和参数 schema 整体变了,文档里所有旧调用写法失效(2026-09-01,重连 MCP 后第一次调用就撞上)#MCP #环境变化 #排查心法
+
+**现象**:`compile_blueprint` 按文档写法调用,报 `Toolset 'BlueprintTools' not found`;换成全限定名后又报 `input param "blueprint" is required … but is missing`。
+
+**根因**:插件侧的注册名和函数签名都变了,本项目文档记录的是旧版写法。
+
+**新旧对照**(全部实测确认):
+
+| 项 | 旧(文档里记的) | 新(现在实际的) |
+|---|---|---|
+| 蓝图工具集 | `BlueprintTools` | `editor_toolset.toolsets.blueprint.BlueprintTools` |
+| 资产工具集 | `AssetTools` | `editor_toolset.toolsets.asset.AssetTools` |
+| 对象工具集 | `ObjectTools` | `editor_toolset.toolsets.object.ObjectTools` |
+| 关卡工具集 | `SceneTools` | `editor_toolset.toolsets.scene.SceneTools` |
+| PIE 控制 | `EditorAppToolset` | `EditorToolset.EditorAppToolset` |
+| 日志 | `LogsToolset` | `EditorToolset.LogsToolset` |
+| `compile_blueprint` 参数 | `blueprint_path:"/Game/Maps/BP_X.BP_X_C"` | `blueprint:{refPath:"/Game/Maps/BP_X.BP_X"}` ← **要资产路径不是 `_C` 类路径** |
+| `save_assets` 参数 | (无参) | `asset_paths:["/Game/Maps/BP_X"]` |
+| `set_properties` 参数 | `properties:{...}` | `values:"<JSON 字符串>"` ← **是字符串不是对象** |
+| `get_properties` 参数 | `property_names:[...]` | `properties:[...]` |
+| `find_actors` 参数 | `name_filter` | `name` / `tag` / `collision_channels` **三个都必填**(不筛就传空) |
+| `StartPIE` 参数 | `bSimulate:true` | `options:{bSimulate,playMode,warmupSeconds}` |
+| `GetLogEntries` 参数 | `count` | `pattern` 必填(正则)+ `category` + `maxEntries` |
+
+**怎么一次拿全,别一个个试错**:`describe_toolset` 的输出有 72KB,直接读会超上下文。正确做法是让它落盘,然后用 python 解析:
+```python
+d = json.load(open(path, encoding='utf-8'))
+for t in d['tools']:
+    print(t['name'].split('.')[-1], t['inputSchema'].get('required'), list(t['inputSchema'].get('properties',{})))
+```
+一次就能拿到全部 ~55 个工具的名字和必填参数。
+
+**教训**:MCP 这类外部依赖的 API 会变,而本项目文档把调用细节写死在正文里。**新会话第一次调 MCP 就该预期"文档可能过时"**,报错不要怀疑自己写错了业务参数,先按上面的方法把真实 schema 拉出来对一遍。
+
+### 坑88:`create_node` 建 bool 变量的 Get/Set 节点,type_id 要去掉 `b` 前缀(2026-09-01)#create_node #命名
+
+`add_variable(name="bSuppressCounter", type_name="bool")` 建出来的变量,**真实名字确实是 `bSuppressCounter`**(`get_node_infos` 读 Get 节点的输出 pin,`name` 就是 `bSuppressCounter`)。
+
+但是 `create_node` 要用的 type_id **必须去掉 `b`**:
+```
+❌ Variables|Default|GetbSuppressCounter   → "does not exist"
+✅ Variables|Default|GetSuppressCounter
+✅ Variables|Default|SetSuppressCounter
+```
+原因是 UE 对 bool 属性的**显示名**会自动剥掉匈牙利前缀 `b`,而 type_id 走的是显示名。
+
+**通用做法**:别猜,先 `find_node_types(graph, type_id_filter="<变量名去掉b>")` 确认真实 type_id 再建。这和坑67/73/82"DSL 回显文本/显示名 ≠ 可创建的 type_id"是同一类问题的又一次复现,历史上 `Aiming`/`bAiming` 也踩过。
+
+### 坑89:临时改 CDO 开关做验证,收尾只改 CDO 等于没改干净——放置实例不跟随(2026-09-01,坑35 的第二次复现)#CDO #实例覆盖 #收尾
+
+**现象**:为跑回归测试把 `BP_GridManager` **CDO** 的 `bRunRegressionTestsOnBeginPlay` 设成 `true` → `StartPIE` 跑完 → 把 CDO 改回 `false` → 复读 **`TestMap` 里放置的 `BP_GridManager_C_1` 实例,仍然是 `true`**。
+
+**根因**:关卡里放置的实例持有自己的属性覆盖值,一旦被写过就不再跟随 CDO。这正是坑35("关卡实例覆盖 fallback")的机制,只是这次栽在"清理验证用的临时开关"上而不是业务逻辑上。
+
+**后果**(如果没发现):此后每次 Play 都会自动跑一遍回归测试,摆一堆测试单位、打印一屏 PASS/FAIL,而且会污染正常对局——排查时极易误判成"游戏逻辑坏了"。
+
+**硬性收尾流程**:凡是"临时改开关做验证",验证完必须**同时复读 CDO 和关卡放置实例两处**,确认都回到原值,并把关卡一起 `save_assets`。只改 CDO 不算改完。
