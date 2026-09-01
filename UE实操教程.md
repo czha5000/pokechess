@@ -29,6 +29,7 @@
 | 4 | 🧹 **诊断 `PrintString` 挂 `bDebugVerbose` 开关** | `OnAimPressed` 3 条 + `AttemptSkillAttack` 5 条,都写着"验收后删"然后都没删,`bPrintToScreen=true` 会糊玩家屏幕 |
 | 5 | 🏗️ **收敛 `BP_Unit.EventTick` 的 5 份重复逻辑** | UE 侧最大的结构债:同一段逻辑复制了 5 份(上次加瞄准态门槛要插 10 个 Branch),还混着两段确认的死代码。**工具现在有了**:`ue/tools/paste_gen.py`(带连线完整性校验,已修好 Windows 崩溃) |
 | 6 | 🧪 **修回归测试** | T7b/T7c 长期 FAIL 被容忍;测试地图 4 个单位全是 `side=true`(场上没敌人,涉敌行为测不到);随机命中率导致假阳性要定种子 |
+| 7 | 📊 **`IsAoeSkill` 改读表**(web 侧已备好) | CSV 现在有 `Kind` 列了。UE 侧还剩三步:C++ `FSkillRow` 加 `Kind` 字段 → 编辑器里重新导入 `DT_Skills` → `IsAoeSkill` 从硬编码四个字符串改成读 `Kind == "aoe"`。做完之后加 AOE 技能就不用再动蓝图。详见 `UE规则对齐表.md` 第四节 |
 
 **上一轮(2026-09-01)已完成、不用重做:**
 - 新增 `UE规则对齐表.md` —— 改战斗规则前必查。核实时发现了上面第 1 条那个暴击 bug。

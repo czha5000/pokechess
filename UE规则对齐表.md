@@ -146,12 +146,26 @@ UE Saved/Import/*.csv      ⚠️ 路径硬编码在脚本第 48 行
 DT_Skills / DT_Relics      UE DataTable 资产
 ```
 
-**两个已知断点**:
+**断点一:CSV 表头没有 `Kind` 列 —— ✅ web 侧已修(2026-09-01),UE 侧待做**
 
-1. **CSV 表头没有 `Kind` 列** —— web 侧每个技能都有 `kind:'atk'|'aoe'|'heal'`,导出时丢了。所以 UE 的 `IsAoeSkill` 只能**硬编码**比较 `"sweep"/"quake"/"rockslide"/"cleave"` 四个字符串。**加第 5 个 AOE 技能要改蓝图,而不是加一行数据。**
-   → 修法:`export_ue_csv.js` 的 `skillHeader` 加 `Kind` 列 → C++ `FSkillRow` 加字段 → `IsAoeSkill` 改读表。
-2. **CSV 与 DataTable 不自动同步** —— 历史上有过直接用 `DataTableTools.add_rows` 写 DataTable、只把 CSV 当备份的做法(`UE蓝图状态.md:42` 明确写着"两者不会自动同步")。
-   → 需要确立单向流并写进 `CLAUDE.md`。
+原状况:web 侧每个技能都有 `kind:'atk'|'aoe'|'heal'`,导出时丢了,所以 UE 的 `IsAoeSkill` 只能**硬编码**比较 `"sweep"/"quake"/"rockslide"/"cleave"` 四个字符串,加第 5 个 AOE 技能要改蓝图。
+
+**已完成(不需要编辑器的那一半)**:
+- `export_ue_csv.js` 的 `skillHeader` 加了 `Kind` 列,值**从 `js/data/skills.js` 现查**(`kindOf()`),不在 `combat_tables.js` 里再抄一份副本;查不到就抛错,不静默填默认值。
+- 顺带修掉一个**潜在数据丢失 bug**:`sweep/quake/rockslide/cleave` 这 4 行此前只手工加在 CSV 里、**没有加进 `NUMERIC_SKILLS`**——也就是说**任何人跑一次 `node js/data/export_ue_csv.js`,这 4 个 AOE 技能就会被静默抹掉**。已补进表,生成器重新成为唯一来源。
+- 已重新生成 CSV 并逐字段核对:35 行一条不少,除新增 `Kind` 列外没有任何实质值变化。
+
+**⏳ UE 侧待做(需要编辑器)**:
+1. C++ `FSkillRow`(`CombatTables.h`)加 `Kind` 字段(`FName` 或 `FString`,列名必须与 CSV 表头 `Kind` 完全一致,否则导入时该列被静默忽略)。
+2. 在 UE 编辑器里**重新导入** `DT_Skills`(CSV 和 DataTable 不会自动同步,见断点二)。
+3. `IsAoeSkill(RowName)` 从硬编码四个字符串比较,改成 `GetDataTableRow → BreakSkillRow → Kind == "aoe"`。
+4. 改完之后加第 5 个 AOE 技能就只需要:在 `skills.js` 加一条(带 `kind:'aoe'`)→ 在 `combat_tables.js` 加一条 → 跑导出 → UE 里重新导入。**不用再动蓝图。**
+
+**断点二:CSV 与 DataTable 不自动同步** —— 历史上有过直接用 `DataTableTools.add_rows` 写 DataTable、只把 CSV 当备份的做法(`UE蓝图状态.md:42` 明确写着"两者不会自动同步")。
+→ **2026-09-01 起确立单向流**:`skills.js`(kind)+ `combat_tables.js`(数值)→ `export_ue_csv.js` → CSV → UE 编辑器导入 → DataTable。**禁止再直接写 DataTable**,否则下次跑导出就会被覆盖。导出脚本结尾已经会打印"记得在 UE 编辑器里重新导入"的提醒。
+
+**顺带修掉的第三个问题:导出脚本的硬编码绝对路径**
+原来写死 `C:/Users/AI_Work/Documents/Unreal Projects/MyProject 5.8/Saved/Import`,换机器/改工程名即失效,且失败模式是 `mkdirSync(recursive)` 静默把错路径建出来、文件写进 UE 永远读不到的空目录。现在改成环境变量 `UE_IMPORT_DIR`:不设就只写仓库副本并提示用法;设了但目录不存在**直接报错退出**(不自动创建)。
 
 ---
 

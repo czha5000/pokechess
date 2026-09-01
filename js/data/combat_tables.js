@@ -126,7 +126,16 @@ const NUMERIC_SKILLS = [
   { id: 'bugbuzz',    name: '虫鸣',     mult: 1.45, hit: 90, crit: 5,  rb: 1, type: 'bug',      typeId: 12, uePhase: 2, webRef: 'SKILLS.bugbuzz' },
   { id: 'airslash',   name: '气旋斩',   mult: 1.5,  hit: 88, crit: 10, rb: 1, type: 'flying',   typeId: 6,  uePhase: 2, webRef: 'SKILLS.airslash' },
   { id: 'nightshade', name: '夜阴',     mult: 1.5,  hit: 88, crit: 15, rb: 1, type: 'ghost',    typeId: 5,  uePhase: 2, webRef: 'SKILLS.nightshade' },
-  { id: 'closecombat',name: '近身战',   mult: 1.7,  hit: 90, crit: 10, rb: 0, type: 'fighting', typeId: 7,  uePhase: 2, webRef: 'SKILLS.closecombat' }
+  { id: 'closecombat',name: '近身战',   mult: 1.7,  hit: 90, crit: 10, rb: 0, type: 'fighting', typeId: 7,  uePhase: 2, webRef: 'SKILLS.closecombat' },
+
+  // —— AOE 范围技能(2026-08-29 移植进 UE,2026-09-01 补进本表)——
+  // ⚠ 这 4 行此前只手工加在 js/data/ue_import/DT_Skills.csv 里,没有加进本表,
+  //   导致「跑一次 export_ue_csv.js 就会把它们静默抹掉」。补进来后生成器重新成为唯一来源。
+  //   kind='aoe' 不写在这里——导出时从 js/data/skills.js 现查(见 export_ue_csv.js),避免又多一份副本。
+  { id: 'sweep',      name: '横扫',     mult: 1.0,  hit: 85, crit: 0,  rb: 0, type: 'normal',   typeId: 0,  uePhase: 1, webRef: 'SKILLS.sweep' },
+  { id: 'quake',      name: '地裂',     mult: 1.2,  hit: 85, crit: 0,  rb: 0, type: 'ground',   typeId: 11, uePhase: 1, webRef: 'SKILLS.quake' },
+  { id: 'rockslide',  name: '岩崩',     mult: 1.2,  hit: 82, crit: 0,  rb: 1, type: 'rock',     typeId: 8,  uePhase: 1, webRef: 'SKILLS.rockslide' },
+  { id: 'cleave',     name: '横扫斩',   mult: 1.25, hit: 85, crit: 0,  rb: 0, type: 'normal',   typeId: 0,  uePhase: 1, webRef: 'SKILLS.cleave' }
 ];
 
 // ---------------------------------------------------------------------------
