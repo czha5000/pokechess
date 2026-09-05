@@ -20,6 +20,11 @@
 
 ## BP_Unit (`/Game/Maps/BP_Unit.BP_Unit_C`)
 
+> ⚠️ **2026-09-06 EventGraph 死代码清理:726 → 178 节点(删掉 548 个,占 75%)。**
+> 清理前这张图里,`ClearAttackHighlightsOnly`/`ClearLockIndicators`/`SetLockIndicator`/`ShowSkillRange`/`GetNearestTile`/`ClampMovement`/`GetSkillEffectiveRange` **各有 6 个调用点、`UpdateLocomotionAnim` 5 个、`AddMovementInput` 14 个**,长得一模一样,但**每个函数只有 1 处真的有电**(`AddMovementInput` 是 1 对 = 2 处)。历史上"只加不删"攒了 6 个完全不可达的死岛。现在全图 178 个节点**全部可达**,死代码为 0——每个函数在图里只剩唯一一个调用点,不用再判活。
+> **Tick 活链固定为 44 个 exec 节点**,完整链路见本节末尾"EventTick 活链"小节。清理全程没有碰任何一个活节点的连线,活链签名在 7 次删除后逐字未变。
+
+
 > **2026-08-17 父类 Actor → Character**(TPS 直控迁移阶段A,设计见 `C:\Users\AI_Work\.claude\plans\pokemon-tps-misty-walrus.md`)。原有 `DefaultSceneRoot`/`StaticMesh` 完整保留,只是现在挂在 Character 原生根组件 `CollisionCylinder`(胶囊体)下面,不再是 Actor 根。新增组件:`SpringArm`(挂 `CollisionCylinder`,`targetArmLength=300`、`relativeLocation={0,0,100}`、`bUsePawnControlRotation=true`、`bDoCollisionTest=true`、`bEnableCameraLag/bEnableCameraRotationLag=true`)→ `TPSCamera`(挂在 SpringArm 末端)。`CharMoveComp.maxWalkSpeed=500`、`bOrientRotationToMovement=true`(移动方向带动身体转向);CDO 上 `bUseControllerRotationYaw/Pitch/Roll` 全部设为 false(鼠标只转相机,不转身体)。`EventGraph` 新增 `Input|EnhancedActionEvents|IA_Move`(→ `BreakVector2D` + `GetActorForwardVector`/`GetActorRightVector` 各一次 `AddMovementInput`)、`Input|EnhancedActionEvents|IA_Look`(→ `BreakVector2D` + `AddControllerYawInput`(X)/`AddControllerPitchInput`(Y)),原有四个事件(`EventBeginPlay`/`MouseInput|EventActorOnClicked`/`Collision|EventActorBeginOverlap`/`EventTick`)完全没动。`IA_Attack`/`IA_EndTurn` 阶段C才会在这里接线。
 
 ### 变量
@@ -1099,3 +1104,74 @@ FAIL: T7b T7c ← 既有历史遗留失败,和本轮无关
 **AOE 全套断言(T10a–i、T11a/b)在反击抑制改动后依旧全绿**,说明没有破坏 AOE 伤害管线(反击伤害本来就打在攻击者身上,不影响这些断言对目标掉血的检查)。
 
 ⚠ **验完发现坑35 又复现了一次**:把 CDO 的 `bRunRegressionTestsOnBeginPlay` 改回 `false` 之后,**`TestMap` 里放置的 `BP_GridManager_C_1` 实例仍然是 `true`**——放置实例保留自己的覆盖值,不跟随 CDO。已单独对实例 `set_properties` 改回 false 并复读确认,`TestMap` 一并 `save_assets`。以后凡是"临时改 CDO 开关做验证",**收尾必须同时检查关卡实例**,只改 CDO 等于没改干净。
+
+
+---
+
+### 2026-09-06 `BP_Unit.EventGraph` 死代码清理(队列 #5)
+
+**结论先行:队列里写的"5 份重复逻辑,收敛成 1 个函数"是错的。实测是 1 份活的 + 5 份死的,正确做法是删,不是抽函数。**
+
+#### 怎么查出来的(方法比结论更值得复用,见 `UE节点备忘录.md` 坑90)
+
+`find_nodes` 拉全部 726 个节点 → `get_node_infos` 批量取真实 pin → 本地算:
+1. 真实事件节点(`AddEvent|*` / `Input|KeyboardEvents|*` / `Input|MouseEvents|*` / `Input|EnhancedActionEvents|*`,共 21 个)为入口;
+2. 只沿 **Exec** 类型 pin 做可达闭包 → 100 个节点;
+3. 再对这 100 个取**数据输入闭包**(纯节点没有 exec pin,只能靠这一步捞回来)→ 178 个;
+4. 剩下 548 个 = 真死。
+
+**第 3 步不能省**:纯节点(变量 Get、数学、`Self`)全都没有 exec pin,只做 exec 可达会把大量活的数据供给节点误判成死的。
+
+#### 删掉的 6 个死岛 + 22 个孤儿
+
+| 岛头 | 类型 | 节点数 | 说明 |
+|---|---|---|---|
+| `K2Node_IfThenElse_24` | `Utilities\|FlowControl\|Branch` | 14 | 旧的 DeltaTime 插值移动实验,文档从无记录 |
+| `K2Node_ExecutionSequence_0` | `Utilities\|FlowControl\|Sequence` | 76 | **坑72 唯一找到的那一个** |
+| `K2Node_CallFunction_400` | `Actor\|GetAllActorsOfClass` | 102 | 文档从无记录 |
+| `K2Node_CallFunction_514` | `Actor\|GetAllActorsOfClass` | 109 | 文档从无记录 |
+| `K2Node_CallFunction_600` | `Development\|PrintString` | 112 | 文档从无记录 |
+| `K2Node_CallFunction_657` | `Development\|PrintString` | 113 | 文档从无记录 |
+| (无头孤儿) | 旧版 AI 插值 / 调试字符串拼接 | 22 | `VInterpTo_721`/`FindLookAtRotation_731`/4 个 `Append` 等 |
+
+六个岛头的 `execute` 输入 `connected_pins` 全部是空数组,删除前**逐节点现场复核过**(不是拿缓存分析当依据),确认岛内没有任何 pin 连出去指向活节点;只有若干条**入岛边**(`Event Tick.DeltaSeconds`、共享的 `K2Node_Self_0` 给岛内供数据),方向是从活节点流入,删掉岛不影响活节点。
+
+#### 顺带证实:此前两次改动 80% 做在了死代码上
+
+- 2026-08-30 加瞄准态门槛插的 **10 个 `Branch(NOT Aiming)`**(本文件上方记为 `DynamicCast_39/48/55/60/65` + `VariableSet_68/85/98/107/116`)——实测**只有 `_65`/`_116` 这一组在活链上,另外 8 个插在死岛里**。当时"花了大量 `get_node_infos` 回溯"找插入点,大部分白找了。
+- 坑77 补的 **5 个 `IsValid` 旁路**同理,只有 `MacroInstance_4` 是活的。
+
+#### EventTick 活链(44 个 exec 节点,清理后与清理前逐字一致)
+
+```
+EventTick → GetAllActorsOfClass_715 → CastToBP_GridManager_62 → GetTargetsInRange_716
+  → CastToPlayerController_63 → SetLockedTargetIndex_111 → GetAllActorsOfClass_724
+  → CastToBP_GridManager_64 → GetTargetsInRange_725 → Branch_37(bIsAIMoving)
+  ├─true→ VInterpTo_771 → SetActorLocation_772 → MakeRotator_775 → SetActorRotation_776
+  │        → Branch_38(到达?) → SetActorLocation_778(吸附) → SetCol_120 / SetRow_121 / SetbIsAIMoving_122
+  └→ CastToPlayerController_65 → Branch_11(NOT Aiming)
+       → AddMovementInput_744 / AddMovementInput_750 → AddControllerYawInput_752 → AddControllerPitchInput_755
+       → GetAllActorsOfClass_756 → CastToBP_GridManager_66 → ClampMovement_758 → SetActorLocation_759
+       → GetNearestTile_760 → SetCol_115 / SetRow_116 → Branch_16(NOT Aiming)
+       → ClearAttackHighlightsOnly_761 → GetSkillEffectiveRange_762 → ShowSkillRange_763
+       → ClearLockIndicators_764 → GetTargetsInRange_765 → Branch_36(候选数>0)
+       ├─true→ SetLockedTargetIndex_117 → IsValid_MacroInstance_4
+       │         ├─Is Valid→ SetLockIndicator_768 → SetCurrentLockedUnit_118
+       │         └─Is Not Valid→ ┘(旁路汇入,坑77)
+       └─false→ SetCurrentLockedUnit_119 ┐
+       → RefreshAttackForecast_45 → UpdateLocomotionAnim_769
+```
+
+活链上仍然重复的东西(**本次刻意没动**):`GetAllActorsOfClass + Cast` 现查 GridManager 3 次、`GetTargetsInRange` 3 次,每帧都跑。这是真实的性能浪费,但改它动的是求值时机,风险高于纯删除,**单独排期**。
+
+#### 没动的东西
+
+- `IA_Move`/`IA_Look`(Enhanced Input)两个事件及其下游是**活节点**(各 3–4 个),不在 548 里,原样保留。Enhanced Input 全局不触发是坑41 那个**未解决的 bug,不是设计决定**——删掉的会是本该工作的代码。
+- 活链一根线没动、一个节点没加。
+
+#### 验证
+
+`compile_blueprint` 每岛后零 warning;活链签名(44 个节点的 refPath + type_id 有序串)在 7 次删除后**每次都与基线逐字一致**;`BP_Unit.uasset` 从 2,401,920 → 1,191,703 字节。回归见 `UE测试用例.md` 同日条目。
+
+**备份**(UE 工程无版本控制,`MyProject 5.8` 的 git 停在 2025-08):`Content/Maps/BP_Unit.uasset.bak_20260906`(清理前原件)及每岛一份滚动备份 `.bak_<岛头名>`、`.bak_final`。
+

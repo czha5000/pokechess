@@ -648,6 +648,11 @@ DSL 文本里的 `+`/`-`/`*`/`/`/`<=` 等符号是**解析器特殊语法**(见 
 
 ### 坑72:`BP_Unit.EventTick` 不是"一条线从头执行到尾"的单线程,里面混了至少三种不同"供电"方式的代码段,其中两段结构上完全执行不到——排查 AOE 瞄准态"移动/射程刷新要在 Aiming 时暂停"这个需求时才第一次被系统性发现(2026-08-30,阶段4 EventTick 网关插入) #EventTick #死代码 #ExecutionSequence #EnhancedInput坑41
 
+> 🔴 **2026-09-06 结案订正(必读):这一条的结论严重低估了规模,不要再照它的数字判断现状。**
+> 当时说"混了至少三种供电方式,其中两段执行不到"。全图可达性分析实测:`EventGraph` 726 个节点里 **548 个(75%)是死的**,分成 **6 个死岛 + 22 个孤儿**,坑72 只找到了其中 1 个岛(`K2Node_ExecutionSequence_0`)。另外 4 个岛(`CallFunction_400`/`514`/`600`/`657`,各 100+ 节点)当年完全没被发现,而且**正是它们让"同一段逻辑复制了 5 份"这个误判成立的**——那 5 份里只有 Tick 上那 1 份有电。
+> 548 个死节点已于 2026-09-06 全部删除,现在全图 178 个节点**全部可达**。本条的**判据和教训依然正确并且是这次能查清的基础**(教训 3 的"`execute` 输入 `connected_pins` 为空 = 结构性无法执行"就是这次的判定依据),但**具体数字和"只有两段死代码"的结论已作废**。方法的正确姿势见坑90。
+
+
 **背景**:计划文档(`zazzy-launching-dolphin.md`)描述 `EventTick` 是"现有两个连续移动用的 `AddMovementInput` 调用"、"`ClearAttackHighlightsOnly→ShowSkillRange`、`ClearLockIndicators→GetTargetsInRange→SetLockIndicator` 这两段"——听起来像总共 2~3 处调用。实际用 `get_node_infos` 从 `K2Node_Event_2`(Tick)开始逐节点回溯/前进后发现,`EventGraph` 里同名函数调用点数量远超预期(`AddMovementInput` 14 处、`ClearAttackHighlightsOnly` 6 处、`ClearLockIndicators` 6 处),且分属三种完全不同的"谁在驱动它执行"的情况:
 
 1. **真正在跑的主线程**(`Tick.then`→`Actor|GetAllActorsOfClass(BP_GridManager)`[`K2Node_CallFunction_715`]→`CastToBP_GridManager`[`DynamicCast_62`]→`GetTargetsInRange`[`716`]→`CastToPlayerController`[`DynamicCast_63`,处理"是否已 Possess"分支,两个分支后续汇合]→……一路向下,中途多次重复"`GetAllActorsOfClass`+`Cast`"式的"每次现查"(和项目"每个新按键都自己现查引用"的既有风格一致,只是被现查的对象是 GridManager/PlayerController 不是按键触发的一次性查询,所以在 Tick 里被反复现查了十几次)——本次要新加的 `Branch(NOT Aiming)` 网关全部插在这条主线程上的 10 个节点上(见 `UE蓝图状态.md` 对应小节的具体 refPath 列表)。
@@ -890,3 +895,26 @@ for t in d['tools']:
 **后果**(如果没发现):此后每次 Play 都会自动跑一遍回归测试,摆一堆测试单位、打印一屏 PASS/FAIL,而且会污染正常对局——排查时极易误判成"游戏逻辑坏了"。
 
 **硬性收尾流程**:凡是"临时改开关做验证",验证完必须**同时复读 CDO 和关卡放置实例两处**,确认都回到原值,并把关卡一起 `save_assets`。只改 CDO 不算改完。
+
+### 坑90:判断"图里哪些节点是活的",别再逐节点手动回溯——全图跑一次"Exec 可达 + 数据输入闭包"就够,而且必须两步都做(2026-09-06,`BP_Unit.EventGraph` 死代码清理)#判活 #死代码 #可达性分析 #EventTick #坑72
+
+**背景**:坑72 定下的判活方法是"对具体某个可疑调用点的 `execute` 输入顺 `connected_pins` 一路手动回溯"。这个方法**判据是对的,但吞吐量太低**——一次只能确认一个调用点,而 `BP_Unit.EventGraph` 有 726 个节点、同名函数各有 6 个调用点。结果就是:2026-08-30 那次为了插 10 个 `Branch(NOT Aiming)` 网关"花了大量 `get_node_infos` 回溯",最后**8 个插在了死代码里**;坑77 补的 5 个 `IsValid` 里 4 个同理。**判错的代价不是浪费时间,是给死代码打补丁然后以为修好了。**
+
+**正确做法(一次算清全图,几分钟)**:
+
+1. `find_nodes(graph, title="")` 拉全部节点 refPath(只回 refPath,很轻);
+2. `get_node_infos` 分批(60 个一批)取真实 pin 连接,本地缓存成一份 dict,**之后全部计算离线做**,不再打 MCP;
+3. **入口 = 真实事件节点**,按 `type_id` 前缀识别:`AddEvent|` / `Input|KeyboardEvents|` / `Input|MouseEvents|` / `Input|EnhancedActionEvents|`。
+   ⚠️ **不能用"exec 输入连接数为 0"当入口判据**——那会把死岛头(`ExecutionSequence`、悬空的 `GetAllActorsOfClass`/`PrintString`)一起当成入口,死代码就全变"活"了。这是本次差点踩的坑。
+4. **第一步闭包:只沿 `type_id == "Exec"` 的输出 pin** 做可达闭包 → 得到"会被执行的节点";
+5. **第二步闭包:对上一步结果取数据输入闭包**(所有非 Exec 输入 pin 的来源,传递闭包)→ 补回纯节点。
+   ⚠️ **这一步绝对不能省**:变量 Get、数学运算、`K2Node_Self` 这些纯节点**根本没有 exec pin**,只做第 4 步会把它们全判成死的,一删就炸。本次 726 个节点里,exec 可达只有 100 个,数据闭包补回 78 个,真活是 178 个。
+6. 剩下的就是真死。再按"死岛头"分组(死节点里那些有 exec 输出、exec 输入为 0 的),得到互不重叠的岛。
+
+**删除前的现场复核(硬性,不能拿上面的离线分析当依据直接删)**:对该岛全部节点重新 `get_node_infos` 一次,逐 pin 检查有没有**出岛边指向活节点**。方向要分清:
+- **入岛边**(活节点 → 岛内,比如 `Event Tick.DeltaSeconds` 或共享的 `K2Node_Self_0` 给岛内供数据)= **安全**,删岛只是让活节点少了个消费者;
+- **出岛边**(岛内 → 活节点)= **危险,立即停手**,说明这个节点其实在给活链供数据,判活算错了。
+
+**验证手法:活链签名**。把"从 Tick 事件出发沿 exec 走一遍"的有序节点列表(refPath + type_id)存成一个字符串当基线,每删一个岛就重算一次做逐字比对。本次 7 轮删除、548 个节点,签名每次都完全一致——这比"编译通过"强得多(编译只保证图合法,不保证执行链没被动过)。
+
+**顺带的性能观察**:`delete_node` 是一次一个 MCP 往返,548 个节点删了约 1 小时。`ProgrammaticToolset`(批调用)没试,下次这种量级可以先看看它。

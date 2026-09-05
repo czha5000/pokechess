@@ -11,13 +11,38 @@
 
 ---
 
-### 🔴 最新状态(2026-09-01)——下次开工从这里开始
+### 🔴 最新状态(2026-09-06)——下次开工从这里开始
+
+**上一轮(2026-09-06)做完了队列 #5**,但结论和原来写的完全不同:实测「5 份重复逻辑」是 **1 份活的 + 5 份死的**,`BP_Unit.EventGraph` 726 个节点里 **548 个(75%)不可达**。已全部删除,**726 → 178 节点,死代码归零**,活链 44 个 exec 节点一根线没动、签名 7 轮逐字未变。详见 `UE蓝图状态.md` 2026-09-06 章节、`UE节点备忘录.md` **坑90**(全图判活方法,以后别再逐节点手动回溯了)。
+
+**⚠️ 第一件事:人工 Play 验收上一轮的清理。** 回归测试 T1–T11 **没有一条经过 EventTick**,所以自动化只证明了「没伤到别的蓝图」。验收清单在 `UE测试用例.md` 2026-09-06 条目末尾那张表(WASD / 鼠标 / 1-5 / Tab / 右键瞄准 / 射程内无敌人不刷 Accessed None / 敌方 AI 移动)。
+出问题就用备份回滚:`Content/Maps/BP_Unit.uasset.bak_20260906` 是清理前原件,另有每岛一份 `.bak_<岛头名>`。
+
+**MCP 连不上不等于干不了活** —— 见上方订正,编辑器在跑就能 curl 直连,上一轮全程如此。
+
+**剩余队列:**
+
+| # | 事项 | 说明 |
+|---|---|---|
+| 6 | 🧪 **修回归测试** | 现在有三个明确目标,不再是一句「长期 FAIL」:<br>① **T7b/T7c** 确定性 FAIL(敌方 AI 移动),根因仍未知——已排除「活链上的 AI 插值分支断线」这个猜测,那套(`VInterpTo_771`→`SetActorLocation_772`→`MakeRotator_775`→`SetActorRotation_776`→到达判定→吸附)数据线完整全活。<br>② **T6a 不是随机假阳性**(新证据):四轮里 T5 全 PASS(HP 确实掉了)、T6a 全 FAIL、MISS=0 —— 命中了但血条 `Percent` 没变。要么是产品 bug(血条没联动),要么是断言时序太早。**别再当抖动忽略。**<br>③ **T9 是新识别的时序抖动**(FAIL/PASS 交替且与 MISS 无关),它排在 `REGRESSION_TESTS_DONE` 之后,走异步镜头路径。<br>另有:命中率随机假阳性要定种子;测试地图阵营构成两处文档自相矛盾(队列旧说法「4 个全 side=true」vs 坑83 现场实测「有 4 个 side=false 敌人」),**开工先现场核实**。 |
+| 7 | 📊 **`IsAoeSkill` 改读表** | ⚠️ **有个会静默毁数据的雷**:UE 工程的 `Saved/Import/DT_Skills.csv` 停在 2026-08-16,**没有 `Kind` 列、也缺那 4 行 AOE**(AOE 当初是用 `add_rows` 直接写进资产的)。照旧计划「编辑器里重新导入」会**当场删掉 4 个 AOE 技能**。必须先跑 `UE_IMPORT_DIR=".../MyProject 5.8/Saved/Import" node js/data/export_ue_csv.js` 覆盖它。<br>然后:C++ `FSkillRow`(`CombatTables.h`)加 `Kind`(用 `FName`,对齐 `TypeName`/`InflictKind` 的既有写法;文件里没有任何 enum)→ **加 UPROPERTY 改结构体布局,Live Coding 顶不住,要关编辑器 + UBT 重编 + 重开**(工具链齐:VS Build Tools 2022 + `UE_5.8/.../UnrealBuildTool.exe`)→ 重新导入 DataTable → 改 `IsAoeSkill`。<br>改 `IsAoeSkill` 时注意坑78:它是**非纯函数**,调用点必须挂 exec 链,不能嵌进 `return`。现成范式抄 `GetSkillCritChance`(`GetDataTableRow`→`BreakSkillRow`→取列)。 |
+
+**已单独排期、本次刻意没做的:**
+- Tick 活链上还有 3 次 `GetAllActorsOfClass + Cast` 现查 GridManager、3 次 `GetTargetsInRange`,每帧都跑。改它动的是求值时机,风险高于纯删除。
+- `IA_Move`/`IA_Look`(Enhanced Input)保留未删——坑41 是**未解决的 bug 不是设计决定**,删了等于删掉本该工作的代码。
+
+---
+
+### 🕐 历史状态(2026-09-01)
 
 **怎么续**:新会话说「继续UE」即可。必读已经从 542KB 降到 ~130KB(见 `CLAUDE.md` 第 1 条),不用再通读那两份大文档。
 
 **第一件事:确认 MCP 连上了。** 上一轮全程连不上(`ConnectionRefused`),UE 侧一件事都没能做。
 - 注意:**端口通 ≠ 能用**。上轮中途 8001 端口已经通了(编辑器启动了),但 MCP 客户端是在会话启动时连接的,**会话中途不会重连**——必须先开编辑器、再开新会话,顺序反了就得重启会话。
-- 开工前先 `ToolSearch` 找 `mcp__unreal-mcp__*`,找不到就是没连上,别硬做。
+- ⚠️ **2026-09-06 订正:「找不到工具 = 干不了活」是错的,这句话让 2026-09-01 那轮整轮报废。**
+  MCP 客户端连不上时,只要**编辑器进程还在跑**(`tasklist | grep -i unreal`)、8001 端口通,就可以 **curl 直连 JSON-RPC** 照常干活:
+  `initialize` 拿 `Mcp-Session-Id` 响应头 → 之后每个请求带这个头 → `tools/call` 调 **`call_tool`**(参数 `toolset_name` / `tool_name` / `arguments`)→ 响应是**单帧 SSE**,取值前先剥掉 `data: ` 前缀再 `json.loads`。
+  2026-09-06 队列 #5 全程(548 个节点的删除 + 5 轮 PIE 回归)就是这么做完的,和原生工具没有能力差别。
 
 **待办队列(全部需要 UE 编辑器,按建议顺序):**
 
@@ -27,7 +52,7 @@
 | 2 | 🔧 **删 `IMC_TacticsControl` 里失效的 `IA_Attack`/`IA_EndTurn` 映射** | E 键定时炸弹:legacy E 绑的是攻击,Enhanced Input 里 E 注册给了 `IA_EndTurn`,哪天 Enhanced Input 修好了 E 会同时触发两件事。删掉映射即可拆弹 |
 | 3 | 🐞 **AOE 反击抑制** | UE 的 AOE 会让每个目标各反击一次,web 一次都不引。修法(含**不用改函数签名**的低风险方案)见 `UE规则对齐表.md` 第一节 #2 |
 | 4 | 🧹 **诊断 `PrintString` 挂 `bDebugVerbose` 开关** | `OnAimPressed` 3 条 + `AttemptSkillAttack` 5 条,都写着"验收后删"然后都没删,`bPrintToScreen=true` 会糊玩家屏幕 |
-| 5 | 🏗️ **收敛 `BP_Unit.EventTick` 的 5 份重复逻辑** | UE 侧最大的结构债:同一段逻辑复制了 5 份(上次加瞄准态门槛要插 10 个 Branch),还混着两段确认的死代码。**工具现在有了**:`ue/tools/paste_gen.py`(带连线完整性校验,已修好 Windows 崩溃) |
+| ~~5~~ | ✅ **已完成(2026-09-06)** —— 但**不是按这里写的方式做的**。实测「5 份重复逻辑」其实是**1 份活的 + 5 份死的**:全图 726 节点里 548 个(75%)不可达,分 6 个死岛 + 22 个孤儿,坑72 当年只找到 1 个岛。正确做法是**删**,不是抽函数。726 → 178 节点,活链 44 个 exec 节点一根线没动。`paste_gen.py` 做不了这件事(只能生成 CalcDamage 子图)。详见 `UE蓝图状态.md` 2026-09-06 章节、`UE节点备忘录.md` 坑90 |
 | 6 | 🧪 **修回归测试** | T7b/T7c 长期 FAIL 被容忍;测试地图 4 个单位全是 `side=true`(场上没敌人,涉敌行为测不到);随机命中率导致假阳性要定种子 |
 | 7 | 📊 **`IsAoeSkill` 改读表**(web 侧已备好) | CSV 现在有 `Kind` 列了。UE 侧还剩三步:C++ `FSkillRow` 加 `Kind` 字段 → 编辑器里重新导入 `DT_Skills` → `IsAoeSkill` 从硬编码四个字符串改成读 `Kind == "aoe"`。做完之后加 AOE 技能就不用再动蓝图。详见 `UE规则对齐表.md` 第四节 |
 
