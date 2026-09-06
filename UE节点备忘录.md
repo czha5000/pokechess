@@ -918,3 +918,87 @@ for t in d['tools']:
 **验证手法:活链签名**。把"从 Tick 事件出发沿 exec 走一遍"的有序节点列表(refPath + type_id)存成一个字符串当基线,每删一个岛就重算一次做逐字比对。本次 7 轮删除、548 个节点,签名每次都完全一致——这比"编译通过"强得多(编译只保证图合法,不保证执行链没被动过)。
 
 **顺带的性能观察**:`delete_node` 是一次一个 MCP 往返,548 个节点删了约 1 小时。`ProgrammaticToolset`(批调用)没试,下次这种量级可以先看看它。
+
+---
+
+### 坑91:`ObjectTools.set_properties` 的 `values` 参数类型是 **string**,必须传 JSON **字符串**;传字典会静默返回 `false` 什么也不做(2026-09-06)#MCP #set_properties #静默失败 #环境限制误判
+
+**症状**:`set_properties(instance=..., values={'bRunRegressionTestsOnBeginPlay': True})` 返回 `{"returnValue": false}`,`isError` 是 `false`(不报错),随后 `get_properties` 读回来还是旧值。换属性、换类型(bool/int)、换实例(关卡放置实例/CDO)全都一样失败。
+
+**根因**:`describe_toolset` 里这个工具的 schema 写得很清楚——
+
+```
+"values": {"type": "string"}
+描述:A JSON formatted string of the properties to set and their values.
+```
+
+`values` 要的是**一段 JSON 文本**,不是 JSON 对象。传对象进去,服务端解析不出任何键,于是"零个属性写成功" → 返回 `false`。
+
+**正确写法**:
+
+```python
+call(O, 'set_properties', {'instance': {'refPath': GM},
+                           'values': json.dumps({'bRunRegressionTestsOnBeginPlay': True})})
+# → {"returnValue": true},get_properties 读回 True
+```
+
+**这条要追溯订正历史记录**:`UE蓝图状态.md` 里至少两处把"`set_properties` 对 `BP_GridManager.SkillSlots`、`BP_Unit.Aiming` 等属性的写入请求全部静默失败"记成了**环境限制**,并据此放弃了"不靠真人长按右键就能强制进瞄准态截图验证"这类验证。**那大概率不是环境限制,是参数格式用错了**——下次要验证瞄准态之类的东西,先用正确写法重试一遍再说"做不到"。
+
+**通用教训**:MCP 工具返回 `false` 而不是报错时,先去 `describe_toolset` 看这个参数的 `type`,不要直接归因成"环境不支持"。这类"看起来像能力缺失、实际是调用格式错"的误判,成本是整条验证路径被判死刑。
+
+---
+
+### 坑92:`T6a_HealthBar_DecreasesAfterDamage` 读错了单位——它查的是 T1/T2 用的那个从没挨过打的单位,不是被 `TryAttack` 打的那个(2026-09-06 修复)#回归测试 #断言接线 #假失败 #空转断言
+
+**症状**:四轮以上的 PIE 里 `T5_TryAttack_DamagesDefender_HP` 恒 PASS(HP 确实掉了)、`T6a` 恒 FAIL、且当轮 `MISS=0`。曾被长期归类成"命中率随机假阳性",2026-09-06 才靠"MISS=0 时依然 100% FAIL"这个反直觉现象翻案(判据同坑83 教训2)。
+
+**先排除产品 bug(重要,别跳过这步)**:在 PIE 里直接读 8 个活单位的 `HP` 和 `HealthBarWidget.HealthProgressBar.Percent` 逐一对照——
+
+| HP/MaxHP | 实测 Percent |
+|---|---|
+| 16/20 | 0.800000011920929 |
+| 13/20 | 0.6499999761581421 |
+| 20/20 | 1.0 |
+
+**全部精确吻合,血条联动是好的**,包括测试自己 `SpawnUnit` 出来的单位。所以问题只可能在断言侧。
+
+**根因**:`RunRegressionTests` 里 `GetHealthBarWidget` 节点(`K2Node_VariableGet_3`)的 `self` 输入接的是 **`K2Node_CallFunction_0`**——函数最开头那次 `SpawnUnit(TileIndex=1, bAlly=true)`,是给 T1/T2 测占位用的,**从头到尾没人打过它**。而 `TryAttack` 的 `Defender` 接的是 **`K2Node_CallFunction_18`**(另一次 `SpawnUnit(TileIndex=1, bAlly=true)`)。两个 `SpawnUnit` 参数一模一样、只差节点编号,肉眼看图极难发现。
+
+于是:被打的是 `_18` 的单位,读血条读的是 `_0` 的单位 → Percent 恒为 1.0 → `Percent < 1.0` 恒假。
+
+**顺带发现 T6b 一直在空转**:`T6b_HealthBar_NotZeroedOut_IntegerDivisionRegression` 断言 `Percent > 0.0`,读的是同一个没挨打的血条,值恒为 1.0 —— **它当然过,但它从写下来那天起就没有真正守住"整数除法截断成 0"这个回归点**。一条"永远 PASS 的断言"和一条"永远 FAIL 的断言"同样没有价值,而且更难发现。
+
+**修法**:`break_pins(CallFunction_0.SpawnedUnit → VariableGet_3.self)` + `connect_pins(CallFunction_18.SpawnedUnit → VariableGet_3.self)`,两次 MCP 调用,不新建任何节点。`compile_blueprint` 通过,重跑 PIE:**T6a PASS,T6b 仍 PASS(现在是真的在守)**,其余断言集合不变。
+
+**教训:一条断言"读的是哪个对象"必须逐 pin 核实,不能靠"函数里只有一个这种单位"的直觉。** 同一个函数里出现多次参数完全相同的 `SpawnUnit`/`Get` 时,节点编号是唯一的区分依据。
+
+---
+
+### 坑93:`T7b`/`T7c` 恒 FAIL 的根因是**敌方 AI 移动早就改成异步了**,断言还停在"同步瞬移"的旧假设上(2026-09-06 定位,未修)#回归测试 #时序假设 #异步移动 #坑61同类
+
+**结论先行**:这两条不是产品 bug,是**断言的时序假设已经失效**,和坑61(`SetViewTargetWithBlend` 带 BlendTime 时同帧读 `GetViewTarget` 读到旧值)是同一类。
+
+**证据**:把 `BP_GridManager.MoveUnitTowardTarget` 全图 57 个节点拉下来看,函数末尾的写变量序列是——
+
+```
+SetAIMoveTarget → SetAIMoveTargetCol → SetAIMoveTargetRow → SetbIsAIMoving
+```
+
+**没有 `SetActorLocation`,也没有 `SetCol`/`SetRow`。** 真正的位移和 `Col`/`Row` 回写发生在 `BP_Unit.EventTick` 的 `Branch(bIsAIMoving)` 插值分支里,到达之后才做(`VInterpTo_771 → SetActorLocation_772 → … → Branch_38(到达?) → SetActorLocation_778(吸附) → SetCol_120/SetRow_121/SetbIsAIMoving_122`)。
+
+所以 `RunEnemyTurn(unit)` 同步返回的那一刻:
+- 单位**一步都还没走**,`Col`/`Row` 原封不动 → `T7b`(移动后距离应更小)恒假;
+- 老格子当然还占着 → `T7c`(老格子应变空)恒假。
+
+⚠️ **`UE蓝图状态.md:138` 对 `MoveUnitTowardTarget` 的描述("`SetActorLocation` + `Set Col`/`Set Row`")是 2026-08-15 的旧文,早就过时了**,已在该行补订正。
+
+**同一段测试场景里另外两个独立缺陷**(修 T7b/T7c 时要一起处理,只改时序假设不够):
+
+1. **目标坐标取自两次不同的调用**:`T7b` 距离式的 `ColB` 来自 `FindNearestUnit_0`(`K2Node_CallFunction_2`)的返回,`RowB` 却来自另一次 `FindNearestUnit_0`(`K2Node_CallFunction_4`)。而当前场景真正该用的是 `K2Node_CallFunction_35`(在 `CallFunction_34` 这个敌方单位上跑的那次,也是 T7a 的场景)——它的 `ReturnValue` **一根线都没接出去**。
+2. **同一个 TileIndex 上叠了三个单位**:`CallFunction_1`、`CallFunction_3`、`CallFunction_34` 都是 `SpawnUnit(TileIndex=79, bAlly=false)`,而前两个在 T7 场景开始前**从未被 `DestroyActor`**。所以哪怕 `_34` 真的走开了,79 号格子仍被另外两个单位占着,`T7c` 依旧不可能 PASS。
+
+**顺带核实(排除了一个更吓人的猜测)**:`BP_Unit.EventTick` 活链上两个 `CastToPlayerController`(`K2Node_DynamicCast_63`/`_65`)的 `CastFailed` 输出**都已接线**(分别接 `CallFunction_724` / `CallFunction_769`),所以没被 `Possess` 的 AI 单位能正常走到 `Branch(bIsAIMoving)`。**2026-09-06 的死代码清理没有伤到 AI 移动路径。**
+
+**两种修法(未定,留给下一轮决策)**:
+- **A · 改成测"意图"(同步、确定性)**:断言 `ManhattanDistance(AIMoveTargetCol, AIMoveTargetRow, 目标) < ManhattanDistance(Col, Row, 目标)`,以及 `bIsAIMoving == true` 且目的地 ≠ 原格。守住的仍是坑3(pure 节点别名)那个回归点,且不引入抖动。
+- **B · 改成异步等待(照 T9/坑61 的现成范式)**:`SetTimerbyFunctionName` 延迟 0.5s 后在独立函数里断言真实位移。测得更全,但引入和 T9 一样的时序抖动风险。

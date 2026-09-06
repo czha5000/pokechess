@@ -23,6 +23,8 @@
 > ⚠️ **2026-09-06 EventGraph 死代码清理:726 → 178 节点(删掉 548 个,占 75%)。**
 > 清理前这张图里,`ClearAttackHighlightsOnly`/`ClearLockIndicators`/`SetLockIndicator`/`ShowSkillRange`/`GetNearestTile`/`ClampMovement`/`GetSkillEffectiveRange` **各有 6 个调用点、`UpdateLocomotionAnim` 5 个、`AddMovementInput` 14 个**,长得一模一样,但**每个函数只有 1 处真的有电**(`AddMovementInput` 是 1 对 = 2 处)。历史上"只加不删"攒了 6 个完全不可达的死岛。现在全图 178 个节点**全部可达**,死代码为 0——每个函数在图里只剩唯一一个调用点,不用再判活。
 > **Tick 活链固定为 44 个 exec 节点**,完整链路见本节末尾"EventTick 活链"小节。清理全程没有碰任何一个活节点的连线,活链签名在 7 次删除后逐字未变。
+>
+> **2026-09-06 四足管线试点**:`CharacterMesh0` **仍然是** `/Game/Meshes/Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`。伊布已隔离导入 `/Game/Meshes/Eevee_Skeletal/`(自带新 Skeleton + Idle/Walk),**没有**改 `SpawnUnit` / 没有接到 `BP_Unit`。棋盘上所有单位外观不变。细节见 `UE美术管线.md` 第 7 步和 `art-pipeline/README.md`。
 
 
 > **2026-08-17 父类 Actor → Character**(TPS 直控迁移阶段A,设计见 `C:\Users\AI_Work\.claude\plans\pokemon-tps-misty-walrus.md`)。原有 `DefaultSceneRoot`/`StaticMesh` 完整保留,只是现在挂在 Character 原生根组件 `CollisionCylinder`(胶囊体)下面,不再是 Actor 根。新增组件:`SpringArm`(挂 `CollisionCylinder`,`targetArmLength=300`、`relativeLocation={0,0,100}`、`bUsePawnControlRotation=true`、`bDoCollisionTest=true`、`bEnableCameraLag/bEnableCameraRotationLag=true`)→ `TPSCamera`(挂在 SpringArm 末端)。`CharMoveComp.maxWalkSpeed=500`、`bOrientRotationToMovement=true`(移动方向带动身体转向);CDO 上 `bUseControllerRotationYaw/Pitch/Roll` 全部设为 false(鼠标只转相机,不转身体)。`EventGraph` 新增 `Input|EnhancedActionEvents|IA_Move`(→ `BreakVector2D` + `GetActorForwardVector`/`GetActorRightVector` 各一次 `AddMovementInput`)、`Input|EnhancedActionEvents|IA_Look`(→ `BreakVector2D` + `AddControllerYawInput`(X)/`AddControllerPitchInput`(Y)),原有四个事件(`EventBeginPlay`/`MouseInput|EventActorOnClicked`/`Collision|EventActorBeginOverlap`/`EventTick`)完全没动。`IA_Attack`/`IA_EndTurn` 阶段C才会在这里接线。
@@ -133,7 +135,8 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - **RunRegressionTests()**(2026-08-15 新增)/**Assert(Condition: Bool, TestName: String)**(2026-08-15 新增,内部用):自动回归测试入口,见本文件末尾专门一节。
 - **ManhattanDistance(ColA, RowA, ColB, RowB) → Int**(2026-08-15 新增):`|ColA-ColB| + |RowA-RowB|`。把此前散落在 `TryAttack`/`FindNearestUnit0`/`MoveUnitTowardTarget`/`RunRegressionTests` 里重复了 4 次的曼哈顿距离算式抽成一个真正的 Function——**不是单纯图省事的重构,是绕开 `write_graph_dsl` 一个真实 bug 的必要修复**:两处"结构相同、输入不同"的内联算式可能被编译器错误地别名成同一个节点,包成 Function 调用(天然带 exec pin,不会被去重)才能保证每次都独立求值。详见 `UE节点备忘录.md`。
 - **FindNearestUnit0(FromUnit: BP_Unit, bWantAlly: Bool) → BP_Unit**(2026-08-15 新增,注意函数名末尾没有下划线,是 `remove_function_graph`+`add_function_graph` 重建时自动改的名字):遍历全场 `BP_Unit`,按 `Side==bWantAlly` 过滤,返回曼哈顿距离最近的一个。用**大哨兵初始距离(9999)+ 逐个比较更新**的写法,不用 `IsValid` 判断"是否是第一个候选"(`IsValid` 在 `write_graph_dsl` 里不可靠,详见节点备忘录)。
-- **MoveUnitTowardTarget(Unit: BP_Unit, TargetCol: Int, TargetRow: Int)**(2026-08-15 新增):在 `Unit.MoveRange` 范围内、未被占用的格子里,找一个"到目标距离最小"的格子,如果比"原地不动"更近就真的移动过去(`SetActorLocation` + `Set Col`/`Set Row`)。用局部 bool 变量 `FoundBetterTile` 代替 `IsValid(BestTileTmp)` 做"要不要移动"的判断,原因同上。**目前是纯贪心单步移动,不是 BFS 寻路,不会绕开障碍物或别的单位**(和 `ShowRange` 的已知简化一致)。
+- **MoveUnitTowardTarget(Unit: BP_Unit, TargetCol: Int, TargetRow: Int)**(2026-08-15 新增):在 `Unit.MoveRange` 范围内、未被占用的格子里,找一个"到目标距离最小"的格子,如果比"原地不动"更近就移动过去。
+  ⚠️ **2026-09-06 订正:这里早就不是同步瞬移了。** 函数末尾实际写的是 `SetAIMoveTarget → SetAIMoveTargetCol → SetAIMoveTargetRow → SetbIsAIMoving`,**没有 `SetActorLocation`,也没有 `SetCol`/`SetRow`**;真正的位移和坐标回写发生在 `BP_Unit.EventTick` 的 `Branch(bIsAIMoving)` 插值分支里、到达之后才做。原文那句"`SetActorLocation` + `Set Col`/`Set Row`"是 2026-08-15 的旧描述,改成平滑移动之后没人跟着更新——**`T7b`/`T7c` 恒 FAIL 的根因就是这个**,见 `UE节点备忘录.md` 坑93。用局部 bool 变量 `FoundBetterTile` 代替 `IsValid(BestTileTmp)` 做"要不要移动"的判断,原因同上。**目前是纯贪心单步移动,不是 BFS 寻路,不会绕开障碍物或别的单位**(和 `ShowRange` 的已知简化一致)。
 - **RunEnemyTurn(Unit: BP_Unit)**(2026-08-15 新增):`FindNearestUnit0(找我方)` → `MoveUnitTowardTarget(朝目标移动)` → 移动后如果距离 ≤ `Unit.AtkRange` 就 `Set SelectedUnit=Unit` + `TryAttack(target)`,否则本回合只移动不攻击。这是敌方 AI 的核心入口,由 `BP_TurnManager.StartTurn` 在轮到敌方单位时调用。
 - **CheckVictoryCondition()**(2026-08-15 新增):若 `bGameOver` 已是 true 直接跳过(防重复弹窗)。否则 `GetAllActorsOfClass(BP_Unit)` → For Each,按 `Side` 分别标记"我方还有人活着"/"敌方还有人活着"两个临时变量 → 我方全灭 → `Set bGameOver=true` + `ShowGameOverPopup(false)`;敌方全灭 → `Set bGameOver=true` + `ShowGameOverPopup(true)`。**只在有单位真正死亡时调用一次**(接在 `TryAttack` 的 `DestroyActor` 后面),不是每次攻击都查一遍。
 - **ShowGameOverPopup(bVictory: Bool)**(2026-08-15 新增,**中途改过一次设计**):`bVictory=true` → `ConstructObjectfromClass(WBP_GameOver)` → `AddToViewport`;`false` → `ConstructObjectfromClass(WBP_GameOverDefeat)` → `AddToViewport`。**不再调用任何"运行时改文字/改颜色"的函数**——原方案是造一个共享 Widget + `ShowResult(bVictory)` 在运行时 `SetText`/`SetColorAndOpacity`,结果 `ConstructObjectfromClass` 造出来的实例的 `bIsVariable` 控件树绑定(`ResultText`)还没初始化,运行时报 `Accessed None`,文字/颜色都设不上,只有背景遮罩能看见(遮罩色是设计时默认值,不走运行时代码,不受影响)。改成两个"文字颜色都在设计时烤死"的独立 Widget 类,`ShowGameOverPopup` 只负责选造哪个类,完全不碰运行时才存在的控件树绑定,问题消失。详见 `UE节点备忘录.md`。每次调用都会 `ConstructObjectfromClass` 一个新实例——目前只会被 `CheckVictoryCondition` 调用一次(靠 `bGameOver` 挡重复),没做"复用同一个实例"的优化,够用就没优化。
@@ -966,6 +969,8 @@ BP_GridManager 新增:
 
 **顺带排除的另一个假设(结论:`SetIsEnemy` 逻辑本身没有 bug)**:一开始怀疑过 `SetIsEnemy` 的 `bEnemy=true` 分支里 `Widget|SetVisibility` 调用在 `read_graph_dsl` 打印出来的文本里**看不到第二个参数**,担心是又一次"漏传参数导致悄悄退化成默认值"(坑78/34 那种模式)。直接 `get_node_infos` 读该 pin 的真实字面量——`InVisibility="Visible"`,**是对的,只是 DSL 文本打印器本身在这个例子里省略了等于该 pin 定义时默认值的字面量,不代表节点真的没收到这个值**。这是一次虚惊,但再次印证了 `UE节点备忘录.md` 里反复强调的规矩:**怀疑连线问题时必须 `get_node_infos` 读真实 pin 值,不能只信 `read_graph_dsl` 的文本渲染结果**。
 
+> ⚠️ **2026-09-06 现场实测订正:下面这段"全部 4 个单位都是 `side=true`"是错的。** 这次连 PIE 直接读了 4 个单位的属性:`BP_Unit_C_0`(side=true)、`C_1`(true)、`C_2`(**false**)、`C_3`(**false**)——**TestMap 开局是标准 2v2,有两个真实敌方单位**。同一份文档下面 T11c 那段(坑83)说"有 4 个 `side=false` 敌人"也不对,是 **2 个**。两处都按当时的印象写,没有一处是量出来的。以后写阵营构成前先 `find_actors` + `get_properties` 读一遍。
+
 **顺带发现的场景限制(不是 bug,只是这次没法验证骷髅)**:当前 PIE 测试地图里全部 4 个 `BP_Unit`(`BP_Unit_C_0~3`)的 `side` 属性全部是 `true`(全部同一阵营),**场上根本没有 `side=false` 的敌方单位**,所以不管骷髅逻辑对不对,这次测试里都不可能真的看到骷髅出现——这是测试场景本身的限制,不是代码问题。已经用临时手段验证过骷髅本身能正确渲染:直接对 `BP_Unit_C_1` 的 `Txt_EnemyMarker` 强制 `set_properties(Visibility=Visible)`(仅用于这次视觉验证,验证完已经改回 `Collapsed`,没有改动任何蓝图逻辑),截图确认骷髅图标清晰显示在血条左侧专属区域内,和血条不重叠。**结论:骷髅标记的代码逻辑是正确的,用户如果想在实际对局里看到骷髅效果,需要在有真正敌方(`side=false`)单位的对局场景里测试,而不是当前这个"全员同阵营"的调试地图。**
 
 **当前状态**:血条可见性问题已经彻底解决并肉眼验证。骷髅标记逻辑已验证正确,但受限于当前测试地图没有敌方单位,还没有在"真实敌我混战"场景里得到最终视觉确认——下一步建议用户换一个有敌方单位的关卡/场景再看一次。
@@ -1175,3 +1180,79 @@ EventTick → GetAllActorsOfClass_715 → CastToBP_GridManager_62 → GetTargets
 
 **备份**(UE 工程无版本控制,`MyProject 5.8` 的 git 停在 2025-08):`Content/Maps/BP_Unit.uasset.bak_20260906`(清理前原件)及每岛一份滚动备份 `.bak_<岛头名>`、`.bak_final`。
 
+### 2026-09-06 四足动画管线试点(伊布,隔离导入,未接 BP_Unit)
+
+仓库脚本在 `art-pipeline/`。第一只实验体是 `eevee-4view/Hy3D_mv_grey.glb`,不是超梦。
+
+UE 新增资产(全部在 `/Game/Meshes/Eevee_Skeletal/`,**自带新 Skeleton**,没有绑到超梦那副骨头上):
+
+- `Eevee_Rigify`(SkeletalMesh,39 骨,含 `front_thigh_*` / `thigh_*` / `tail_001..004`)
+- `Eevee_Rigify_Skeleton`
+- `Eevee_Rigify_Anim_EeveeMetarig_Eevee_Idle`
+- `Eevee_Rigify_Anim_EeveeMetarig_Eevee_Walk`
+
+`BP_Unit.CharacterMesh0` 仍是 `Mewtwo_TPose`。`SpawnUnit` 未改。`get_referencers(BP_Unit)` 仍只有 TurnManager / Tile / GridManager / WBP_OrderBar。
+
+局部包围盒大约 1×1.9×1(Blender 米制原样进 UE),在关卡里会极小,Scale 必须单独校准,不能抄超梦的 ≈54。
+
+**同日追加(程序化伊布,替代 Hunyuan 灰模)**:Hunyuan 灰模质量被否后,改用 `art-pipeline/scripts/05_build_eevee.py` 程序化建模(体素融合版,有颜色有脸),同一套 02/03 脚本绑骨出动画,隔离导入到 `/Game/Meshes/EeveeProc_Skeletal/`:
+
+- `EeveeProc_Rigify`(SkeletalMesh,39 骨,骨名和 Hunyuan 版一致)+ `EeveeProc_Rigify_Skeleton`(又一副新骨头)
+- `EeveeProc_Rigify_Anim_EeveeMetarig_Eevee_Idle` / `..._Eevee_Walk`
+- **五个颜色材质** `Eevee_brown/cream/dark/nose/white`(`import_materials=true` 带进来的,灰模路径没有这个)
+
+仍未改任何蓝图。包围盒同样是米制 1cm 量级,接 `BP_Unit` 前要校准 Scale。报告:`art-pipeline/reports/04_ue_import_proc.json`。
+02 的绑骨门禁这次修了一个误报:「抬腿有没有动」从包围盒体积改成顶点最大位移(大尾巴会把包围盒撑到抬腿都在盒内,体积不变 → 假 FAIL)。
+
+---
+
+### 2026-09-06(第二轮)队列 #6 开工:三个"长期 FAIL"里修掉一个、定位一个、订正一条环境限制误判
+
+承接同日死代码清理(见上一节)。人工 Play 验收通过后开始队列 #6。**本轮不靠推测,全部结论都有现场实测支撑。**
+
+#### 一、TestMap 真实阵营构成(队列开工第一步,文档自相矛盾必须先量)
+
+关卡里**没有任何放置的 `BP_Unit`**(`find_actors` 返回空),4 个单位全部由 `BP_GridManager` 运行时 `SpawnUnit` 生成。连 PIE 实测:
+
+| 单位 | Side | Col,Row |
+|---|---|---|
+| `BP_Unit_C_0` | **true**(我方) | 4,7 |
+| `BP_Unit_C_1` | **true**(我方) | 6,2 |
+| `BP_Unit_C_2` | **false**(敌方) | 7,5 |
+| `BP_Unit_C_3` | **false**(敌方) | 4,8 |
+
+**标准 2v2。** 此前两处说法(旧队列/评估报告的"4 个全 side=true"、坑83 的"有 4 个 side=false 敌人")**都不对**,已就地订正。
+
+#### 二、`T6a` 修好了 —— 是断言读错了单位,不是产品 bug
+
+先证伪"血条没联动"这个猜测:PIE 里逐个读 8 个活单位的 `HP` 与 `HealthBarWidget.HealthProgressBar.Percent`,**16/20 → 0.80、13/20 → 0.65、20/20 → 1.0,全部精确吻合**(含测试自己 SpawnUnit 出来的单位)。血条系统是好的。
+
+根因在断言接线:`RunRegressionTests` 里 `GetHealthBarWidget` 的 `self` 接的是 `K2Node_CallFunction_0`(函数最开头给 T1/T2 用的那次 `SpawnUnit(TileIndex=1, bAlly=true)`,**从没挨过打**),而 `TryAttack` 的 `Defender` 是 `K2Node_CallFunction_18`(另一次参数完全相同的 `SpawnUnit`)。读的和打的不是同一个单位 → `Percent` 恒 1.0 → `< 1.0` 恒假。
+
+**修法**:`break_pins` + `connect_pins` 各一次,把 `VariableGet_3.self` 改接到 `CallFunction_18.SpawnedUnit`。不新建节点。`compile_blueprint` 通过、`save_assets` 落盘。
+
+**同时暴露 `T6b` 一直在空转**:它断言的 `Percent > 0.0` 读的是同一个没挨打的血条(恒 1.0),所以从写下来那天起就没真正守住"整数除法截断成 0"这个回归点。改完之后它才第一次开始起作用。细节见 `UE节点备忘录.md` 坑92。
+
+#### 三、`T7b`/`T7c` 根因已定位(本轮未修,等决策)
+
+`MoveUnitTowardTarget` **早就不是同步瞬移**了,函数末尾只写 `SetAIMoveTarget`/`SetAIMoveTargetCol`/`SetAIMoveTargetRow`/`SetbIsAIMoving`,真正的位移和 `Col`/`Row` 回写在 `BP_Unit.EventTick` 的插值分支里到达后才做。`RunEnemyTurn` 同步返回那一刻单位一步没走,所以"距离变小"和"老格子变空"两条断言都恒假。**不是产品 bug,是断言的时序假设过期**(同坑61)。
+
+同一段测试场景还有两个独立缺陷:目标坐标的 Col/Row 取自两次**不同**的 `FindNearestUnit_0` 调用;`TileIndex=79` 上先后叠了三个敌方单位且前两个从未销毁,导致 79 号格永远不可能变空。两种修法(同步测"意图" vs 异步等待)见坑93,需要决定后再动。
+
+#### 四、`set_properties` 的"静默失败"是参数格式用错,不是环境限制
+
+`values` 参数的 schema 类型是 **string**(要 JSON 文本),传字典进去会静默返回 `false`。这条**追溯推翻了本文档里两处"环境限制"的记录**——此前放弃的"不靠真人操作强制进瞄准态截图验证"之类的路子,应该重新试。详见 `UE节点备忘录.md` 坑91。
+
+#### 五、顺带核实:死代码清理没有伤到 AI 移动
+
+`BP_Unit.EventTick` 活链上两个 `CastToPlayerController`(`K2Node_DynamicCast_63`/`_65`)的 `CastFailed` 输出**都接着线**(→ `CallFunction_724` / `CallFunction_769`),未被 `Possess` 的 AI 单位能正常走到 `Branch(bIsAIMoving)` 插值分支。
+
+#### 本轮回归结果
+
+```
+PASS: T1 T2 T3 T4 T5 T6a T6b T7a T8 T10a-i T11_pre T11a T11b   ← T6a 首次转绿
+FAIL: T7b T7c   ← 根因已定位,修法待决策
+      T9        ← 已知时序抖动(异步镜头),与本轮无关
+```
+
+`bRunRegressionTestsOnBeginPlay` 已复位 `false`,关卡放置实例与 CDO 两处都 `get_properties` 核对过(坑35/坑89),之后才 `save_assets`。资产备份:`Content/Maps/BP_GridManager.uasset.bak_20260906_pre_t6a`。
