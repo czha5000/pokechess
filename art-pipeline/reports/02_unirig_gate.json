@@ -1,0 +1,24 @@
+{
+  "experiment": 2,
+  "path": "A_unirig",
+  "status": "BLOCKED",
+  "python": "3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]",
+  "py_launcher_versions": [
+    "-V:3.14[-64] *   C:\\Users\\AI_Work\\AppData\\Local\\Python\\pythoncore-3.14-64\\python.exe"
+  ],
+  "conda": null,
+  "unirig_repos": [],
+  "gpu": "NVIDIA GeForce RTX 5080, 16303 MiB",
+  "blockers": [
+    "没有 conda,UniRig 官方安装路径走不通",
+    "系统 py 启动器没有 Python 3.11(当前只有 3.14)",
+    "磁盘上没有现成的 UniRig 仓库"
+  ],
+  "notes": [
+    "UniRig issue 记录过 Windows 蒙皮权重错误、Linux 才正常。",
+    "本机是 RTX 5080(Blackwell)。有人给 5090 提过补丁,不能默认开箱能跑。",
+    "官方还依赖 flash_attn / spconv / torch_scatter,和现有 Hunyuan(torch 2.10/cu130)环境会打架。",
+    "所以对照实验的结论是:路径 A 在环境门禁被拦住,不污染现有 Comfy/Hunyuan 环境去强装。"
+  ],
+  "decision": "主路径继续用 Rigify wolf metarig。等单独备好 conda+3.11 再做真正的 UniRig 对照。"
+}

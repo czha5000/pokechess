@@ -1,0 +1,32 @@
+{
+  "experiment": "4-proc-v5-combat",
+  "date": "2026-09-06",
+  "source_fbx": "art-pipeline/output/proc/eevee_rigify_anim.fbx",
+  "import_via": "SkeletalMeshTools.import_file (import_materials=true, import_animations=true, existing skeleton)",
+  "folder": "/Game/Meshes/EeveeProc_Skeletal",
+  "assets": {
+    "skeletal_mesh": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5",
+    "skeleton": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify_Skeleton",
+    "idle": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5_Anim_EeveeMetarig_Eevee_Idle",
+    "walk": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5_Anim_EeveeMetarig_Eevee_Walk",
+    "attack": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5_Anim_EeveeMetarig_Eevee_Attack",
+    "magic": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5b_Anim_EeveeMetarig_Eevee_Magic",
+    "hurt": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5_Anim_EeveeMetarig_Eevee_Hurt",
+    "death": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5_Anim_EeveeMetarig_Eevee_Death"
+  },
+  "reused_existing_skeleton": true,
+  "bp_unit_untouched": true,
+  "spawnunit_untouched": true,
+  "lengths_30fps": {
+    "Idle": 24,
+    "Walk": 32,
+    "Attack": 24,
+    "Magic": 28,
+    "Hurt": 18,
+    "Death": 36
+  },
+  "gate": {
+    "status": "PASS",
+    "reason": "v5 网格 + 六条 Action(含 Magic)已导入并共用 EeveeProc_Rigify_Skeleton。未改任何蓝图。"
+  }
+}

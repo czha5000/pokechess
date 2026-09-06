@@ -1,0 +1,51 @@
+{
+  "experiment": 5,
+  "version": "v5_figurine",
+  "name": "procedural_eevee",
+  "verts": 34810,
+  "faces": 34918,
+  "paw_count": 4,
+  "bbox": {
+    "min": [
+      -0.3175915479660034,
+      -0.7583239078521729,
+      -0.0006364447763189673
+    ],
+    "max": [
+      0.3175915479660034,
+      0.4480000138282776,
+      1.138802409172058
+    ],
+    "size": [
+      0.6351830959320068,
+      1.2063238620758057,
+      1.1394388675689697
+    ],
+    "center": [
+      0.0,
+      -0.15516194701194763,
+      0.5690829753875732
+    ],
+    "height": 1.1394388675689697,
+    "length": 1.2063238620758057,
+    "width": 0.6351830959320068
+  },
+  "shots": {
+    "front": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\proc_front.png",
+    "left": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\proc_left.png",
+    "back": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\proc_back.png",
+    "three_quarter": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\proc_three_quarter.png",
+    "pbr_front": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\pbr_front.png",
+    "pbr_left": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\pbr_left.png",
+    "pbr_back": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\pbr_back.png",
+    "pbr_three_quarter": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\pbr_three_quarter.png"
+  },
+  "glb": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\eevee_proc.glb",
+  "blend": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\eevee_proc.blend",
+  "notes": [
+    "v5 手办质感:删噪声位移(UE Lit 下是高光碎斑),表面回归光滑;围脖/尾巴改两排下垂毛绺。",
+    "PBR 材质分层:毛 roughness 0.9 哑光,眼珠 0.08 玻璃珠,鼻 0.35;参数随 GLB/FBX 进 UE。",
+    "预览渲染 = 导出材质本身(软光棚拍,无 toon 节点),预览不再美化模型。",
+    "颜色在融合后用 BVH 最近表面查询重新分配(棕/奶油);耳/眼/鼻/嘴不融合保锐利。"
+  ]
+}

@@ -1,0 +1,20 @@
+{
+  "experiment": 3,
+  "motion_source": "procedural_rigify_wolf_fk",
+  "actions": [
+    "Eevee_Idle",
+    "Eevee_Walk"
+  ],
+  "fbx": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\eevee_rigify_anim.fbx",
+  "blend": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\eevee_rigify_anim.blend",
+  "previews": {
+    "idle": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\03_idle_mid.png",
+    "walk_a": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\03_walk_a.png",
+    "walk_b": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\03_walk_b.png"
+  },
+  "gate": {
+    "status": "PASS",
+    "reason": "Idle/Walk 两条 Action 已写入并导出 FBX。"
+  },
+  "reuse_note": "下一只猫/狗形只要仍用 wolf/cat metarig 骨名,这份正弦走循环可以原样套。"
+}

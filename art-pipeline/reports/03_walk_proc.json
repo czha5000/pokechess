@@ -1,0 +1,37 @@
+{
+  "experiment": 3,
+  "motion_source": "procedural_rigify_quad_fk",
+  "actions": [
+    "Eevee_Attack",
+    "Eevee_Death",
+    "Eevee_Hurt",
+    "Eevee_Idle",
+    "Eevee_Magic",
+    "Eevee_Walk"
+  ],
+  "lengths_30fps": {
+    "Eevee_Idle": 24,
+    "Eevee_Walk": 32,
+    "Eevee_Attack": 32,
+    "Eevee_Magic": 32,
+    "Eevee_Hurt": 24,
+    "Eevee_Death": 42
+  },
+  "fbx": "art-pipeline\\output\\proc\\eevee_rigify_anim.fbx",
+  "blend": "art-pipeline\\output\\proc\\eevee_rigify_anim.blend",
+  "previews": {
+    "idle": "art-pipeline\\output\\proc\\03_idle_mid.png",
+    "walk_a": "art-pipeline\\output\\proc\\03_walk_a.png",
+    "walk_b": "art-pipeline\\output\\proc\\03_walk_b.png",
+    "attack": "art-pipeline\\output\\proc\\03_attack_peak.png",
+    "magic": "art-pipeline\\output\\proc\\03_magic_peak.png",
+    "hurt": "art-pipeline\\output\\proc\\03_hurt_peak.png",
+    "death": "art-pipeline\\output\\proc\\03_death_down.png"
+  },
+  "gate": {
+    "status": "PASS",
+    "reason": "Idle/Walk/Attack/Magic/Hurt/Death 已写入并导出 FBX。"
+  },
+  "reuse_note": "下一只猫/狗形只要仍用 basic_quadruped 骨名,这六条动作可以原样套。",
+  "ue_note": "一次性动作不要循环。本轮只出资产,不改 BP_Unit / SpawnUnit。"
+}

@@ -85,3 +85,88 @@ clean design, centered, game character
 - 概念图要**平光无阴影**,否则贴图出棕斑伪影。
 - 尺寸/朝向/上轴对不上是常态,第 5 步基本都要调。
 - 多视图 > 单图 > 动态姿势单图(效果依次变差)。
+
+---
+
+## 第 7 步 · 四足绑骨/动画(2026-09-06 伊布试点已跑通)
+
+超梦那条 Mixamo 路只适合近人形。伊布/皮卡丘/杰尼龟这类四足走 `art-pipeline/` 里的脚本,不要再塞 Mixamo。
+
+已验证(伊布四视图灰模 `eevee-4view/Hy3D_mv_grey.glb`):
+
+1. Blender 5.2 体素重网格 → 至少 3 个脚掌簇才允许绑骨。
+2. Rigify `basic_quadruped` + 自补 `tail.001..004`(wolf metarig 没有尾巴,190 根脸/手指骨会把围脖权重抢走)。
+3. `bpy` 程序化 Idle / 对角快步 Walk / Attack / Hurt / Death,导出 FBX。
+4. UE 导入到 `/Game/Meshes/Eevee_Skeletal/` 或 `/Game/Meshes/EeveeProc_Skeletal/`:**新建或共用该目录 Skeleton**,不要绑到超梦那副骨头上。
+
+本轮**没有**改 `BP_Unit` / `SpawnUnit`。棋盘上所有单位仍是超梦。种类映射是下一阶段。
+
+复跑:`powershell -ExecutionPolicy Bypass -File art-pipeline/run_pipeline.ps1`
+
+注意:
+
+- UniRig 在这台机器上门禁失败(无 conda / 无 Python 3.11),对照实验记在 `art-pipeline/reports/02_unirig_gate.json`。
+- **单位(2026-09-06 订正)**:MCP `import_file` 不做 Convert Scene。导出必须用 `FBX_SCALE_NONE` + `global_scale=1`(插件自己会把米→厘米的 100 打进顶点)。验收 `boxExtent.z≈57` → 总高约 114cm。写成 `global_scale=100` 会变成 57 米(见坑95)。**不要抄超梦 Scale≈54**,那是给 1.8cm 灰模用的;正确厘米网格 Scale=1。旧资产 `EeveeProc_V5` 仍是 1cm 级,主资产是 `EeveeProc`。
+- **朝向(2026-09-06 订正)**:Blender 脸朝 +Y,UE Character 前方是 +X。未修正时 MCP 导入后面朝 **-Y**(从 -X 看是侧脸)。`export_fbx` 现在导出前绕 Z 转 -90°。验收:Actor Yaw=0,从 -X 看背影、从 +X 看正脸,`boxExtent.x > boxExtent.y`。接 `BP_Unit` **不要抄**超梦 `Yaw=270`(见坑64/坑96)。
+- 自动权重会撕围脖,量产前要手修或换更准的骨头地标。
+
+---
+
+## 灰模来源审计(2026-09-06:Hunyuan 路径的四个未拧过的旋钮 + 程序化替代)
+
+伊布灰模「没脸、围脖碎、尾巴烂」之后整体审了一遍生成路径,结论:
+
+**疑似配置错误(最优先查)**:API 提交用的 `ComfyUI/input/eevee_hy3d_mv_prompt.json` 里
+`Hy3DModelLoader` 加载的是**单视图权重 `hunyuan3d-dit-v2-0-fp16`**,喂给了
+`Hy3DGenerateMeshMultiView`——违反本文件上面写的「Loader 必须选 mv-fast」。如果当时
+灰模走的是这个 API prompt(而不是 GUI 工作流),质量差有一部分就是权重配错。
+
+**从没调过的参数**(都在那个 prompt json 里):
+
+| 旋钮 | 当时值 | 该试的值 |
+|---|---|---|
+| 权重 | `v2-0-fp16`(单视图!) | `v2-0-mv-fast-fp16` |
+| `seed` | 固定 123,只抽过一次卡 | 批量 8~16 个种子,用 `_common.py` 的脚掌聚类/碎片计数自动初筛 |
+| `octree_resolution` | 256(偏低,尾巴/围脖细节就是在这一步糊掉的) | 384 或 512 |
+| 输入图 | left 是 3/4 透视图不是正交侧视 | 重新出正交三视图 |
+
+批量抽卡的提交脚本模式已经有了(`ComfyUI/input/submit_eevee_hy3d.py`),循环换 seed 排队即可,无阻碍。
+
+**程序化建模替代路线已验证**:`art-pipeline/scripts/05_build_eevee.py` 不走 Hunyuan,
+直接 bpy 建出带颜色分区(棕/奶油/深棕)、带脸(眼/鼻/内耳)的伊布。
+v1 球堆版被否(太卡通),v2 改成**体素融合成连续曲面 + BVH 重新上色 + 毛皮噪声位移**,
+接缝消失、有臀肌/肩肌体块,单次构建约 8 秒。灰模路径给不了颜色(本机贴图步是坏的)
+和脸,这条路线天生就有。细节见 `art-pipeline/README.md` 实验 5。
+
+## 渲染风格对齐(2026-09-06:超梦根本没有材质,库里不存在"既定风格")
+
+用户问"程序化伊布该不该用赛璐璐(cel-shading),对齐超梦效果"。实测查证:
+
+- **`Mewtwo_TPose` 唯一材质槽 `MaterialSlot` 是空的**(`get_material` 返回 No material assigned)——
+  超梦在 UE 里就是引擎默认灰材质 + 默认光照。它看着"干净"全靠雕刻本身好,不是有什么风格化处理。
+  **所以"对齐超梦"没有可对齐的渲染风格,只有"默认 Lit + 素色"这一个事实状态。**
+- **Blender 里做的赛璐璐(toon 材质 + Freestyle 描边)不进 FBX/GLB**——那是渲染侧设置,
+  资产只带 mesh/骨骼/基础色。UE 里 `EeveeProc_Rigify` 现在就是 5 个普通 Lit 材质(Eevee_brown 等)。
+- 同屏对比截图:`art-pipeline/output/compare/ue_side_by_side.png`、`ue_eevee_closeup.png`
+  (临时 SkeletalMeshActor 拍完已删,关卡未留痕)。观感结论:UE 默认光照下程序化伊布的
+  **毛皮噪声位移 + 几何毛刺会产生高光碎斑**,比 Blender 赛璐璐渲染难看一截;超梦胜在曲面光滑。
+- 待拍板的真正问题:**全游戏的 UE 渲染风格**选哪个——
+  (a) 维持默认 Lit(伊布要改:降噪声位移、几何毛刺收敛、颜色按 Lit 调),
+  (b) UE 侧做全局 toon(后处理描边 + 色带材质函数,超梦等所有单位一起变赛璐璐)。
+  单独给伊布上 toon、超梦保持素模是最差解(风格分裂)。
+
+---
+
+## 版本对照(2026-09-06:不要把 Hy4 当成 3D)
+
+名字很容易串。本机现在跑的是 **Hunyuan3D-2.0**(Comfy 工作流文件叫 `hy3d_*`),不是 Hunyuan3D 3,更不是 Hy4。
+
+| 名字 | 实际是什么 | 本机能不能当生成器 |
+|---|---|---|
+| 现用 `hy3d` | Hunyuan3D-**2.0** 本地。权重已在 `Documents/ComfyUI/models/diffusion_models/`:单视图 `v2-0-fp16` + 四视图 `v2-0-mv-fast-fp16` | ✅ 已跑通,四视图伊布就是这条 |
+| Hunyuan3D **2.1** | 开源下一代形状 + PBR 贴图。Kijai wrapper 已有 `Hy3D_2_1SimpleMeshGen` | ⚠️ **只有单视图**。2.1 权重还没下。贴图仍要编译 `custom_rasterizer`,官方贴图显存约 21G,5080 16G 可能 OOM |
+| Hunyuan3D **3.0/3.1** | 质量更好,Comfy Partner **云 API** | ❌ 破坏「本地免费无墙」;宝可梦外形可能再撞审核 |
+| **Hy4 preview** | 2026-08-28 发布的 **770B 语言模型**(49B 激活),要多卡 vLLM | ❌ 不生成 mesh。和 3D 管线无关 |
+| Hunyuan3D **4.0** | 到 2026-09-06 没有这个 3D 产品 | ❌ 不存在 |
+
+要「更新一代、仍本地免费」:只试 **2.1 单视图对照**,不要拆掉四视图 2.0。四足几何四视图仍然更稳;2.1 单视图很可能比现成的 `eevee-4view/Hy3D_mv_grey.glb` 更差,不值得整条绑骨重做。

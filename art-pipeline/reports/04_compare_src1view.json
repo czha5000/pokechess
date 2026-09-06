@@ -1,0 +1,42 @@
+{
+  "source": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\eevee-hy3d.glb",
+  "verts": 24846,
+  "faces": 50000,
+  "bbox": {
+    "min": [
+      -0.5405749678611755,
+      -0.8612327575683594,
+      -0.5396453142166138
+    ],
+    "max": [
+      0.5385663509368896,
+      0.8914443850517273,
+      0.45157504081726074
+    ],
+    "size": [
+      1.07914137840271,
+      1.7526772022247314,
+      0.9912203550338745
+    ],
+    "center": [
+      -0.0010043084621429443,
+      0.01510581374168396,
+      -0.044035136699676514
+    ],
+    "height": 0.9912203550338745,
+    "length": 1.7526772022247314,
+    "width": 1.07914137840271
+  },
+  "paws": 3,
+  "shots": {
+    "front": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\src1view_front.png",
+    "left": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\src1view_left.png",
+    "back": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\src1view_back.png",
+    "three_quarter": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\compare\\src1view_three_quarter.png"
+  },
+  "notes": [
+    "灰模没有眼睛/鼻子/嘴巴几何,概念图的脸全靠贴图,2.0 贴图步本机是坏的。",
+    "围脖是高频锯齿体积,不是概念图那种几片奶油色簇。",
+    "尾巴大、面碎,侧面轮廓和概念图的「上翘奶油尖」对不齐。"
+  ]
+}

@@ -1,0 +1,100 @@
+{
+  "experiment": 2,
+  "path": "B_rigify_basic_quadruped_plus_tail",
+  "bone_names": [
+    "breast.L",
+    "breast.R",
+    "foot.L",
+    "foot.R",
+    "front_foot.L",
+    "front_foot.R",
+    "front_shin.L",
+    "front_shin.R",
+    "front_thigh.L",
+    "front_thigh.R",
+    "front_toe.L",
+    "front_toe.R",
+    "pelvis.L",
+    "pelvis.R",
+    "shin.L",
+    "shin.R",
+    "shoulder.L",
+    "shoulder.R",
+    "spine",
+    "spine.001",
+    "spine.002",
+    "spine.003",
+    "spine.004",
+    "spine.005",
+    "spine.006",
+    "spine.007",
+    "spine.008",
+    "spine.009",
+    "spine.010",
+    "spine.011",
+    "tail.001",
+    "tail.002",
+    "tail.003",
+    "tail.004",
+    "thigh.L",
+    "thigh.R",
+    "toe.L",
+    "toe.R"
+  ],
+  "vertex_groups": 38,
+  "paws": [
+    {
+      "x": 0.12501922249794006,
+      "y": -0.2650844156742096,
+      "z": 0.05705045908689499,
+      "n": 611,
+      "tag": "BL"
+    },
+    {
+      "x": -0.12501922249794006,
+      "y": -0.2650843858718872,
+      "z": 0.057050447911024094,
+      "n": 611,
+      "tag": "BR"
+    },
+    {
+      "x": 0.10006960481405258,
+      "y": 0.15690509974956512,
+      "z": 0.056844886392354965,
+      "n": 578,
+      "tag": "FL"
+    },
+    {
+      "x": -0.10006959736347198,
+      "y": 0.1569051295518875,
+      "z": 0.05684489756822586,
+      "n": 578,
+      "tag": "FR"
+    }
+  ],
+  "volumes": {
+    "rest_before_bind": 0.8730797115055162,
+    "rest_after_bind": 0.8730797445374312,
+    "explode_ratio": 1.0000000378337905,
+    "lift": 0.8730796626089159,
+    "tail": 0.907858448868753
+  },
+  "displacement": {
+    "lift": 0.2540595048674026,
+    "tail": 0.10885443613908004
+  },
+  "posed_bones": {
+    "lift": "front_thigh.L",
+    "tail": "tail.003"
+  },
+  "shots": {
+    "rest": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\proc\\02_rest.png",
+    "lift_front_leg": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\proc\\02_lift_front_leg.png",
+    "bend_tail": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\proc\\02_bend_tail.png"
+  },
+  "blend": "C:\\Users\\AI_Work\\Claude\\Projects\\game\\纹兽战记\\art-pipeline\\output\\proc\\eevee_rigify.blend",
+  "gate": {
+    "status": "PASS",
+    "reason": "站姿未炸模,抬前腿和弯尾巴都有位移。"
+  }
+}

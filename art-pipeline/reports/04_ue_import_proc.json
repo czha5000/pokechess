@@ -1,0 +1,35 @@
+{
+  "experiment": "4-proc",
+  "name": "ue_isolated_import_procedural",
+  "date": "2026-09-06",
+  "source_fbx": "art-pipeline/output/proc/eevee_rigify_anim.fbx",
+  "import_via": "SkeletalMeshTools.import_file (import_materials=true, import_animations=true)",
+  "folder": "/Game/Meshes/EeveeProc_Skeletal",
+  "assets": {
+    "skeletal_mesh": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify",
+    "skeleton": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify_Skeleton",
+    "idle": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify_Anim_EeveeMetarig_Eevee_Idle",
+    "walk": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify_Anim_EeveeMetarig_Eevee_Walk",
+    "materials": [
+      "/Game/Meshes/EeveeProc_Skeletal/Eevee_brown",
+      "/Game/Meshes/EeveeProc_Skeletal/Eevee_cream",
+      "/Game/Meshes/EeveeProc_Skeletal/Eevee_dark",
+      "/Game/Meshes/EeveeProc_Skeletal/Eevee_nose",
+      "/Game/Meshes/EeveeProc_Skeletal/Eevee_white"
+    ]
+  },
+  "skeleton_is_new": true,
+  "bone_count": 39,
+  "bounds_local": {
+    "boxExtent": {"x": 0.311, "y": 0.624, "z": 0.460},
+    "note": "和 Hunyuan 版一样是 Blender 米制原样进,UE 里 1cm 量级。挂到 BP_Unit 前必须单独校准 Scale。"
+  },
+  "colors_in_ue": "import_materials=true 把 Blender 的五个 Principled 材质(棕/奶油/深棕/鼻黑/眼白)一起带进来了,这是 Hunyuan 灰模路径给不了的",
+  "rigify_gate_note": "02 门禁从「包围盒体积变化」改成「顶点最大位移」(旧指标被大尾巴撑爆的包围盒误报 FAIL,抬腿位移 0.21m 实际正常)",
+  "bp_unit_untouched": true,
+  "spawnunit_untouched": true,
+  "gate": {
+    "status": "PASS",
+    "reason": "程序化伊布(带颜色材质)+ 新 Skeleton + Idle/Walk 已导入 /Game/Meshes/EeveeProc_Skeletal/,未改任何蓝图。"
+  }
+}

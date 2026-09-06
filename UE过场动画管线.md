@@ -71,3 +71,4 @@
 - 打关键帧用 Transform 行的 ◆,**红圈是录制不是 Auto-key**。
 - 轮廓光**关 Cast Shadows**,免得影子打架。
 - 暗场加 Post Process Volume + Manual Exposure 锁曝光。
+- **Mixamo 只适合近人形**(超梦)。四足不要走 Mixamo,走 `art-pipeline/`(Rigify `basic_quadruped` + 程序化走循环)。2026-09-06 伊布灰模已按这条路导入 `/Game/Meshes/Eevee_Skeletal/`,见 `UE美术管线.md` 第 7 步。

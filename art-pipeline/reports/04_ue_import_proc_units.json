@@ -1,0 +1,74 @@
+{
+  "experiment": "4-proc-units",
+  "date": "2026-09-06",
+  "source_fbx": "art-pipeline/output/proc/eevee_rigify_anim.fbx",
+  "export": {
+    "function": "art-pipeline/scripts/_common.py:export_fbx",
+    "global_scale": 1.0,
+    "apply_unit_scale": true,
+    "apply_scale_options": "FBX_SCALE_NONE",
+    "note": "Blender plugin bakes unit_scale(100) * global_scale into vertices. global_scale=100 would be 10000x."
+  },
+  "import_via": "SkeletalMeshTools.import_file (import_materials=true, import_animations=true, new skeleton)",
+  "folder": "/Game/Meshes/EeveeProc_Skeletal",
+  "assets": {
+    "skeletal_mesh": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc",
+    "skeleton": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Skeleton",
+    "idle": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Anim_EeveeMetarig_Eevee_Idle",
+    "walk": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Anim_EeveeMetarig_Eevee_Walk",
+    "attack": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Anim_EeveeMetarig_Eevee_Attack",
+    "magic": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Anim_EeveeMetarig_Eevee_Magic",
+    "hurt": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Anim_EeveeMetarig_Eevee_Hurt",
+    "death": "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Anim_EeveeMetarig_Eevee_Death"
+  },
+  "facing": {
+    "blender_forward": "+Y",
+    "ue_character_forward": "+X",
+    "before": "mesh faced UE -Y (90 deg off); boxExtent (32,60,57)",
+    "after": "export_fbx rotates root -90deg Z then restores; boxExtent (60.3,31.8,57.0); face +X at actor yaw 0",
+    "do_not_copy_mewtwo_yaw": 270
+  },
+  "bounds_cm": {
+    "EeveeProc": {
+      "origin": {"x": -15.52, "y": 0.0, "z": 56.91},
+      "boxExtent": {"x": 60.32, "y": 31.76, "z": 56.97},
+      "approx_height_cm": 114,
+      "long_axis": "X"
+    },
+    "EeveeProc_V5_obsolete_cm": {
+      "boxExtent_z": 0.57,
+      "approx_height_cm": 1.14
+    },
+    "Mewtwo_TPose_times_bp_unit_scale": {
+      "mesh_boxExtent_z": 0.92,
+      "bp_unit_scale": 54.294,
+      "approx_on_board_height_cm": 100
+    }
+  },
+  "wrong_attempts": [
+    {
+      "settings": "global_scale=100 + apply_unit_scale=True + FBX_SCALE_NONE",
+      "result": "10000x, boxExtent.z≈5697 (~57m)"
+    },
+    {
+      "settings": "global_scale=100 + apply_unit_scale=False + FBX_SCALE_NONE",
+      "result": "still 10000x; apply_unit_scale=False hardcodes unit_scale=100"
+    },
+    {
+      "settings": "FBX_SCALE_ALL (file header only)",
+      "result": "MCP ignores UnitScale → 1.14cm"
+    }
+  ],
+  "obsolete_keep": [
+    "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_V5",
+    "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify",
+    "/Game/Meshes/EeveeProc_Skeletal/EeveeProc_Rigify_Skeleton"
+  ],
+  "bp_unit_untouched": true,
+  "spawnunit_untouched": true,
+  "testmap_temp_actors_removed": true,
+  "gate": {
+    "status": "PASS",
+    "reason": "114cm and face +X at actor yaw 0. Do not copy Mewtwo Scale 54 or Yaw 270."
+  }
+}

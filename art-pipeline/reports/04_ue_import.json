@@ -1,0 +1,44 @@
+{
+  "experiment": 4,
+  "name": "ue_isolated_import",
+  "source_fbx": "art-pipeline/output/eevee_rigify_anim.fbx",
+  "import_via": "SkeletalMeshTools.import_file",
+  "folder": "/Game/Meshes/Eevee_Skeletal",
+  "assets": {
+    "skeletal_mesh": "/Game/Meshes/Eevee_Skeletal/Eevee_Rigify",
+    "skeleton": "/Game/Meshes/Eevee_Skeletal/Eevee_Rigify_Skeleton",
+    "idle": "/Game/Meshes/Eevee_Skeletal/Eevee_Rigify_Anim_EeveeMetarig_Eevee_Idle",
+    "walk": "/Game/Meshes/Eevee_Skeletal/Eevee_Rigify_Anim_EeveeMetarig_Eevee_Walk"
+  },
+  "skeleton_is_new": true,
+  "not_mewtwo_skeleton": "/Game/Meshes/Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose_Skeleton",
+  "bones": [
+    "EeveeMetarig",
+    "spine",
+    "tail_001",
+    "tail_002",
+    "tail_003",
+    "tail_004",
+    "front_thigh_L",
+    "front_thigh_R",
+    "thigh_L",
+    "thigh_R"
+  ],
+  "bone_count": 39,
+  "bounds_local": {
+    "boxExtent": {"x": 0.498, "y": 0.944, "z": 0.490},
+    "note": "Blender 米制原样进来,在 UE 里大约只有 1cm 量级。不能抄超梦的 Scale≈54,下一阶段要单独校准。"
+  },
+  "bp_unit_untouched": true,
+  "spawnunit_untouched": true,
+  "bp_unit_referencers": [
+    "/Game/Maps/BP_TurnManager",
+    "/Game/Maps/BP_Tile",
+    "/Game/Maps/BP_GridManager",
+    "/Game/UI/WBP_OrderBar"
+  ],
+  "gate": {
+    "status": "PASS",
+    "reason": "新 Skeleton + Idle/Walk 已导入 /Game/Meshes/Eevee_Skeletal/,未改 BP_Unit/SpawnUnit。"
+  }
+}

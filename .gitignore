@@ -21,3 +21,8 @@ balance/scan_single.txt
 # Python 缓存(ue/tools/、.claude/hooks/ 下的脚本会产生)
 __pycache__/
 *.pyc
+# Blender 自动备份,复跑脚本会重生
+*.blend1
+
+# 美术管线的渲染产物:可由 art-pipeline/scripts/ 重跑重生,96MB 二进制不进 git 历史
+art-pipeline/output/
