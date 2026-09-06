@@ -1202,6 +1202,8 @@ UE 新增资产(全部在 `/Game/Meshes/Eevee_Skeletal/`,**自带新 Skeleton**,
 - **五个颜色材质** `Eevee_brown/cream/dark/nose/white`(`import_materials=true` 带进来的,灰模路径没有这个)
 
 仍未改任何蓝图。包围盒同样是米制 1cm 量级,接 `BP_Unit` 前要校准 Scale。报告:`art-pipeline/reports/04_ue_import_proc.json`。
+用户对照官图否了 v2 比例后,同日又出了 **v3 比例校正版**(大耳占身高 40%、平脸大眼、暖棕配色),随后 **v4 毛发剪影版**(围脖尖刺/额前刘海/尾巴毛边锥)——每版都删旧重导,目录和资产名不变,当前内容是 v4。
+v4 同时做了 Blender 侧赛璐璐渲染验证(toon 材质 + Freestyle 描边,见 `art-pipeline/output/compare/toon_*.png`),**UE 里要同款官图观感还需要 cel 材质 + 描边后处理,未做**。
 02 的绑骨门禁这次修了一个误报:「抬腿有没有动」从包围盒体积改成顶点最大位移(大尾巴会把包围盒撑到抬腿都在盒内,体积不变 → 假 FAIL)。
 
 ---
@@ -1233,11 +1235,22 @@ UE 新增资产(全部在 `/Game/Meshes/Eevee_Skeletal/`,**自带新 Skeleton**,
 
 **同时暴露 `T6b` 一直在空转**:它断言的 `Percent > 0.0` 读的是同一个没挨打的血条(恒 1.0),所以从写下来那天起就没真正守住"整数除法截断成 0"这个回归点。改完之后它才第一次开始起作用。细节见 `UE节点备忘录.md` 坑92。
 
-#### 三、`T7b`/`T7c` 根因已定位(本轮未修,等决策)
+#### 三、`T7b`/`T7c` 根因已定位并已按方案 A 修好
 
 `MoveUnitTowardTarget` **早就不是同步瞬移**了,函数末尾只写 `SetAIMoveTarget`/`SetAIMoveTargetCol`/`SetAIMoveTargetRow`/`SetbIsAIMoving`,真正的位移和 `Col`/`Row` 回写在 `BP_Unit.EventTick` 的插值分支里到达后才做。`RunEnemyTurn` 同步返回那一刻单位一步没走,所以"距离变小"和"老格子变空"两条断言都恒假。**不是产品 bug,是断言的时序假设过期**(同坑61)。
 
-同一段测试场景还有两个独立缺陷:目标坐标的 Col/Row 取自两次**不同**的 `FindNearestUnit_0` 调用;`TileIndex=79` 上先后叠了三个敌方单位且前两个从未销毁,导致 79 号格永远不可能变空。两种修法(同步测"意图" vs 异步等待)见坑93,需要决定后再动。
+同一段测试场景还有两个独立缺陷:目标坐标的 Col/Row 取自两次**不同**的 `FindNearestUnit_0` 调用(且都是早已过期的那两次);`TileIndex=79` 上先后叠了三个敌方单位且前两个从未销毁,导致 79 号格永远不可能变空。
+
+**修法(用户选定方案 A:测"移动意图",同步、零抖动)**:
+
+| 断言 | 新名字 | 新条件 |
+|---|---|---|
+| T7b | `T7b_RunEnemyTurn_ChoosesStrictlyCloserTile` | `ManhattanDistance(AIMoveTargetCol/Row, 目标) < ManhattanDistance(Col/Row, 目标)` |
+| T7c | `T7c_RunEnemyTurn_CommitsToDifferentTile` | `bIsAIMoving` **AND**(`AIMoveTargetCol ≠ Col` **OR** `AIMoveTargetRow ≠ Row`) |
+
+`RunRegressionTests` 的图改动:新建 3 个 getter(`GetAIMoveTargetCol`/`GetAIMoveTargetRow`/`GetIsAIMoving`,`self` 接 `CallFunction_34.SpawnedUnit`)+ 2 个 `NotEqual` + `OR` + `AND`;`CallFunction_39` 的 `ColA`/`RowA` 改读 `AIMoveTarget*`;`VariableGet_6`/`_7` 的 `self` 统一改接 `CallFunction_35.ReturnValue`(**顺带让 T7a 也变得有意义**);`IsTileOccupied`(`_41`)从执行链摘除,和 `NOTBoolean`(`_42`)、悬空的 `VariableGet_14`/`_15` 一起删除。
+
+`compile_blueprint` 通过,PIE 实测 **T7b/T7c 双双 PASS**。**已知边界**:方案 A 不覆盖"插值到达后 `Col`/`Row` 是否正确回写",那要走方案 B(延迟断言),会引入 T9 同类抖动,刻意未做。细节与建节点的 type_id 坑见坑93。
 
 #### 四、`set_properties` 的"静默失败"是参数格式用错,不是环境限制
 
@@ -1250,9 +1263,11 @@ UE 新增资产(全部在 `/Game/Meshes/Eevee_Skeletal/`,**自带新 Skeleton**,
 #### 本轮回归结果
 
 ```
-PASS: T1 T2 T3 T4 T5 T6a T6b T7a T8 T10a-i T11_pre T11a T11b   ← T6a 首次转绿
-FAIL: T7b T7c   ← 根因已定位,修法待决策
-      T9        ← 已知时序抖动(异步镜头),与本轮无关
+PASS: T1 T2 T3 T4 T5 T6a T6b T7a T7b T7c T8 T10a-i T11_pre T11a T11b
+      ← T6a 首次转绿;T7b/T7c 改写语义后转绿(新名字见上)
+FAIL: T9   ← 唯一剩下的,已知时序抖动(异步镜头路径),归入下一轮
 ```
+
+**这是这套回归测试第一次除 T9 外全绿。**
 
 `bRunRegressionTestsOnBeginPlay` 已复位 `false`,关卡放置实例与 CDO 两处都 `get_properties` 核对过(坑35/坑89),之后才 `save_assets`。资产备份:`Content/Maps/BP_GridManager.uasset.bak_20260906_pre_t6a`。

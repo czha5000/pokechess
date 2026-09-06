@@ -224,20 +224,33 @@
 
 **副产品:T6b 此前一直在空转。** 它断言 `Percent > 0.0`,读的是同一个没挨打的血条(恒 1.0),所以"整数除法截断成 0"这个回归点从写下来那天起就没被守住过。修完 T6a 之后它才第一次真正生效。
 
-### T7b/T7c —— 根因定位完成,本轮未修
+### T7b/T7c —— 根因定位完成,并已按方案 A 改写转绿
 
 **不是产品 bug,是断言的时序假设过期。** `MoveUnitTowardTarget` 末尾只写 `SetAIMoveTarget`/`SetAIMoveTargetCol`/`SetAIMoveTargetRow`/`SetbIsAIMoving`,**没有 `SetActorLocation`,也没有 `SetCol`/`SetRow`**;真正的位移和坐标回写在 `BP_Unit.EventTick` 的插值分支里、到达之后才做。所以 `RunEnemyTurn` 同步返回时单位一步没走 → 两条断言恒假。和 T9(坑61)是同一类。
 
 同场景另有两个独立缺陷,修的时候要一起处理:目标坐标的 Col/Row 取自两次不同的 `FindNearestUnit_0` 调用;`TileIndex=79` 上叠了三个敌方单位且前两个从未销毁,79 号格永远不可能变空。
 
-两种修法见 `UE节点备忘录.md` 坑93(A:同步测"意图";B:照 T9 范式异步等待),**需要先定方案再动手**。
+**已按方案 A 修好**(用户选定:同步测"移动意图",零抖动):
+
+| 断言 | 新名字 | 新条件 |
+|---|---|---|
+| T7b | `T7b_RunEnemyTurn_ChoosesStrictlyCloserTile` | 选中的目的地到目标的曼哈顿距离 **严格小于** 当前位置到目标的距离 |
+| T7c | `T7c_RunEnemyTurn_CommitsToDifferentTile` | `bIsAIMoving` 为真 **且** 目的地格 ≠ 当前格 |
+
+`bIsAIMoving` 这个合取项是防"空转断言"的关键:`SetbIsAIMoving(true)` 只出现在 `MoveUnitTowardTarget` 的 `FoundBetterTile` 真分支里,所以它为真等价于"这次真的决定要走";没有它的话 AI 决定不动时会拿旧的/默认的 `AIMoveTarget*` 蒙混过关——就是 T6b 那种"永远 PASS"的坑。
+
+顺带修掉:目标坐标的 `self` 统一改接本场景那次 `FindNearestUnit_0`(`CallFunction_35`),**T7a 也因此第一次真正有意义**。
+
+**已知边界**:方案 A 不覆盖"插值到达后 `Col`/`Row` 是否被正确回写"——那要走方案 B(`SetTimerbyFunctionName` 延迟断言),会引入和 T9 同类的时序抖动,当前刻意不做。细节见坑93。
 
 ### 本轮回归结果
 
 ```
-PASS: T1 T2 T3 T4 T5 T6a T6b T7a T8 T10a-i T11_pre T11a T11b
-FAIL: T7b T7c(根因已定位,待修) / T9(已知时序抖动)
+PASS: T1 T2 T3 T4 T5 T6a T6b T7a T7b T7c T8 T10a-i T11_pre T11a T11b
+FAIL: T9(已知时序抖动,唯一剩下的)
 ```
+
+**这是这套回归测试第一次除 T9 外全绿**(此前长期是 `{T6a, T7b, T7c}` 三条确定性 FAIL)。下一轮只剩 T9 的时序抖动和"命中率随机性定种子"两件事。
 
 ### 顺带订正:TestMap 的真实阵营构成
 

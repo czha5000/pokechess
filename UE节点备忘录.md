@@ -999,6 +999,24 @@ SetAIMoveTarget → SetAIMoveTargetCol → SetAIMoveTargetRow → SetbIsAIMoving
 
 **顺带核实(排除了一个更吓人的猜测)**:`BP_Unit.EventTick` 活链上两个 `CastToPlayerController`(`K2Node_DynamicCast_63`/`_65`)的 `CastFailed` 输出**都已接线**(分别接 `CallFunction_724` / `CallFunction_769`),所以没被 `Possess` 的 AI 单位能正常走到 `Branch(bIsAIMoving)`。**2026-09-06 的死代码清理没有伤到 AI 移动路径。**
 
-**两种修法(未定,留给下一轮决策)**:
-- **A · 改成测"意图"(同步、确定性)**:断言 `ManhattanDistance(AIMoveTargetCol, AIMoveTargetRow, 目标) < ManhattanDistance(Col, Row, 目标)`,以及 `bIsAIMoving == true` 且目的地 ≠ 原格。守住的仍是坑3(pure 节点别名)那个回归点,且不引入抖动。
-- **B · 改成异步等待(照 T9/坑61 的现成范式)**:`SetTimerbyFunctionName` 延迟 0.5s 后在独立函数里断言真实位移。测得更全,但引入和 T9 一样的时序抖动风险。
+**已按方案 A 修复(2026-09-06,用户选定)**——改成测"移动意图",同步、确定性、零抖动:
+
+| 断言 | 新名字 | 新条件 |
+|---|---|---|
+| T7b | `T7b_RunEnemyTurn_ChoosesStrictlyCloserTile` | `ManhattanDistance(AIMoveTargetCol, AIMoveTargetRow, 目标) < ManhattanDistance(Col, Row, 目标)` |
+| T7c | `T7c_RunEnemyTurn_CommitsToDifferentTile` | `bIsAIMoving == true` **AND** (`AIMoveTargetCol ≠ Col` **OR** `AIMoveTargetRow ≠ Row`) |
+
+`bIsAIMoving` 这个合取项不是装饰:`SetbIsAIMoving(true)` 在 `MoveUnitTowardTarget` 里只出现在 `Branch(FoundBetterTile)` 的 true 分支内,所以它为真**等价于"这次真的决定要走"**。没有它的话,AI 决定不动时 `AIMoveTargetCol/Row` 会留着旧值/默认 0,断言可能蒙混过关——这正是 T6b 空转那个教训的同类风险。
+
+**具体改动**(全部增量节点操作,没有整图回写):
+- 新建 `Class|BPUnit|GetAIMoveTargetCol` / `GetAIMoveTargetRow` / `GetIsAIMoving` 三个 getter,`self` 都接本场景的敌方单位 `CallFunction_34.SpawnedUnit`;
+- `CallFunction_39`(移动后那次 `ManhattanDistance`)的 `ColA`/`RowA` 从 `GetCol`/`GetRow` 改接到上面两个 `AIMoveTarget*` getter;
+- **顺带修掉"目标坐标取自两次不同调用"**:`VariableGet_6`/`_7` 的 `self` 从 `CallFunction_2`/`CallFunction_4`(两次早已过期的 `FindNearestUnit_0`)统一改接到 `CallFunction_35.ReturnValue`——本场景真正那次。**T7a 的条件也用这两个 getter,所以这一改同时让 T7a 变得有意义了**;
+- 新建 `NotEqual(!=)` ×2 + `ORBoolean` + `ANDBoolean` 组成 T7c 新条件,接到 `Assert_43.Condition`;
+- 把 `IsTileOccupied`(`CallFunction_41`)从执行链上摘下来(`Assert_40.then` 直连 `Assert_43.execute`),连同 `NOTBoolean`(`_42`)和悬空的 `VariableGet_14`/`_15` 一起 `delete_node`。
+
+⚠️ **建节点的 type_id 有坑**:`Math|Integer|NotEqual(Integer)` **不能直接创建**(`create_node` 报 "does not exist"),要用 `Utilities|Operators|NotEqual(!=)`。它建出来的初始 `type_id` 是 `GameplayTags|NotEqual(GameplayTagContainer)`,**接上整数 pin 之后会自动 promote 成 `Math|Integer|NotEqual(Integer)`**——建完先别慌,接完线再 `get_node_infos` 复核类型。
+
+**验证**:`compile_blueprint` 通过,PIE 实测 **T7b/T7c(新名字)双双 PASS**,全套只剩 T9 一条 FAIL(已知异步镜头抖动)。
+
+**遗留(方案 A 的已知边界)**:这套断言**不覆盖"插值到达后 `Col`/`Row` 是否被正确回写"**——那段逻辑在 `BP_Unit.EventTick` 的到达分支里,要覆盖得走方案 B(`SetTimerbyFunctionName` 延迟断言),会引入和 T9 同类的时序抖动。当前刻意不做。
