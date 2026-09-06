@@ -17,13 +17,15 @@
 
 | 层 | 内容 | 状态 |
 |---|---|---|
-| ① UMG | 伤害飘字 / MISS 字样 | ✅ 已完成并实测生效 |
-| ② Niagara | 命中粒子 | 🟡 **已接通**(`NS_HitImpact`,用引擎自带 `OmnidirectionalBurst` 模板),编译干净、运行期零报错、链路证据成立;**但视觉效果没法程序化验证,待人工 Play 确认**。按属性配色还没做。 |
+| ① UMG | 伤害飘字 / MISS 字样 | ✅ 完成,**人工 Play 验收通过** |
+| ② Niagara | 命中粒子 | ✅ 完成,**人工 Play 验收通过**(`NS_HitImpact`,引擎自带 `OmnidirectionalBurst` 模板)。按属性配色尚未做。 |
 | ③ 相机抖动 | 命中/暴击震屏 | ⬜ 未开始,要建 CameraShake 蓝图子类 |
 
 第 1 层的东西:新 Widget `WBP_FloatingText`(`ShowText`/`HideText`)、`BP_Unit` 加 `FloatingTextComponent`/`FloatingTextWidget` 两个变量 + `ShowHitFeedback(Damage)` 函数,挂在 **`TryAttack` 和 `ResolveCounterAttack` 两处**(⚠️ 不是一处,见坑99)。实测:掉 4 血飘 `4`、掉 7 血飘 `7`,回归 26 条仍全绿。详见 `UE蓝图状态.md` 2026-09-06 第五轮。
 
-**⚠️ 飘字还需要人工 Play 看观感**:位置(头顶 Z=75,血条在 Z=40)、字号 24、停留 0.9 秒合不合适;连续挨打时后一次会覆盖前一次。这些读属性验证不了。
+**✅ 飘字 + 粒子已于 2026-09-06 人工 Play 验收通过**(用户:「有了。验收通过。」)。位置/字号/时长/粒子大小均未提出问题,暂不调整;可调项列在 `UE蓝图状态.md` 第五轮/第六轮两节。
+
+**VFX 还剩:** ③ 相机抖动;粒子按属性配色(要给 `NS_HitImpact` 加 User 变量,再从蓝图 `NiagaraToolset_Component.SetVariable` 或蓝图节点写);暴击/克制闪屏。
 
 
 **上一轮(2026-09-06)做完了队列 #5**,但结论和原来写的完全不同:实测「5 份重复逻辑」是 **1 份活的 + 5 份死的**,`BP_Unit.EventGraph` 726 个节点里 **548 个(75%)不可达**。已全部删除,**726 → 178 节点,死代码归零**,活链 44 个 exec 节点一根线没动、签名 7 轮逐字未变。详见 `UE蓝图状态.md` 2026-09-06 章节、`UE节点备忘录.md` **坑90**(全图判活方法,以后别再逐节点手动回溯了)。
