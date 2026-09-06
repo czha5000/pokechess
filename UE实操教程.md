@@ -18,7 +18,7 @@
 | 层 | 内容 | 状态 |
 |---|---|---|
 | ① UMG | 伤害飘字 / MISS 字样 | ✅ 已完成并实测生效 |
-| ② Niagara | 命中粒子(按属性配色) | ⬜ 未开始,工程里零 Niagara 资产,MCP 的 `NiagaraToolsets` 没用过,要先探路 |
+| ② Niagara | 命中粒子 | 🟡 **已接通**(`NS_HitImpact`,用引擎自带 `OmnidirectionalBurst` 模板),编译干净、运行期零报错、链路证据成立;**但视觉效果没法程序化验证,待人工 Play 确认**。按属性配色还没做。 |
 | ③ 相机抖动 | 命中/暴击震屏 | ⬜ 未开始,要建 CameraShake 蓝图子类 |
 
 第 1 层的东西:新 Widget `WBP_FloatingText`(`ShowText`/`HideText`)、`BP_Unit` 加 `FloatingTextComponent`/`FloatingTextWidget` 两个变量 + `ShowHitFeedback(Damage)` 函数,挂在 **`TryAttack` 和 `ResolveCounterAttack` 两处**(⚠️ 不是一处,见坑99)。实测:掉 4 血飘 `4`、掉 7 血飘 `7`,回归 26 条仍全绿。详见 `UE蓝图状态.md` 2026-09-06 第五轮。

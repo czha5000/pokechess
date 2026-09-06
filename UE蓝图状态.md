@@ -1448,3 +1448,57 @@ M25 在 UE 里要拆成三层:①UMG 飘字/闪屏 ②Niagara 粒子 ③相机�
 - **Niagara 命中粒子**(按属性配色):工程里零 Niagara 资产,MCP 的 `NiagaraToolsets` 一次都没用过,要先探路。
 - **相机抖动**:需要建一个 CameraShake 蓝图子类,再在命中时 `ClientStartCameraShake`。
 - **飘字的运动和配色**:现在是"原地显示 0.9 秒然后消失",没有上飘动画,暴击/克制也没有区分颜色(`SetColorAndOpacity` 要构造 `SlateColor` 结构体,本轮为降风险跳过了)。
+
+---
+
+### 2026-09-06(第六轮)VFX 第 2 层:Niagara 命中粒子(已接通,观感待人工确认)
+
+#### 关键发现:不用从零搭粒子
+
+引擎自带一批发射器模板,路径 `/Niagara/DefaultAssets/Templates/Emitters/`,共 14 个:
+`OmnidirectionalBurst` / `SimpleSpriteBurst` / `ConfettiBurst` / `DirectionalBurst` / `Fountain` / `Minimal` / `UpwardMeshBurst` / `DynamicBeam` / `StaticBeam` / `BlowingParticles` / `HangingParticulates` / `LocationBasedRibbon` / `RecycleParticlesInView` / `SingleLoopingParticle`。
+
+**命中爆散直接用 `OmnidirectionalBurst`**,不需要自己搭模块栈。它的 Emitter State 默认就是 `Once (Let Particles Finish then Kill Emitter)`,一次性播完自己结束,配 `SpawnSystemAtLocation` 的 `bAutoDestroy=true` 不会堆积组件。
+
+#### 新资产 `NS_HitImpact`(`/Game/VFX/NS_HitImpact`)
+
+```
+CreateNiagaraSystem(assetName='NS_HitImpact', assetPath='/Game/VFX',
+                    templateSystem='/Niagara/DefaultAssets/DefaultSystem.DefaultSystem')
+AddEmitter(system, templateEmitter='/Niagara/DefaultAssets/Templates/Emitters/OmnidirectionalBurst.OmnidirectionalBurst',
+           emitterName='Impact')
+RemoveEmitter(Fountain)   ← DefaultSystem 模板自带一个 Fountain,要删掉
+```
+
+⚠️ `CreateNiagaraSystem` 的 **`templateSystem` 是必填**(不传直接报缺参数);用 `DefaultSystem` 当模板会**附赠一个 `Fountain` 发射器**,记得 `RemoveEmitter` 掉。
+
+`GetStackIssues`:0 错误 0 警告(4 条 Info 是模块版本升级说明)。`GetSystemCompileState`:`UpToDate`。
+
+#### 接入 `BP_Unit.ShowHitFeedback`
+
+命中(`Damage > 0`)分支,接在飘字 `ShowText` 之后:
+
+```
+GetActorLocation(self) ─┐
+MakeVector(0,0,90) ─────┴→ vector+vector → Niagara|SpawnSystemAtLocation
+                                             SystemTemplate=/Game/VFX/NS_HitImpact
+                                             bAutoDestroy=true, bAutoActivate=true
+```
+
+Z 偏移 90 是打在胶囊体中段(胶囊半高 88),不是脚底也不是头顶。MISS 分支不放粒子。
+
+⚠️ 加法节点的 `type_id` 是 **`Utilities|Operators|Add`**,没有 `(+)` 后缀(比较类才有 `(>)`/`(!=)` 这种后缀)。建出来接上 Vector 引脚后自动 promote 成 `Math|Vector|vector+vector`。
+
+#### 验证到了什么程度(如实说明)
+
+- ✅ 系统编译 0 错 0 警,已存盘;
+- ✅ 60 秒正常对局:两个单位挨打(HP 16 飘 `4`、HP 13 飘 `7`),**运行期日志零 Niagara 报错、零 `Accessed None`**;
+- ✅ 回归 26 条断言全绿、MISS 0;
+- ✅ **粒子节点必然执行过**——它就接在 `ShowText` 之后的同一条线性 exec 链上,中间没有任何分支,飘字出来了就说明这条链走到底了;
+- ❌ **没有视觉确认**。`SpawnSystemAtLocation` 建的是没有 Owner 的 `UNiagaraComponent`(`find_actors` 看不到),又是 `bAutoDestroy`,播完约 1 秒就销毁,**程序化读不到、截图也撞不上**(MCP 单次往返就要好几秒)。粒子到底看不看得见、大小颜色合不合适,**只能人工 Play 确认**。
+
+#### 还没做的
+
+- 按属性配色(`js/ui/vfx.js` 的 `vfxHit` 是按 type 出不同颜色/形状)——要给系统加 User 变量再从蓝图 `SetVariable`;
+- 暴击/克制闪屏;
+- 第 3 层相机抖动。

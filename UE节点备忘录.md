@@ -1201,3 +1201,36 @@ const int32 Roll = CombatFormulaPrivate::bDeterministicHitRoll
 那次退出日志是 `Cmd: QUIT_EDITOR` → `Engine exit requested (reason: UUnrealEdEngine::CloseEditor())` → `LogExit: Exiting.`,**正常退出不是崩溃**,而且退出前跑了 `LogContentValidation` 校验那 2 个脏资产并落了盘(`BP_Unit.uasset` / `WBP_FloatingText.uasset` 时间戳都等于退出时刻)。所以这一轮只 `compile_blueprint` 没 `save_assets` 的改动**侥幸没丢**。
 
 **但不能靠这个**:`compile_blueprint` 只保证图合法、进了内存,**没写磁盘**。这轮改了一个多小时的 UCS + 新建 Widget 全靠退出时那次自动保存捡回来。**每完成一个可验证的小步就 `save_assets`**,别攒着。
+
+---
+
+### 坑101:Niagara 别从零搭——引擎自带 14 个发射器模板,`CreateNiagaraSystem` 的 `templateSystem` 必填且会附赠一个 Fountain(2026-09-06)#Niagara #模板 #VFX
+
+**引擎自带发射器模板**在 `/Niagara/DefaultAssets/Templates/Emitters/`(磁盘路径 `Engine/Plugins/FX/Niagara/Content/DefaultAssets/Templates/Emitters/`),14 个:`OmnidirectionalBurst`、`SimpleSpriteBurst`、`ConfettiBurst`、`DirectionalBurst`、`Fountain`、`Minimal`、`UpwardMeshBurst`、`DynamicBeam`、`StaticBeam`、`BlowingParticles`、`HangingParticulates`、`LocationBasedRibbon`、`RecycleParticlesInView`、`SingleLoopingParticle`。
+
+**命中爆散直接 `AddEmitter(templateEmitter=OmnidirectionalBurst)` 就够**,不用碰模块栈。它默认 `Once (Let Particles Finish then Kill Emitter)`,一次性播完自灭。
+
+**两个必须知道的**:
+1. `CreateNiagaraSystem` 的 **`templateSystem` 是必填参数**,不传报 "input param templateSystem is required"。通用兜底值:`/Niagara/DefaultAssets/DefaultSystem.DefaultSystem`。
+2. 用 `DefaultSystem` 当模板会**附赠一个名叫 `Fountain` 的发射器**,建完记得 `RemoveEmitter({'system':…,'emitterName':'Fountain'})`,否则每次命中都会喷一道喷泉。
+
+**建完的自检**:`GetStackIssues`(看 `numErrors`/`numWarnings`)+ `GetSystemCompileState`(看 `aggregateStatus == UpToDate`),两个都过再接蓝图。
+
+**顺带**:加法运算符的 `type_id` 是 `Utilities|Operators|Add`,**没有 `(+)` 后缀**;只有比较类才是 `Greater(>)`/`NotEqual(!=)` 这种带符号的写法。写错了报 `does not exist`。
+
+---
+
+### 坑102:`SpawnSystemAtLocation` 生成的粒子**程序化验证不了**,别在这上面浪费轮次(2026-09-06)#Niagara #验证边界
+
+`UNiagaraFunctionLibrary::SpawnSystemAtLocation` 建的是一个**没有 Owner 的 `UNiagaraComponent`**,不是 Actor:
+
+- `find_actors(actor_type='/Script/Niagara.NiagaraActor')` → 空;
+- `find_actors(name='Niagara')` → 空;
+- 配 `bAutoDestroy=true` 时播完约 1 秒就销毁,而 MCP 单次往返要好几秒,**截图和轮询都撞不上**。
+
+**能拿到的最强证据**(本轮实际用的):
+1. 资产侧:`GetStackIssues` 0 错 0 警 + `GetSystemCompileState` `UpToDate`;
+2. 运行期日志:`GetLogEntries(pattern='Error|Warning.*Niagara|Accessed None')` 里没有相关条目;
+3. **链路证据**:把粒子节点接在一个**可观测**的节点之后(本轮是飘字 `ShowText`),中间不放分支。飘字出现 = 这条 exec 链走到底了 = 粒子节点也执行了。
+
+**拿不到的**:粒子到底看不看得见、大小颜色对不对。**这部分老老实实标成"待人工 Play 确认",别用"编译通过 + 没报错"冒充视觉验收。**
