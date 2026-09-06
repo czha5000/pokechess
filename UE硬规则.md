@@ -1,6 +1,6 @@
 # UE 硬规则速查表(必读)
 
-> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 86 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
+> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 98 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
 >
 > 需要某条的完整排查过程时,按括号里的"(见坑XX)"到 `UE节点备忘录.md` 里 grep 那个编号——那份文件是**案例档案,按需查,不必通读**(261KB)。
 >
@@ -87,6 +87,8 @@
 - 把 Actor 从普通 `Actor` 改成 `Character`(加 `CapsuleComponent`)之后,所有历史上"把这个 Actor 放到某个位置"的 Z 轴常量都要重新核算——基准点从模型局部原点变成了胶囊体中心,换算公式是 `目标世界Z = 地面实际顶面Z + CapsuleHalfHeight`,两个数都要用 `get_actor_bounds`/`get_properties` 现场量,不能套用旧常量。同一个错误的历史常量可能在多个互不调用的函数里被独立复制过,只改一处要记得搜一下整个项目是否还有其它复制品。(见坑55)
 - `CharacterMovementComponent` 默认对没有 `Controller`(没被 `Possess`)的 `Character` 不跑重力/碰撞修正物理;同一局游戏里如果"有的单位数值正常,有的精确卡在一个可疑整数上",这种数值分裂本身是强线索,指向"初始化/出生"阶段而不是"运行中的逻辑"。(见坑55)
 - 给 `StaticMeshComponent` 算相对父组件(如胶囊体)的挂载偏移之前,必须用 `StaticMeshTools.get_bounds` 现场查这个资产的局部包围盒,确认 pivot 到底在哪——不能套用"骨骼网格局部原点在脚底"的经验公式,静态网格的 pivot 由美术/导入流程决定,可能在模型中心或任意位置。(见坑56)
+- MCP `SkeletalMeshTools.import_file` **不会**做 Interchange Convert Scene。Blender FBX 导出里,关掉 `apply_unit_scale` 不会变成 1,而是硬编码 `unit_scale=100`;再设 `global_scale=100` + `FBX_SCALE_NONE` = 10000 倍。正确组合是 `global_scale=1` + `apply_unit_scale=True` + `FBX_SCALE_NONE`。`FBX_SCALE_ALL` 只改文件头,MCP 会忽略。验收看 `get_bounds.boxExtent`(半高),1.14m 模型应对约 57,不是 0.57 也不是 5697。超梦 Scale≈54 只适用于厘米级灰模,厘米数字已写进顶点的网格 Scale 必须是 1。(见坑95)
+- 本管线 Blender 模型脸朝 +Y,UE Character 前方是 +X。`axis_forward=-Z`/`axis_up=Y` 经 MCP 导入后面朝 **-Y**(差 90°,不是 180° moonwalk)。导出前绕 Z -90° 打进 FBX;验收 `boxExtent.x > boxExtent.y`,并从 -X / +X 两台相机看背/脸。接 `BP_Unit` 不要抄超梦 `RelativeRotation.Yaw=270`。(见坑96、坑64)
 - "读到某个属性值,判断这个值是对的"这个结论本身也是需要交叉验证的断言,不能只满足于"这个值存在、看起来合理";要找另一组独立数据源(比如资产自身的 bounds)交叉核实这个值是不是真的算对了。(见坑56)
 
 ### ⑥ `read_graph_dsl` 反编译失真相关
@@ -128,7 +130,13 @@
 - 一段"收尾清理代码"里的每一行都要能明确回答"这一步对应的是哪个语义阶段的结束",不能把不同语义阶段(如"移动完成" vs "整个操作序列完成")的清理代码堆在同一个时机执行。(见坑21)
 - 关卡里放置的蓝图实例属性会覆盖蓝图 CDO 的默认值,PIE 运行时复制的是关卡实例不是 CDO;查"为什么默认值没生效"要用 `reset_properties` 清掉实例覆盖,不要 "Keep Simulation Changes"。(见坑35)
 - 预览和结算(比如伤害数值)必须调用同一个底层公式函数,不能各自维护一套硬编码近似值;带随机性的判定(如命中骰)只能在真正确认执行时掷,不能放进预览路径。(见坑28)
-- 战斗类回归测试如果依赖一次性、带随机数的判定(如命中率),要预留"假性 FAIL"的可能性(检查失败前的日志是不是命中了 MISS),不代表真回归。(见'已知测试脚动')
+- ~~战斗类回归测试如果依赖一次性、带随机数的判定(如命中率),要预留"假性 FAIL"的可能性~~ → **2026-09-06 作废**:靠"重跑一次就好"消化随机 FAIL,会养出忽略 FAIL 的习惯,真 bug 就藏在这个标签底下(T6a 接错单位、T9 被测函数压根没执行,各藏了半个多月)。掷骰在 C++ 时,加一个进程级测试开关(`SetDeterministicHitRollForTests`)让回归跑确定性分支,别让测试依赖骰子。(见坑98)
+- **一条断言"永远 PASS"和"永远 FAIL"同样没有价值,而且更难发现**。断言接线要逐 pin 核实"读的到底是哪个对象"——同一个函数里出现多次参数完全相同的 `SpawnUnit`/`Get` 时,节点编号是唯一区分依据。(见坑92)
+- **断言"看起来像时序抖动"时,先确认被测函数当时到底有没有执行**,再去想延迟够不够。`IsValid` 短路 + 全局初始化顺序,伪装成时序抖动的成本极高。(见坑94)
+- 断言的时序假设会被产品改动悄悄作废:同步的操作改成 Tick 插值异步之后,"调用返回后立刻检查结果"这类断言会恒假。改成测"意图"(函数写下的目标值)比加延迟更稳。(见坑93)
+- MCP 工具返回 `false` 而不是报错时,先去 `describe_toolset` 看参数的 `type`,不要归因成"环境不支持"——`ObjectTools.set_properties` 的 `values` 要的是 JSON **字符串**,传字典会静默失败。历史上被记成"环境限制"而放弃的验证路子,应该重新试。(见坑91)
+- `create_node` 的 `type_id` 里**下划线一律去掉**(`DT_Skills` → `GetDTSkills`,`BP_Unit` → `Class|BPUnit|`),函数名大小写也会被规范化,照 `find_node_types` 返回的字符串抄别照 C++ 声明抄;`find_node_types` 搜不到 ≠ 不存在(索引会过期),用类别前缀列全量再自己过滤。promotable 运算符不能按目标类型建(用 `Utilities|Operators|NotEqual(!=)`,接上 pin 后自动 promote)。(见坑97、坑93)
+- 加 `UFUNCTION`/改 `USTRUCT` 布局 Live Coding 顶不住,必须关编辑器 → UBT 重编 → 重开;但**实测全量重编只要 17 秒**(`Build.bat MyProjectEditor Win64 Development -Project=...`),不要因为"要重编"就绕开 C++ 改动。(见坑98)
 - 默认不要求整张 EventGraph 回传核对,只要新加的那几个节点+邻居节点即可,只有怀疑有旧节点/其他事件干扰时才要整图;复杂改动优先做成独立 Function 而不是往 EventGraph 里加分支,出错时可以整体重新生成替换。(见'请求用户回传时的省token原则')
 - Enhanced Input 鼠标常驻可见(`bShowMouseCursor=true`)时视角输入基本收不到;需要"看得见鼠标点UI"和"锁鼠标转视角"两种模式来回切换,按 Possess/UnPossess 状态显式切 `SetInputMode`+`SetShowMouseCursor`。(见坑40)
 - 排查"某个功能编译不报错但运行时结果不对/卡住不动"的诡异问题,加 `PrintString` 逐段打印中间变量实际运行时值,比只信任静态读图/手算推理更可靠;怀疑"exec 链路是否真的从入口连到出口"时,`get_node_infos` 逐节点核对 `connected_pins` 比打印更直接。(见'排查心法'、坑53)

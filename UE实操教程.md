@@ -23,10 +23,19 @@
 - ✅ **T6a 已修复并转绿**:根因不是产品 bug(实测 8 个单位 HP↔Percent 全部精确吻合),是断言 `GetHealthBarWidget` 接到了**没挨过打的那个 `SpawnUnit`**(`CallFunction_0`)而不是被攻击的 `CallFunction_18`。改一根线搞定。顺带发现 **T6b 一直在空转**,现在才真正生效。见坑92。
 - ✅ **T7b/T7c 已修复并转绿**:根因是 `MoveUnitTowardTarget` 早就改成异步了(只写 `SetAIMoveTarget*`/`SetbIsAIMoving`,位移和 `Col`/`Row` 回写在 `BP_Unit.EventTick` 插值分支里到达后才做),断言还停在"同步瞬移"假设上。按方案 A 改成**测"移动意图"**(同步、零抖动):`T7b_RunEnemyTurn_ChoosesStrictlyCloserTile`(目的地严格更近)、`T7c_RunEnemyTurn_CommitsToDifferentTile`(`bIsAIMoving` 且目的地≠原格)。顺带把目标坐标统一改读本场景那次 `FindNearestUnit_0`,**T7a 也因此第一次真正有意义**。见坑93。
 - ✅ **T9 已修复**:它**不是**时序抖动(之前判断错了)。真根因是 `AnnounceNextTurn` 在测试调用那一刻被 `IsValid(TurnOrder[CurrentIndex])` 短路跳过——`BuildTurnOrder()` 要等 TurnManager BeginPlay 里的 `Delay(0.2)` 才跑。修法:加观测变量 `LastAnnouncedViewTarget` + 测试里先 `BuildTurnOrder()` + 断言改同步,删掉定时器和 `T9_CheckViewTarget`。连跑 3 轮全 PASS。见坑94。
-- ⬜ **#6 只剩最后一项:命中率定种子** —— ⚠️ **必须改 C++**:掷骰在 `CombatFormula.cpp:119` 的 `FMath::RandRange(0, 99)`,蓝图侧 `ComputeSkillDamage` 只有一个 `Combat|CalculateSkillDamageValue` 节点。要走"关编辑器 → UBT 重编 → 重开"。
-  💡 **建议和 #7 合并成同一次重编**(#7 也要改 C++ 加 `FSkillRow.Kind`),省一轮关编辑器。
+- ✅ **命中率已定种子**:C++ 加了进程级测试开关 `SetDeterministicHitRollForTests(bool)`(打开后 `Roll` 恒取 0),`RunRegressionTests` 首尾开关。见坑98。
 
-> **当前回归状态:零确定性 FAIL。** 剩下的 FAIL 全是掷骰随机性,每轮都能对上当轮 `MISS` 数。
+**✅ 队列 #7 也做完了**(和 #6 合并成同一次 UBT 重编,实测重编只花 17 秒):
+- `FSkillRow` 加 `Kind`(`FName`);新增 `IsAoeSkillRow` / 测试开关两组 `UFUNCTION`。
+- CSV 地雷已拆:刷新后 35 行与资产逐行对得上。实际写入没走重导,走的是 `set_rows`(**实测是局部合并**,比 `import_file` 重建资产安全)。
+- `IsAoeSkill` 从 4 段硬编码名字比较改成查表,删掉 16 个节点;**保持非纯**,坑78 那批调用点接线一根没动。
+- 新增 `T12a`/`T12b` 覆盖查表版 `IsAoeSkill`——此前 T10/T11 都是直接调 `GetAoeHitList`/`PerformAoeSkillAttack`,**没有一条断言经过 `IsAoeSkill` 本身**。
+
+> **当前回归状态:26 条断言连跑多轮全部 PASS,MISS 恒为 0。这是这套测试第一次达到"可重复的全绿"。**
+
+**⚠️ 两件要知道的事:**
+1. **C++ 改动没有提交**——UE 工程自己的 git 停在 2025-08,工作区里还堆着一批和本轮无关的删除(Mewtwo 动画素材等)。改的是 `Source/MyProject/CombatTables.h` 和 `CombatFormula.h/.cpp`。
+2. **`IsAoeSkill` 的真实调用路径仍需人工 Play 验收**:T12a/T12b 只证明函数本身查表正确,"选 quake 按 E 真的走 AOE 分支"没有自动化覆盖。
 
 **⚠️ 另一条影响面很大的订正:`set_properties` 的"静默失败"是参数格式用错,不是环境限制。** `values` 的 schema 类型是 **string**,要传 `json.dumps({...})`,传字典会静默返回 `false`。历史上被记成"环境限制"而放弃的验证路子(比如不靠真人长按右键强制进瞄准态截图)**应该重新试**。见坑91。
 
@@ -36,8 +45,8 @@
 
 | # | 事项 | 说明 |
 |---|---|---|
-| 6 | 🧪 **修回归测试** | 现在有三个明确目标,不再是一句「长期 FAIL」:<br>① **T7b/T7c** 确定性 FAIL(敌方 AI 移动),根因仍未知——已排除「活链上的 AI 插值分支断线」这个猜测,那套(`VInterpTo_771`→`SetActorLocation_772`→`MakeRotator_775`→`SetActorRotation_776`→到达判定→吸附)数据线完整全活。<br>② **T6a 不是随机假阳性**(新证据):四轮里 T5 全 PASS(HP 确实掉了)、T6a 全 FAIL、MISS=0 —— 命中了但血条 `Percent` 没变。要么是产品 bug(血条没联动),要么是断言时序太早。**别再当抖动忽略。**<br>③ **T9 是新识别的时序抖动**(FAIL/PASS 交替且与 MISS 无关),它排在 `REGRESSION_TESTS_DONE` 之后,走异步镜头路径。<br>另有:命中率随机假阳性要定种子;测试地图阵营构成两处文档自相矛盾(队列旧说法「4 个全 side=true」vs 坑83 现场实测「有 4 个 side=false 敌人」),**开工先现场核实**。 |
-| 7 | 📊 **`IsAoeSkill` 改读表** | ⚠️ **有个会静默毁数据的雷**:UE 工程的 `Saved/Import/DT_Skills.csv` 停在 2026-08-16,**没有 `Kind` 列、也缺那 4 行 AOE**(AOE 当初是用 `add_rows` 直接写进资产的)。照旧计划「编辑器里重新导入」会**当场删掉 4 个 AOE 技能**。必须先跑 `UE_IMPORT_DIR=".../MyProject 5.8/Saved/Import" node js/data/export_ue_csv.js` 覆盖它。<br>然后:C++ `FSkillRow`(`CombatTables.h`)加 `Kind`(用 `FName`,对齐 `TypeName`/`InflictKind` 的既有写法;文件里没有任何 enum)→ **加 UPROPERTY 改结构体布局,Live Coding 顶不住,要关编辑器 + UBT 重编 + 重开**(工具链齐:VS Build Tools 2022 + `UE_5.8/.../UnrealBuildTool.exe`)→ 重新导入 DataTable → 改 `IsAoeSkill`。<br>改 `IsAoeSkill` 时注意坑78:它是**非纯函数**,调用点必须挂 exec 链,不能嵌进 `return`。现成范式抄 `GetSkillCritChance`(`GetDataTableRow`→`BreakSkillRow`→取列)。 |
+| ~~6~~ | ✅ **已完成(2026-09-06)** —— 🧪 **修回归测试** | 现在有三个明确目标,不再是一句「长期 FAIL」:<br>① **T7b/T7c** 确定性 FAIL(敌方 AI 移动),根因仍未知——已排除「活链上的 AI 插值分支断线」这个猜测,那套(`VInterpTo_771`→`SetActorLocation_772`→`MakeRotator_775`→`SetActorRotation_776`→到达判定→吸附)数据线完整全活。<br>② **T6a 不是随机假阳性**(新证据):四轮里 T5 全 PASS(HP 确实掉了)、T6a 全 FAIL、MISS=0 —— 命中了但血条 `Percent` 没变。要么是产品 bug(血条没联动),要么是断言时序太早。**别再当抖动忽略。**<br>③ **T9 是新识别的时序抖动**(FAIL/PASS 交替且与 MISS 无关),它排在 `REGRESSION_TESTS_DONE` 之后,走异步镜头路径。<br>另有:命中率随机假阳性要定种子;测试地图阵营构成两处文档自相矛盾(队列旧说法「4 个全 side=true」vs 坑83 现场实测「有 4 个 side=false 敌人」),**开工先现场核实**。 |
+| ~~7~~ | ✅ **已完成(2026-09-06)** —— 📊 **`IsAoeSkill` 改读表** | ⚠️ **有个会静默毁数据的雷**:UE 工程的 `Saved/Import/DT_Skills.csv` 停在 2026-08-16,**没有 `Kind` 列、也缺那 4 行 AOE**(AOE 当初是用 `add_rows` 直接写进资产的)。照旧计划「编辑器里重新导入」会**当场删掉 4 个 AOE 技能**。必须先跑 `UE_IMPORT_DIR=".../MyProject 5.8/Saved/Import" node js/data/export_ue_csv.js` 覆盖它。<br>然后:C++ `FSkillRow`(`CombatTables.h`)加 `Kind`(用 `FName`,对齐 `TypeName`/`InflictKind` 的既有写法;文件里没有任何 enum)→ **加 UPROPERTY 改结构体布局,Live Coding 顶不住,要关编辑器 + UBT 重编 + 重开**(工具链齐:VS Build Tools 2022 + `UE_5.8/.../UnrealBuildTool.exe`)→ 重新导入 DataTable → 改 `IsAoeSkill`。<br>改 `IsAoeSkill` 时注意坑78:它是**非纯函数**,调用点必须挂 exec 链,不能嵌进 `return`。现成范式抄 `GetSkillCritChance`(`GetDataTableRow`→`BreakSkillRow`→取列)。 |
 
 **已单独排期、本次刻意没做的:**
 - Tick 活链上还有 3 次 `GetAllActorsOfClass + Cast` 现查 GridManager、3 次 `GetTargetsInRange`,每帧都跑。改它动的是求值时机,风险高于纯删除。

@@ -24,7 +24,8 @@
 > 清理前这张图里,`ClearAttackHighlightsOnly`/`ClearLockIndicators`/`SetLockIndicator`/`ShowSkillRange`/`GetNearestTile`/`ClampMovement`/`GetSkillEffectiveRange` **各有 6 个调用点、`UpdateLocomotionAnim` 5 个、`AddMovementInput` 14 个**,长得一模一样,但**每个函数只有 1 处真的有电**(`AddMovementInput` 是 1 对 = 2 处)。历史上"只加不删"攒了 6 个完全不可达的死岛。现在全图 178 个节点**全部可达**,死代码为 0——每个函数在图里只剩唯一一个调用点,不用再判活。
 > **Tick 活链固定为 44 个 exec 节点**,完整链路见本节末尾"EventTick 活链"小节。清理全程没有碰任何一个活节点的连线,活链签名在 7 次删除后逐字未变。
 >
-> **2026-09-06 四足管线试点**:`CharacterMesh0` **仍然是** `/Game/Meshes/Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`。伊布已隔离导入 `/Game/Meshes/Eevee_Skeletal/`(自带新 Skeleton + Idle/Walk),**没有**改 `SpawnUnit` / 没有接到 `BP_Unit`。棋盘上所有单位外观不变。细节见 `UE美术管线.md` 第 7 步和 `art-pipeline/README.md`。
+> **2026-09-06 四足管线试点**:`CharacterMesh0` **仍然是** `/Game/Meshes/Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`。伊布已隔离导入,`BP_Unit` / `SpawnUnit` 未改,棋盘上仍是超梦。
+> **正确尺寸+朝向资产(2026-09-06)**:`/Game/Meshes/EeveeProc_Skeletal/EeveeProc` + `EeveeProc_Skeleton` + 六条 `EeveeProc_Anim_*`。`get_bounds`: `boxExtent≈(60.3, 31.8, 57.0)`,总高约 114cm,长轴在 **X**(脸朝 UE +X)。**不要用**厘米级旧资产 `EeveeProc_V5` / `EeveeProc_Rigify`(仍是脸朝 -Y)。**不要**抄超梦 Scale≈54,也**不要**抄超梦 `RelativeRotation.Yaw=270`——这套网格 Actor Yaw=0 就面对 +X。细节见 `UE美术管线.md` 第 7 步、坑95/坑96。
 
 
 > **2026-08-17 父类 Actor → Character**(TPS 直控迁移阶段A,设计见 `C:\Users\AI_Work\.claude\plans\pokemon-tps-misty-walrus.md`)。原有 `DefaultSceneRoot`/`StaticMesh` 完整保留,只是现在挂在 Character 原生根组件 `CollisionCylinder`(胶囊体)下面,不再是 Actor 根。新增组件:`SpringArm`(挂 `CollisionCylinder`,`targetArmLength=300`、`relativeLocation={0,0,100}`、`bUsePawnControlRotation=true`、`bDoCollisionTest=true`、`bEnableCameraLag/bEnableCameraRotationLag=true`)→ `TPSCamera`(挂在 SpringArm 末端)。`CharMoveComp.maxWalkSpeed=500`、`bOrientRotationToMovement=true`(移动方向带动身体转向);CDO 上 `bUseControllerRotationYaw/Pitch/Roll` 全部设为 false(鼠标只转相机,不转身体)。`EventGraph` 新增 `Input|EnhancedActionEvents|IA_Move`(→ `BreakVector2D` + `GetActorForwardVector`/`GetActorRightVector` 各一次 `AddMovementInput`)、`Input|EnhancedActionEvents|IA_Look`(→ `BreakVector2D` + `AddControllerYawInput`(X)/`AddControllerPitchInput`(Y)),原有四个事件(`EventBeginPlay`/`MouseInput|EventActorOnClicked`/`Collision|EventActorBeginOverlap`/`EventTick`)完全没动。`IA_Attack`/`IA_EndTurn` 阶段C才会在这里接线。
@@ -1204,17 +1205,46 @@ UE 新增资产(全部在 `/Game/Meshes/Eevee_Skeletal/`,**自带新 Skeleton**,
 **同日再追加(v5 手办质感 + 战斗四动作)**:v5 网格重新绑骨后隔离导入 `EeveeProc_V5`(共用已有 `EeveeProc_Rigify_Skeleton`,不建第三副骨头)。新增:
 
 - `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Idle` / `_Walk`(循环)
-- `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Attack`(24f/0.8s,一次性)
+- `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Attack`(24f/0.8s,一次性,物理前扑)
+- `EeveeProc_V5b_Anim_EeveeMetarig_Eevee_Magic`(28f/0.93s,一次性,后坐抬头施法;V5 已存在不能覆盖,所以用 V5b 前缀只留这一条)
 - `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Hurt`(18f/0.6s,一次性)
 - `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Death`(36f/1.2s,一次性,末帧定住)
 - 材质多了 `Eevee_eye` / `Eevee_tongue`
 
 仍未改 `BP_Unit` / `SpawnUnit`。棋盘上还是超梦。预览关键帧在 `art-pipeline/output/proc/03_*.png`。
 
-仍未改任何蓝图。包围盒同样是米制 1cm 量级,接 `BP_Unit` 前要校准 Scale。报告:`art-pipeline/reports/04_ue_import_proc.json`。
+仍未改任何蓝图。**这段里「1cm 量级」已被同日单位修复否决**,见下方「伊布 FBX 导入单位」一节。报告:`art-pipeline/reports/04_ue_import_proc.json` / `04_ue_import_proc_units.json`。
 用户对照官图否了 v2 比例后,同日又出了 **v3 比例校正版**(大耳占身高 40%、平脸大眼、暖棕配色),随后 **v4 毛发剪影版**(围脖尖刺/额前刘海/尾巴毛边锥)——每版都删旧重导,目录和资产名不变,当前内容是 v4。
 v4 同时做了 Blender 侧赛璐璐渲染验证(toon 材质 + Freestyle 描边,见 `art-pipeline/output/compare/toon_*.png`),**UE 里要同款官图观感还需要 cel 材质 + 描边后处理,未做**。
 02 的绑骨门禁这次修了一个误报:「抬腿有没有动」从包围盒体积改成顶点最大位移(大尾巴会把包围盒撑到抬腿都在盒内,体积不变 → 假 FAIL)。
+
+### 2026-09-06 伊布 FBX 导入单位(厘米数字写进顶点,MCP 不再当 1cm)
+
+用户反馈角色大小不对。根因不是模型本身,是导出/导入单位叠乘:
+
+1. Blender 1.0 = 1 米;UE 1.0 = 1 厘米。
+2. 编辑器拖 FBX 会做 Interchange Convert Scene(×100);`SkeletalMeshTools.import_file` **不会**。
+3. Blender `export_fbx_bin.py`:关掉 `apply_unit_scale` **不会**变成 1,而是硬编码 `unit_scale=100`;`FBX_SCALE_NONE` 再乘 `global_scale`。`global_scale=100` + 这条 100 → **10000 倍**(57 米高)。
+4. `FBX_SCALE_ALL` 只改文件头 UnitScale,MCP 忽略 → 又缩回 1.14cm。
+
+正确导出(`art-pipeline/scripts/_common.py` `export_fbx`):`global_scale=1` + `apply_unit_scale=True` + `FBX_SCALE_NONE`。验收:`EeveeProc` `boxExtent.z≈56.97`,世界总高约 114cm。同屏对照:超梦 `Mewtwo_TPose` 灰模 `boxExtent.z≈0.92` × `BP_Unit` Scale≈54.294 ≈ 1m。
+
+正确资产:`EeveeProc` / `EeveeProc_Skeleton` / `EeveeProc_Anim_EeveeMetarig_Eevee_{Idle,Walk,Attack,Magic,Hurt,Death}`。旧的 `EeveeProc_V5*` / `EeveeProc_Rigify*` 仍是厘米级,仅作对照,不要当主资产。`TestMap` 未留临时 Actor。报告:`art-pipeline/reports/04_ue_import_proc_units.json`。
+
+### 2026-09-06 伊布 UE 朝向(脸从 -Y 转到 +X)
+
+用户反馈「UE 面朝的方式是错的」。按 `ue-add-animation` SOP 用 Arrow/轴标记 + 两台正交相机确认,不是凭一张图猜:
+
+| 验收 | 修正前(`EeveeProc` 第一次厘米修复版) | 修正后 |
+|---|---|---|
+| `get_bounds` | origin.y≈+15.5, boxExtent (32, 60, 57) 长轴在 Y | origin.x≈-15.5, boxExtent (60, 32, 57) 长轴在 X |
+| 相机在 -X 看 +X(Actor Yaw=0) | 侧脸,脸朝屏幕左(-Y) | 背影,脸朝 +X |
+| 相机在 -Y 看 +Y | 正脸 | (不再用) |
+| 相机在 +X 看 -X | (未拍) | 正脸 |
+
+根因:Blender 脸朝 +Y,UE Character 前方是 +X。`axis_forward=-Z` 进 MCP 后面朝 **-Y**(90°,不是坑64 那种 180° moonwalk)。
+
+修法:`export_fbx` 导出前给根物体 `rotation_euler.z -= 90°`,导出后还原,不写进 `.blend`。高度仍约 114cm。`BP_Unit` 未接。接的时候 **Yaw 用 0**,抄超梦 270 会再转错。
 
 ---
 
@@ -1307,3 +1337,62 @@ FAIL: T9   ← 唯一剩下的,已知时序抖动(异步镜头路径),归入下�
 ⚠️ **掷骰在 C++ 里**:`ComputeSkillDamage` 整个函数体只有一个 `Combat|CalculateSkillDamageValue` 节点,命中判定是 `CombatFormula.cpp:119` 的 `FMath::RandRange(0, 99)`。**要定种子必须改 C++ 并重编**,蓝图侧无从下手。
 
 ⚠️ `find_node_types` 的索引会过期:`BP_TurnManager` 新加变量、编译、保存之后,在 `BP_GridManager` 的图里搜 `Announced` 仍返回空,但按 `Class|BPTurnManager|GetLastAnnouncedViewTarget` 直接 `create_node` 能建出来。
+
+---
+
+### 2026-09-06(第四轮)队列 #6 收尾 + #7 完成:一次 UBT 重编把两件事都做了
+
+#### C++ 改动(`Source/MyProject/`,已 UBT 重编生效)
+
+⚠️ **这些改动只在 UE 工程的工作区里,没有提交**——该工程自己的 git 最后提交停在 2025-08,工作区里还堆着一批和本轮无关的删除(Mewtwo 动画素材等)。要不要在那边提交由用户决定。
+
+| 文件 | 改动 |
+|---|---|
+| `CombatTables.h` | `FSkillRow` 新增 **`Kind`**(`FName`,放在 `DisplayName` 之后)。用 `FName` 不用 enum,对齐 `TypeName`/`InflictKind` 的既有写法,CSV 直接导入不需要额外映射。 |
+| `CombatFormula.h/.cpp` | 新增 **`IsAoeSkillRow(SkillsTable, RowName)`**(`BlueprintPure`):查 `Kind == "aoe"`,查不到行返回 false。<br>新增 **`SetDeterministicHitRollForTests(bool)`** / **`IsDeterministicHitRollForTests()`**(`Combat\|Testing`):打开后命中判定取 `Roll=0` 必命中。掷骰处改成 `bDeterministicHitRoll ? 0 : FMath::RandRange(0, 99)`。 |
+
+**重编耗时 17 秒**(`Build.bat MyProjectEditor Win64 Development -Project=...`),比预期便宜很多。
+
+#### 数据:`DT_Skills` 填上 `Kind`(#7 的地雷已拆)
+
+先跑 `UE_IMPORT_DIR="…/Saved/Import" node js/data/export_ue_csv.js` 刷新那份停在 2026-08-16 的 CSV。**刷新后逐行核对:CSV 35 行 vs 资产 35 行,两边差集都是空**——原先担心的"重导会静默删掉 4 个 AOE"不成立了。
+
+实际写入没走重导,走的是 `DataTableTools.set_rows`(**实测是局部合并,只改传进去的字段,其余原样保留**),把 35 行的 `kind` 一次写完:4 行 `aoe`(`sweep`/`quake`/`rockslide`/`cleave`)+ 31 行 `atk`。比 `import_file`(会重建资产)安全得多。
+
+#### `BP_GridManager.IsAoeSkill` 改成查表
+
+原实现是 4 段硬编码 `Name == "sweep"/"quake"/"rockslide"/"cleave"` 的链式 Branch(18 个节点)。现在:
+
+```
+FunctionEntry ──exec──> ReturnNode
+FunctionEntry.RowName ─┐
+GetDT_Skills ──────────┴─> Combat|IsAoeSkillRow ──> ReturnNode.ReturnValue
+```
+
+删掉 16 个节点(4×Branch + 4×Equal(Name) + 4×MakeLiteralString + 4 个多余 ReturnNode)。**函数仍然是非纯的**(保留 FunctionEntry/Result 的 exec pin),所以坑78 那批"调用点必须挂 exec 链"的现有接线一根都不用动。
+
+#### 回归:确定性掷骰 + 两条新断言
+
+`RunRegressionTests` 开头插 `SetDeterministicHitRollForTests(true)`、`REGRESSION_TESTS_DONE` 打印之后插 `Set(false)`。
+
+新增两条断言直接覆盖查表版 `IsAoeSkill`(此前 T10/T11 都是直接调 `GetAoeHitList`/`PerformAoeSkillAttack`,**根本没有一条断言经过 `IsAoeSkill` 本身**):
+
+| 断言 | 内容 |
+|---|---|
+| `T12a_IsAoeSkill_TrueForTableAoeRow` | `IsAoeSkill("quake")` 应为 true |
+| `T12b_IsAoeSkill_FalseForTableAtkRow` | `IsAoeSkill("basic")` 应为 false |
+
+#### 结果
+
+```
+26 条断言,连跑多轮全部 PASS,MISS 恒为 0
+```
+
+**这是这套回归测试第一次达到"可重复的全绿"**——此前"全绿"从来不是一个能稳定复现的状态。
+
+`bRunRegressionTestsOnBeginPlay` 已复位 `false`(实例 + CDO 两处核对),全部资产已 `save_assets`。备份:`BP_GridManager.uasset.bak_20260906_pre_t9` / `_pre_aoe`、`BP_TurnManager.uasset.bak_20260906_pre_t9`、`DT_Skills.uasset.bak_20260906_pre_kind`。
+
+#### 仍未做的
+
+- **`IsAoeSkill` 的真实调用路径没有端到端覆盖**:T12a/T12b 只证明函数本身查表正确,"按 E 用 quake 真的走 AOE 分支"仍然只有人工 Play 能验。
+- 表里 4 行 AOE 的 `bEnabledInSlice` 都是 `False`,这是既有数据状态,本轮没动。

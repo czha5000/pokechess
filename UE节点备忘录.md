@@ -1050,3 +1050,117 @@ SetAIMoveTarget → SetAIMoveTargetCol → SetAIMoveTargetRow → SetbIsAIMoving
 **验证**:连跑 3 轮 PIE,**T9 每轮都 PASS**(改之前连跑 3 轮每轮都 FAIL)。这也反向确认了上面的机制判断——如果真是"延迟不够",加 `BuildTurnOrder` 不会有任何作用。
 
 ⚠️ **`find_node_types` 的索引会过期**:给 `BP_TurnManager` 新加变量并编译+保存之后,在 `BP_GridManager` 的图里 `find_node_types(type_id_filter='Announced')` **仍然返回空**,但直接 `create_node(type_id='Class|BPTurnManager|GetLastAnnouncedViewTarget')` **可以建出来**。所以"搜不到"不等于"不存在",按 `Class|<去下划线的蓝图名>|Get<变量名>` 的命名规律直接建就行。
+
+---
+
+### 坑95:Blender FBX 导出的「米→厘米」会叠乘,MCP 导入还不做 Convert Scene(2026-09-06)#FBX #单位 #import_file #global_scale
+
+**现象**:程序化伊布在 Blender 里高 1.14m,进 UE 后要么变成 1.14cm(蚂蚁),要么变成 57m(大厦)。用户说「角色大小有问题,导入时的单位有问题」。
+
+**对照数**(同一天 `get_bounds`,`boxExtent` 是半边长):
+
+| 资产 | boxExtent.z | 含义 |
+|---|---|---|
+| `Mewtwo_TPose` | ≈0.92 | 厘米级灰模;再乘 `BP_Unit` Scale≈54 → 棋盘上约 1m |
+| 旧 `EeveeProc_V5` | ≈0.57 | Blender 米被当成厘米 → 总高 1.14cm |
+| 第一次「修单位」 | ≈5697 | 总高约 57m |
+| 正确 `EeveeProc` | ≈56.97 | 总高约 114cm |
+
+**根因叠了两层**:
+
+1. 编辑器拖 FBX 进 Content 会做 Interchange Convert Scene(×100)。`SkeletalMeshTools.import_file` **不会**。文件头 UnitScale 也被忽略。所以 `FBX_SCALE_ALL`(只改文件头)进 MCP 等于没缩放。
+2. Blender `io_scene_fbx/export_fbx_bin.py` 约 3541–3545 行:
+   `unit_scale = units_blender_to_fbx_factor(scene) if apply_unit_scale else 100.0`
+   关掉 `apply_unit_scale` **不是**变成 1,而是硬编码 100。`FBX_SCALE_NONE` 再把 `unit_scale * global_scale` 打进顶点/骨头。于是 `global_scale=100` + 这条 100 = **10000 倍**。
+
+**正确导出**(写进 `art-pipeline/scripts/_common.py` `export_fbx`):
+
+- `global_scale=1.0`
+- `apply_unit_scale=True`
+- `apply_scale_options="FBX_SCALE_NONE"`
+
+网格/骨架/动画必须同一套单位一起重导,不能把 100× 网格绑到旧的厘米级 Skeleton 上。
+
+**不要**:把超梦的 Scale≈54 抄到正确厘米网格上(114cm × 54 ≈ 62m)。接 `BP_Unit` 时 `CharacterMesh0.RelativeScale3D` 必须改成 1,并且重算胶囊偏移。
+
+**验证**:`EeveeProc` 世界包围盒高约 113cm;同屏超梦(Scale 54)高约 100cm。`TestMap` 临时 Actor 已删,关卡未存。
+
+同日稍后朝向也修了,见坑96。当时这版网格脸朝 -Y,不要再当「最终朝向」。
+
+---
+
+### 坑96:四足 FBX 经 MCP 导入后面朝 UE -Y,不是 +X(2026-09-06)#FBX #朝向 #axis_forward #CharacterForward
+
+**现象**:用户说「UE 面朝的方式是错的」。单位已经对(114cm),但打开网格/临时 Actor(Yaw=0)时脸不朝角色前方。
+
+**不能靠一张图猜前后**(坑64 教训)。按 `ue-add-animation/SKILL.md` 用世界轴 + 两台正交相机:
+
+| 相机 | 修正前看到 | 结论 |
+|---|---|---|
+| 在 -X 看 +X | 侧脸,脸朝屏幕左 | 脸 = 世界 -Y |
+| 在 -Y 看 +Y | 正脸 | 证实脸 = -Y |
+| `get_bounds` | boxExtent (32, **60**, 57), origin.y≈+15.5 | 长轴在 Y,尾巴在 +Y |
+
+UE Character / `AddMovementInput` 前方是局部 **+X**。这是差 **90°**,不是超梦那种 180° moonwalk。
+
+**根因**:Blender 场景约定脸朝 +Y、Z 向上。导出 `axis_forward="-Z"` / `axis_up="Y"` 经 MCP `import_file`(不做 Interchange 再转轴)后面朝 -Y。
+
+**修法**:`export_fbx` 导出前只转根物体 `rotation_euler.z -= 90°`,导出后还原,不写进 `.blend`(03 导出后会存盘)。网格/骨架/动画同一套重导。
+
+**验收(修正后)**:
+
+- `boxExtent≈(60.3, 31.8, 57.0)`, origin.x≈-15.5, origin.y≈0
+- 从 -X 看 = 背影;从 +X 看 = 正脸
+- 高度仍约 114cm
+
+**不要**:接 `BP_Unit` 时抄超梦 `CharacterMesh0.RelativeRotation.Yaw=270`。那是 Mixamo 超梦脸朝 +Y 的补偿。这套伊布 Actor Yaw=0 就已经面对 +X,再加 270 会转错。
+
+---
+
+### 坑97:节点 `type_id` 里**下划线会被吃掉**,`find_node_types` 搜不到也可能只是索引没刷新(2026-09-06)#create_node #type_id #命名规则
+
+两条一起记,因为这一轮连着踩了三次:
+
+**1. 变量名里的下划线在 `type_id` 里要去掉。**
+`BP_GridManager` 有个变量叫 `DT_Skills`,图里已有的取值节点显示成 `|GetDT_Skills`,但 **`create_node` 要的是 `Variables|Default|GetDTSkills`**(没有下划线)。写成 `Variables|Default|GetDT_Skills` 会报 `does not exist`。
+蓝图名同理:跨蓝图访问 `BP_TurnManager` 的变量是 `Class|BPTurnManager|GetXxx`、`BP_Unit` 是 `Class|BPUnit|GetXxx`。**规律:`type_id` 里所有下划线都去掉,其余大小写照抄。**
+函数名也会被规范化:C++ 里声明的 `SetDeterministicHitRollForTests`,`type_id` 是 `Combat|Testing|SetDeterministicHitRollforTests`(注意 `for` 变小写了),建出来之后节点自己显示回 `...ForTests`。**照 `find_node_types` 返回的字符串抄,别照 C++ 声明抄。**
+
+**2. `find_node_types` 搜不到 ≠ 不存在。**
+给 `BP_TurnManager` 新加变量、`compile_blueprint`、`save_assets` 全做完之后,在 `BP_GridManager` 的图里 `find_node_types(type_id_filter='Announced')` **仍然返回空**;直接 `create_node('Class|BPTurnManager|GetLastAnnouncedViewTarget')` **一次就建出来了**。
+同一轮里 `DT_Skills` 也是:搜 `'DT_Skills'` 返回空,但搜 `'Variables|'` 列出 127 条,里面就有 `Variables|Default|GetDTSkills`。
+
+**实操建议**:
+- 想确认某个节点在不在,**用类别前缀列全量**(`'Variables|'`、`'Class|BPUnit|Get'`、`'Math|Boolean|'`)再自己过滤,别用具体名字当过滤词;
+- 或者干脆按上面的命名规律直接 `create_node` 试一次——失败会明确告诉你 `does not exist`,成本比反复搜索低。
+
+**3. 顺带:promotable 运算符不能按目标类型建。**
+`Math|Integer|NotEqual(Integer)` / `Math|Integer|integer<integer` 这类**不能直接创建**,要用 `Utilities|Operators|NotEqual(!=)` / `Equal(==)`,建出来初始是 GameplayTagContainer 版,**接上整数 pin 之后自动 promote**。这条在坑93 里已经记过一次,这轮再次踩到,说明值得单独列出来。
+
+---
+
+### 坑98:回归测试的"随机假阳性"不该靠重跑消化,应该在 C++ 里加确定性开关(2026-09-06,#6 收尾)#回归测试 #随机性 #C++测试钩子
+
+**背景**:这套用例里 T10/T11 那批 AOE 断言依赖"这一刀必须打中",而 `basic` 命中 95、`quake` 命中 85,每轮都有几个百分点概率随机 FAIL。长期的处理方式是"重跑一次就好",**代价是养出了忽略 FAIL 的习惯**——T6a(接线接错单位)和 T9(被测函数压根没执行)两个真 bug 就是这么在"已知假阳性"的标签下藏了半个多月。
+
+**掷骰在 C++ 里,蓝图侧无从下手**:`BP_GridManager.ComputeSkillDamage` 整个函数体只有一个 `Combat|CalculateSkillDamageValue` 节点,真正的骰子是 `CombatFormula.cpp` 里的 `FMath::RandRange(0, 99)`。
+
+**做法**(`Source/MyProject/CombatFormula.h/.cpp`):
+
+```cpp
+// .cpp 的 CombatFormulaPrivate 命名空间里
+bool bDeterministicHitRoll = false;
+
+// 掷骰处
+const int32 Roll = CombatFormulaPrivate::bDeterministicHitRoll
+    ? 0
+    : FMath::RandRange(0, 99);
+```
+
+配一对 `UFUNCTION`:`SetDeterministicHitRollForTests(bool)` / `IsDeterministicHitRollForTests()`,分类放 `Combat|Testing`。
+
+**故意做成进程级全局开关而不是调用参数**:`CalculateSkillDamage` 的参数已经有 13 个,再加一个就要改所有调用点(蓝图里散落好几处),而这个开关只有回归测试会碰。`RunRegressionTests` 开头 `Set(true)`、结尾(`REGRESSION_TESTS_DONE` 打印之后)`Set(false)`,正常游戏路径永远不经过它。
+
+**效果**:连跑多轮,`MISS` 恒为 0,**26 条断言全绿且可重复**。在此之前"全绿"从来不是一个能稳定复现的状态。
+
+⚠️ **加 `UFUNCTION` 会改动生成头文件,Live Coding 顶不住**,必须走关编辑器 → UBT 重编 → 重开。实测这次全量重编只花 17 秒(`Build.bat MyProjectEditor Win64 Development -Project=...`),比想象中便宜得多——以后不要因为"要重编"就绕开 C++ 改动。

@@ -284,3 +284,33 @@ FAIL: T9(已知时序抖动,唯一剩下的)
 **已经没有任何确定性 FAIL 了**——剩下的全部是命中率掷骰造成的随机假阳性,每轮 FAIL 都能对上当轮的 `MISS` 数。
 
 ⚠️ **定种子必须改 C++**:`ComputeSkillDamage` 蓝图侧只有一个 `Combat|CalculateSkillDamageValue` 节点,掷骰在 `CombatFormula.cpp:119` 的 `FMath::RandRange(0, 99)`。这是 #6 最后一项,要走"关编辑器 → UBT 重编 → 重开"的流程。
+
+---
+
+## 2026-09-06(第四轮)回归第一次达到"可重复的全绿"
+
+### 命中率不再靠重跑消化
+
+掷骰在 C++(`CombatFormula.cpp` 的 `FMath::RandRange(0, 99)`),蓝图侧改不了。做法:加一个进程级测试开关 `SetDeterministicHitRollForTests(bool)`,打开后 `Roll` 恒取 0(命中率 > 0 必命中);`RunRegressionTests` 开头打开、`REGRESSION_TESTS_DONE` 之后关掉,正常游戏路径永远不碰。详见 `UE节点备忘录.md` 坑98。
+
+**为什么值得专门做**:长期"重跑一次就好"的处理方式,养出了忽略 FAIL 的习惯——T6a(断言接错单位)和 T9(被测函数压根没执行)两个真 bug 就是这么在"已知假阳性"标签下藏了半个多月。
+
+### 新增两条断言(#7 的验收)
+
+| 断言 | 内容 | 为什么需要 |
+|---|---|---|
+| `T12a_IsAoeSkill_TrueForTableAoeRow` | `IsAoeSkill("quake")` == true | `IsAoeSkill` 改成查 `DT_Skills.Kind` 之后,**此前没有任何一条断言经过它**(T10/T11 都是直接调 `GetAoeHitList`/`PerformAoeSkillAttack`) |
+| `T12b_IsAoeSkill_FalseForTableAtkRow` | `IsAoeSkill("basic")` == false | 防"永远返回 true"这类退化 |
+
+### 当前状态
+
+```
+26 条断言,连跑多轮全部 PASS,MISS 恒为 0
+```
+
+对照本轮之前的历史:确定性 FAIL 集合曾长期是 `{T6a, T7b, T7c}`,加上抖动的 T9 和随机的 T10x/T11x。**现在一条不剩。**
+
+### 还需要人工 Play 验收的
+
+- **`IsAoeSkill` 的真实调用路径**:T12a/T12b 只证明函数本身查表正确。"选 quake 按 E,真的走 AOE 分支、真的打到相邻目标"仍然只有人工能验。
+- 顺带确认表里 4 行 AOE(`sweep`/`quake`/`rockslide`/`cleave`)在技能栏里的行为和以前一致——这轮把判定从硬编码换成了查表,行为应该完全等价(4 个名字一模一样),但换了数据来源。
