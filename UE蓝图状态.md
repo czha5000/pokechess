@@ -1201,6 +1201,16 @@ UE 新增资产(全部在 `/Game/Meshes/Eevee_Skeletal/`,**自带新 Skeleton**,
 - `EeveeProc_Rigify_Anim_EeveeMetarig_Eevee_Idle` / `..._Eevee_Walk`
 - **五个颜色材质** `Eevee_brown/cream/dark/nose/white`(`import_materials=true` 带进来的,灰模路径没有这个)
 
+**同日再追加(v5 手办质感 + 战斗四动作)**:v5 网格重新绑骨后隔离导入 `EeveeProc_V5`(共用已有 `EeveeProc_Rigify_Skeleton`,不建第三副骨头)。新增:
+
+- `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Idle` / `_Walk`(循环)
+- `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Attack`(24f/0.8s,一次性)
+- `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Hurt`(18f/0.6s,一次性)
+- `EeveeProc_V5_Anim_EeveeMetarig_Eevee_Death`(36f/1.2s,一次性,末帧定住)
+- 材质多了 `Eevee_eye` / `Eevee_tongue`
+
+仍未改 `BP_Unit` / `SpawnUnit`。棋盘上还是超梦。预览关键帧在 `art-pipeline/output/proc/03_*.png`。
+
 仍未改任何蓝图。包围盒同样是米制 1cm 量级,接 `BP_Unit` 前要校准 Scale。报告:`art-pipeline/reports/04_ue_import_proc.json`。
 用户对照官图否了 v2 比例后,同日又出了 **v3 比例校正版**(大耳占身高 40%、平脸大眼、暖棕配色),随后 **v4 毛发剪影版**(围脖尖刺/额前刘海/尾巴毛边锥)——每版都删旧重导,目录和资产名不变,当前内容是 v4。
 v4 同时做了 Blender 侧赛璐璐渲染验证(toon 材质 + Freestyle 描边,见 `art-pipeline/output/compare/toon_*.png`),**UE 里要同款官图观感还需要 cel 材质 + 描边后处理,未做**。
@@ -1271,3 +1281,29 @@ FAIL: T9   ← 唯一剩下的,已知时序抖动(异步镜头路径),归入下�
 **这是这套回归测试第一次除 T9 外全绿。**
 
 `bRunRegressionTestsOnBeginPlay` 已复位 `false`,关卡放置实例与 CDO 两处都 `get_properties` 核对过(坑35/坑89),之后才 `save_assets`。资产备份:`Content/Maps/BP_GridManager.uasset.bak_20260906_pre_t6a`。
+
+---
+
+### 2026-09-06(第三轮)队列 #6:`T9` 修复 —— 它根本不是时序抖动
+
+**先纠正上一节自己的判断**:上一节把 T9 归成"异步镜头路径的时序抖动"。**错了。**
+
+真根因:`RunRegressionTests` 在 `BP_GridManager.BeginPlay`(t≈0)调 `TurnManager.AnnounceNextTurn()`,而该函数体第一件事是 `IsValid(TurnOrder[CurrentIndex])`;`BuildTurnOrder()` 要到 `BP_TurnManager.BeginPlay` 的 `Delay(0.2)` 之后才跑,所以那一刻 `TurnOrder` 是**空的** → 走 Is Not Valid 分支 → **`SetViewTargetWithBlend` 压根没执行**。0.4s 后定时器读到的镜头目标来自 t≈0.2 那次 `StartTurn` 的 `Possess`,和测试无关。偶尔 PASS 是因为 `RunRegressionTests` 本身够长,某些轮次跑完时已过 0.2s。详见 `UE节点备忘录.md` 坑94。
+
+**改动**
+
+`BP_TurnManager`:
+- 新增变量 **`LastAnnouncedViewTarget`**(Actor 对象引用,观测用):在 `AnnounceNextTurn` 的 `SetViewTargetWithBlend` 之后紧跟一个 `Set`,值取同一个 `Self`。作用是把"这次公告把镜头指向了谁"变成可**同步**读取的事实,绕开坑61(带 BlendTime 时同帧读 `GetViewTarget()` 拿旧值)。
+
+`BP_GridManager.RunRegressionTests`:
+- 在 `CastToBP_TurnManager` 之后、`AnnounceNextTurn` 之前插入一次 **`BuildTurnOrder()`**(`self` 取同一个 Cast 结果),让 `AnnounceNextTurn` 走得进有效分支;
+- T9 改成**同步**断言:`TurnManager.LastAnnouncedViewTarget == TurnManager`(节点:`Class|BPTurnManager|GetLastAnnouncedViewTarget` → `Utilities|Equal(Object)` → `Assert`);
+- 删除 `ClearTimerbyFunctionName`/`SetTimerbyFunctionName` 两个节点,并 `remove_function_graph` 掉已无调用者的 **`T9_CheckViewTarget`** 函数图。
+
+**验证**:改前连跑 3 轮,T9 每轮 FAIL;改后连跑 3 轮,**T9 每轮 PASS**。断言名保持不变(`T9_AnnounceNextTurn_TargetsOverviewCamera_NotNextUnit`),它守的仍然是坑60。
+
+**当前剩下的 FAIL 只有命中率随机假阳性**(`T10e`/`T10f`/`T10h`/`T11a`,每轮 FAIL 数都能对上当轮的 `MISS` 数),这是 #6 的最后一项。
+
+⚠️ **掷骰在 C++ 里**:`ComputeSkillDamage` 整个函数体只有一个 `Combat|CalculateSkillDamageValue` 节点,命中判定是 `CombatFormula.cpp:119` 的 `FMath::RandRange(0, 99)`。**要定种子必须改 C++ 并重编**,蓝图侧无从下手。
+
+⚠️ `find_node_types` 的索引会过期:`BP_TurnManager` 新加变量、编译、保存之后,在 `BP_GridManager` 的图里搜 `Announced` 仍返回空,但按 `Class|BPTurnManager|GetLastAnnouncedViewTarget` 直接 `create_node` 能建出来。

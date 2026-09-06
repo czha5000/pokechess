@@ -1020,3 +1020,33 @@ SetAIMoveTarget → SetAIMoveTargetCol → SetAIMoveTargetRow → SetbIsAIMoving
 **验证**:`compile_blueprint` 通过,PIE 实测 **T7b/T7c(新名字)双双 PASS**,全套只剩 T9 一条 FAIL(已知异步镜头抖动)。
 
 **遗留(方案 A 的已知边界)**:这套断言**不覆盖"插值到达后 `Col`/`Row` 是否被正确回写"**——那段逻辑在 `BP_Unit.EventTick` 的到达分支里,要覆盖得走方案 B(`SetTimerbyFunctionName` 延迟断言),会引入和 T9 同类的时序抖动。当前刻意不做。
+
+---
+
+### 坑94:`T9` 根本不是"时序抖动"——是 `AnnounceNextTurn` 在回归测试跑的那一刻**整段被 `IsValid` 短路跳过了**(2026-09-06 修复)#回归测试 #时序假设 #IsValid短路 #空转断言 #坑61
+
+**一开始的判断是错的,记下来当反例。** 前一条记录把 T9 归成"异步镜头路径的时序抖动"(它确实排在 `REGRESSION_TESTS_DONE` 之后、确实 FAIL/PASS 交替),按坑61 的思路"延迟够不够"去想。**实际根因完全不同。**
+
+**真实机制**,把三条时间线摆在一起就清楚了:
+
+| 时刻 | 谁 | 干了什么 |
+|---|---|---|
+| t≈0 | `BP_GridManager.BeginPlay` | 跑 `RunRegressionTests` → 调 `TurnManager.AnnounceNextTurn()` |
+| t≈0.2 | `BP_TurnManager.BeginPlay` | `Delay(0.2)` 结束 → … → `BuildTurnOrder()` → `StartTurn()`(`Possess` 会把镜头目标改成被控单位) |
+| t≈0.4 | 定时器 | `T9_CheckViewTarget` 断言 `GetViewTarget() == TurnManager` |
+
+`AnnounceNextTurn` 的函数体第一件事是 `IsValid(TurnOrder[CurrentIndex])`,**Is Not Valid 分支直接跳过 `SetViewTargetWithBlend`**。而 `BuildTurnOrder()` 要到 t≈0.2 才跑——所以测试在 t≈0 调用时 `TurnOrder` 是**空的**,`Get(0)` 无效,**`SetViewTargetWithBlend` 根本没被执行过**。
+
+于是 t=0.4 读到的镜头目标,来自 t≈0.2 那次 `StartTurn` 的 `Possess`(某个单位),和测试毫无关系。**它偶尔 PASS 纯属巧合**——`RunRegressionTests` 本身很长(要 SpawnUnit/DestroyActor 十几次),某些轮次它跑完时已经过了 0.2s,`TurnOrder` 恰好非空,这条断言才走通。
+
+**教训**:一条断言"看起来像时序抖动",要先确认**被测函数当时到底有没有执行**,再去想延迟够不够。`IsValid` 短路 + 全局初始化顺序,伪装成时序抖动的成本极高——这条 FAIL 存在了半个多月,期间一直被当成"已知随机假阳性"记在文档里。
+
+**修法(两处,都不再依赖定时器)**:
+
+1. **给 `BP_TurnManager` 加一个观测变量 `LastAnnouncedViewTarget`(Actor)**,在 `AnnounceNextTurn` 里紧跟 `SetViewTargetWithBlend` 之后 `Set` 成同一个 `Self`。这样"这次公告到底把镜头指向了谁"变成可同步读取的事实,绕开了坑61(`SetViewTargetWithBlend` 带 BlendTime 时同帧读 `GetViewTarget()` 拿到旧值)。
+2. **`RunRegressionTests` 里,在调 `AnnounceNextTurn` 之前先调一次 `TurnManager.BuildTurnOrder()`**,让 `TurnOrder` 非空、`AnnounceNextTurn` 走得进有效分支。然后**同步**断言 `TurnManager.LastAnnouncedViewTarget == TurnManager`。
+3. 删掉 `ClearTimerbyFunctionName`/`SetTimerbyFunctionName` 两个节点,以及已经没有调用者的 `T9_CheckViewTarget` 函数图(`remove_function_graph`)。
+
+**验证**:连跑 3 轮 PIE,**T9 每轮都 PASS**(改之前连跑 3 轮每轮都 FAIL)。这也反向确认了上面的机制判断——如果真是"延迟不够",加 `BuildTurnOrder` 不会有任何作用。
+
+⚠️ **`find_node_types` 的索引会过期**:给 `BP_TurnManager` 新加变量并编译+保存之后,在 `BP_GridManager` 的图里 `find_node_types(type_id_filter='Announced')` **仍然返回空**,但直接 `create_node(type_id='Class|BPTurnManager|GetLastAnnouncedViewTarget')` **可以建出来**。所以"搜不到"不等于"不存在",按 `Class|<去下划线的蓝图名>|Get<变量名>` 的命名规律直接建就行。

@@ -22,9 +22,11 @@
 - ✅ **TestMap 阵营构成已现场实测**:标准 **2v2**(`C_0`/`C_1` side=true,`C_2`/`C_3` side=false)。关卡里没有任何放置的 `BP_Unit`,全部运行时 `SpawnUnit` 生成。此前"4 个全 side=true"和坑83 的"4 个 side=false"两种说法都错,已订正。
 - ✅ **T6a 已修复并转绿**:根因不是产品 bug(实测 8 个单位 HP↔Percent 全部精确吻合),是断言 `GetHealthBarWidget` 接到了**没挨过打的那个 `SpawnUnit`**(`CallFunction_0`)而不是被攻击的 `CallFunction_18`。改一根线搞定。顺带发现 **T6b 一直在空转**,现在才真正生效。见坑92。
 - ✅ **T7b/T7c 已修复并转绿**:根因是 `MoveUnitTowardTarget` 早就改成异步了(只写 `SetAIMoveTarget*`/`SetbIsAIMoving`,位移和 `Col`/`Row` 回写在 `BP_Unit.EventTick` 插值分支里到达后才做),断言还停在"同步瞬移"假设上。按方案 A 改成**测"移动意图"**(同步、零抖动):`T7b_RunEnemyTurn_ChoosesStrictlyCloserTile`(目的地严格更近)、`T7c_RunEnemyTurn_CommitsToDifferentTile`(`bIsAIMoving` 且目的地≠原格)。顺带把目标坐标统一改读本场景那次 `FindNearestUnit_0`,**T7a 也因此第一次真正有意义**。见坑93。
-- ⬜ **剩下的**:T9 时序抖动(异步镜头路径,照坑61 的 `SetTimerbyFunctionName` 范式处理)、命中率随机性定种子。
+- ✅ **T9 已修复**:它**不是**时序抖动(之前判断错了)。真根因是 `AnnounceNextTurn` 在测试调用那一刻被 `IsValid(TurnOrder[CurrentIndex])` 短路跳过——`BuildTurnOrder()` 要等 TurnManager BeginPlay 里的 `Delay(0.2)` 才跑。修法:加观测变量 `LastAnnouncedViewTarget` + 测试里先 `BuildTurnOrder()` + 断言改同步,删掉定时器和 `T9_CheckViewTarget`。连跑 3 轮全 PASS。见坑94。
+- ⬜ **#6 只剩最后一项:命中率定种子** —— ⚠️ **必须改 C++**:掷骰在 `CombatFormula.cpp:119` 的 `FMath::RandRange(0, 99)`,蓝图侧 `ComputeSkillDamage` 只有一个 `Combat|CalculateSkillDamageValue` 节点。要走"关编辑器 → UBT 重编 → 重开"。
+  💡 **建议和 #7 合并成同一次重编**(#7 也要改 C++ 加 `FSkillRow.Kind`),省一轮关编辑器。
 
-> **当前回归状态:除 T9 外全绿**,是这套测试有史以来第一次。
+> **当前回归状态:零确定性 FAIL。** 剩下的 FAIL 全是掷骰随机性,每轮都能对上当轮 `MISS` 数。
 
 **⚠️ 另一条影响面很大的订正:`set_properties` 的"静默失败"是参数格式用错,不是环境限制。** `values` 的 schema 类型是 **string**,要传 `json.dumps({...})`,传字典会静默返回 `false`。历史上被记成"环境限制"而放弃的验证路子(比如不靠真人长按右键强制进瞄准态截图)**应该重新试**。见坑91。
 

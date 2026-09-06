@@ -262,3 +262,25 @@ FAIL: T9(已知时序抖动,唯一剩下的)
 | `BP_Unit_C_2` / `C_3` | **false**(敌方) |
 
 **标准 2v2。** 此前"4 个全 side=true"和坑83 的"4 个 side=false 敌人"两种说法都不对。
+
+---
+
+## 2026-09-06(第三轮)T9 修复:它不是时序抖动,是被测函数压根没执行
+
+**订正上面"发现二"的判断。** T9 之所以 FAIL/PASS 交替,不是异步镜头的时序抖动,而是 `AnnounceNextTurn` 在测试调用的那一刻被 `IsValid(TurnOrder[CurrentIndex])` 整段短路跳过了——`BuildTurnOrder()` 要等 `BP_TurnManager.BeginPlay` 的 `Delay(0.2)` 之后才跑,而 `RunRegressionTests` 在 t≈0 就调了。0.4s 后读到的镜头目标来自 `StartTurn` 的 `Possess`,和测试无关;偶尔 PASS 是因为测试本身够长、某些轮次跑完时已过 0.2s。
+
+**修法**:①给 `BP_TurnManager` 加观测变量 `LastAnnouncedViewTarget`,在 `SetViewTargetWithBlend` 之后记下实际目标;②测试里先调一次 `BuildTurnOrder()` 再调 `AnnounceNextTurn()`;③断言改成**同步**读 `LastAnnouncedViewTarget == TurnManager`,删掉定时器和 `T9_CheckViewTarget` 函数图。
+
+**验证**:改前连跑 3 轮全 FAIL,改后连跑 3 轮**全 PASS**。
+
+### 当前回归状态
+
+| 轮次 | MISS | FAIL |
+|---|---|---|
+| 改后 #1 | 1 | T11a |
+| 改后 #2 | 3 | T10e T10f |
+| 改后 #3 | 1 | T10e T10h |
+
+**已经没有任何确定性 FAIL 了**——剩下的全部是命中率掷骰造成的随机假阳性,每轮 FAIL 都能对上当轮的 `MISS` 数。
+
+⚠️ **定种子必须改 C++**:`ComputeSkillDamage` 蓝图侧只有一个 `Combat|CalculateSkillDamageValue` 节点,掷骰在 `CombatFormula.cpp:119` 的 `FMath::RandRange(0, 99)`。这是 #6 最后一项,要走"关编辑器 → UBT 重编 → 重开"的流程。
