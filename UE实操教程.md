@@ -18,14 +18,16 @@
 | 层 | 内容 | 状态 |
 |---|---|---|
 | ① UMG | 伤害飘字 / MISS 字样 | ✅ 完成,**人工 Play 验收通过** |
-| ② Niagara | 命中粒子 | ✅ 完成,**人工 Play 验收通过**(`NS_HitImpact`,引擎自带 `OmnidirectionalBurst` 模板)。按属性配色尚未做。 |
-| ③ 相机抖动 | 命中震屏 | 🟡 **已接通**(`BP_HitCameraShake`,父类 `/Script/EngineCameras.LegacyCameraShake`),回归全绿、运行期无报错;**手感待人工 Play 确认**。暴击强度区分未做。 |
+| ② Niagara | 命中粒子 | ✅ 完成并验收。**已按属性分特效**:15 个 `NS_Hit_<TypeName>`,配色对齐 web `TCOLOR`;火/土/岩/飞行/冰另有不同运动特征。蓝图按名字动态加载,加属性不用改蓝图。 |
+| ③ 相机抖动 | 命中震屏 | ✅ 完成,**人工 Play 验收通过**(`BP_HitCameraShake`)。暴击强度区分未做。 |
 
 第 1 层的东西:新 Widget `WBP_FloatingText`(`ShowText`/`HideText`)、`BP_Unit` 加 `FloatingTextComponent`/`FloatingTextWidget` 两个变量 + `ShowHitFeedback(Damage)` 函数,挂在 **`TryAttack` 和 `ResolveCounterAttack` 两处**(⚠️ 不是一处,见坑99)。实测:掉 4 血飘 `4`、掉 7 血飘 `7`,回归 26 条仍全绿。详见 `UE蓝图状态.md` 2026-09-06 第五轮。
 
 **✅ 飘字 + 粒子已于 2026-09-06 人工 Play 验收通过**(用户:「有了。验收通过。」)。位置/字号/时长/粒子大小均未提出问题,暂不调整;可调项列在 `UE蓝图状态.md` 第五轮/第六轮两节。
 
-**VFX 还剩:** 粒子按属性配色(要给 `NS_HitImpact` 加 User 变量,再从蓝图 `NiagaraToolset_Component.SetVariable` 或蓝图节点写);暴击/克制闪屏。
+**VFX 还剩:** 暴击/克制闪屏(暴击骰本身也还没接);电系没有对应技能所以没建 `NS_Hit_electric`,真加了电系技能要补一个。
+
+**⚠️ 按属性特效待人工 Play 看**:普通攻击是 normal,要看火/冰/岩的效果得在技能栏选对应技能打(`ember` 是唯一火系技能)。
 
 
 **上一轮(2026-09-06)做完了队列 #5**,但结论和原来写的完全不同:实测「5 份重复逻辑」是 **1 份活的 + 5 份死的**,`BP_Unit.EventGraph` 726 个节点里 **548 个(75%)不可达**。已全部删除,**726 → 178 节点,死代码归零**,活链 44 个 exec 节点一根线没动、签名 7 轮逐字未变。详见 `UE蓝图状态.md` 2026-09-06 章节、`UE节点备忘录.md` **坑90**(全图判活方法,以后别再逐节点手动回溯了)。

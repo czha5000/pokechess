@@ -1254,3 +1254,32 @@ const int32 Roll = CombatFormulaPrivate::bDeterministicHitRoll
 **结构体写法**:`rotOscillation`/`locOscillation` 是嵌套结构,一次传整个对象,**每个轴要带齐四个字段**(`amplitude`/`frequency`/`initialOffset`/`waveform`),漏字段会被忽略。写完 `get_properties` 读回来逐值核对。
 
 **触发**:`Game|Feedback|ClientStartCameraShake`(PlayerController 上的方法),配 `Game|GetPlayerController(PlayerIndex=0)`。注意它**对全局生效**——每次命中都震,包括屏幕外的战斗;要做距离衰减得换 `ClientStartCameraShakefromSource`。
+
+---
+
+### 坑104:用"拼路径 + 软引用加载"代替 N 路 Switch;Niagara 输入写值的两个类型陷阱(2026-09-06,按属性命中特效)#Niagara #动态加载 #软引用 #数据驱动
+
+**场景**:15 个属性各要一套命中特效。硬做法是蓝图里 `Switch on Name` 15 路,每路一个资产引脚——30+ 个节点,而且**加一个属性就得改蓝图**(和队列 #7 抱怨的"加第 5 个 AOE 就得改蓝图"是同一个毛病)。
+
+**改成按约定拼路径动态加载**,资产名固定为 `NS_Hit_<TypeName>`:
+
+```
+BreakSkillRow.TypeName
+ → BuildString(Name)  Prefix="/Game/VFX/NS_Hit_"        → "/Game/VFX/NS_Hit_fire"
+ → BuildString(Name)  AppendTo=上一步, Prefix=".NS_Hit_" → "/Game/VFX/NS_Hit_fire.NS_Hit_fire"
+ → MakeSoftObjectPath → ToSoftObjectReference → LoadAssetBlocking → CastToNiagaraSystem
+```
+
+加新属性 = 放一个资产,蓝图零改动。
+
+**三个必须知道的接线细节**:
+1. **软引用路径要带资产名后缀**:`/Game/VFX/NS_Hit_fire` 解析不到,必须 `/Game/VFX/NS_Hit_fire.NS_Hit_fire`。`BuildString_Name(AppendTo, Prefix, InName, Suffix)` 一次只能塞一个 Name,所以要**串两个**。
+2. `MakeSoftObjectPath` → `LoadAssetBlocking` **不能直连**(`FSoftObjectPath` vs `TSoftObjectPtr`),中间插 `Utilities|ToSoftObjectReference`。直连报 "pins may be incompatible types"。
+3. `LoadAssetBlocking` 返回 `UObject*`,要 `Utilities|Casting|CastToNiagaraSystem` 才能喂给 `SpawnSystemAtLocation.SystemTemplate`。**把 Cast 的 `CastFailed` 和 `GetDataTableRow` 的 `RowNotFound` 都接到兜底的固定特效上**,查不到/加载失败时不至于没特效。
+
+**Niagara 写输入值的两个类型陷阱**(报错信息很准,照着改就行):
+- `GravityForce.Gravity` 的类型是 **`/Script/CoreUObject.Vector3f`**,不是 `Vector`。传错报 `Type mismatch for input 'Gravity': expected 'Vector3f' but got 'Vector'`。
+- `InitializeParticle.Lifetime` **写不进去**:`Lifetime Mode` 默认是 `Random`,`Lifetime` 这个输入被静态开关隐藏了,报 `Refusing to set input 'Lifetime': input is hidden by static-switch`。要写的是 **`Lifetime Min` / `Lifetime Max`**。
+- 查一个输入到底该传什么形状,用 `GetStackInputData` 读现值最快——它直接回 `{"struct":{"refPath":…},"value":…}`,照抄结构就行。
+
+**验证路径拼得对不对的便宜办法**:`ObjectTools.get_class({'refPath': 拼出来的字符串})`,回 `/Script/Niagara.NiagaraSystem` 就说明这个字符串在运行时也解析得到。

@@ -1549,3 +1549,81 @@ Game|GetPlayerController(0) ──self──> Game|Feedback|ClientStartCameraSha
 
 - **每一次命中都震,包括敌方打敌方、屏幕外的战斗**。当前是单相机战棋,能看到全场,所以没有加距离衰减;如果实测觉得吵,选项是:①只在 `Defender.Side == true`(我方挨打)时震;②改用 `ClientStartCameraShakefromSource` 加距离衰减。
 - 暴击/克制目前不区分强度(`Scale` 恒为 1.0)——暴击骰本身也还没接。
+
+---
+
+### 2026-09-06(第八轮)VFX:命中特效按技能属性区分
+
+用户要求两件事:①按属性配色 ②"符合技能的特效,比如火的攻击就有火焰特效"。
+
+**参照网页版怎么做的**:`js/ui/vfx.js` 的 `vfxHit` 其实也是**配色为主 + 两种特殊形态**(电系闪电、物理系斩击),不是每个属性一套独立动画。UE 侧照同样的分寸做。
+
+#### 15 个属性各一套粒子系统 `/Game/VFX/NS_Hit_<TypeName>`
+
+技能表里实际用到 15 个属性:`normal fire water grass ghost flying fighting rock dark ground bug ice steel fairy dragon`。每个建一套,都用引擎自带 `OmnidirectionalBurst` 模板,**颜色烤进 `InitializeParticle.Color`**。
+
+配色**逐条对齐 web `js/data/types.js` 的 `TCOLOR`**(sRGB 十六进制 → 线性空间再写入,Niagara 的 Color 是 LinearColor):
+
+| 属性 | TCOLOR | 属性 | TCOLOR |
+|---|---|---|---|
+| normal | `#9aa0aa` | ground | `#c8a85b` |
+| fire | `#e8602c` | flying | `#9fb7ed` |
+| water | `#3aa0e8` | bug | `#a8b820` |
+| grass | `#4caf50` | rock | `#b8a038` |
+| ghost | `#8e5fd0` | ice | `#7fd8d8` |
+| fighting | `#c03028` | steel | `#9aa6c8` |
+| dark | `#5a5366` | fairy | `#ee99ac` |
+| dragon | `#6f35fc` | | |
+
+**5 个属性另外给了能一眼看出差别的运动特征**(改 `GravityForce.Gravity` 和 `InitializeParticle.Lifetime Min/Max`):
+
+| 属性 | Gravity.Z | Lifetime | 读起来像 |
+|---|---|---|---|
+| fire | **+300**(往上窜) | 0.55–0.85 | 火苗 |
+| ground / rock | −2200(重重砸下) | 0.25–0.4 | 土块 / 碎石 |
+| flying | −120(几乎不落) | 0.6–0.9 | 飘 |
+| ice | −400(慢) | 0.7–1.0 | 冰晶悬滞 |
+
+其余 10 个只有配色差异,和网页版的分寸一致。
+
+⚠️ 两个写入坑:`Gravity` 的类型是 **`Vector3f`** 不是 `Vector`(传错报 "Type mismatch … expected 'Vector3f'");`Lifetime` 被静态开关挡着(`Lifetime Mode` 默认是 `Random`),要写 **`Lifetime Min`/`Lifetime Max`**,直接写 `Lifetime` 会被拒("input is hidden by static-switch")。
+
+#### 蓝图:按名字动态加载,而不是 15 路 Switch
+
+`BP_Unit.ShowHitFeedback` 新增参数 **`SkillRow`(FName)**,命中分支改成:
+
+```
+ShowText(伤害数字)
+  → GetDataTableRow(DT_Skills, SkillRow)
+      ├─ Row Found → BreakSkillRow.TypeName
+      │    → BuildString(Name)  Prefix="/Game/VFX/NS_Hit_"        → "/Game/VFX/NS_Hit_fire"
+      │    → BuildString(Name)  AppendTo=上一步, Prefix=".NS_Hit_" → "/Game/VFX/NS_Hit_fire.NS_Hit_fire"
+      │    → MakeSoftObjectPath → ToSoftObjectReference → LoadAssetBlocking
+      │    → CastToNiagaraSystem
+      │         ├─ 成功 → SpawnSystemAtLocation(按属性的那套)
+      │         └─ 失败 ─┐
+      └─ Row Not Found ──┴→ SpawnSystemAtLocation(NS_HitImpact,兜底)
+  → ClientStartCameraShake
+```
+
+**为什么用动态加载而不是 Switch on Name**:15 路 Switch 要手搭 30+ 个节点,而且**以后加一个属性就得改蓝图**——正是队列 #7 那次"加第 5 个 AOE 技能就得改蓝图"的同一个毛病。现在加属性只要往 `/Game/VFX/` 放一个 `NS_Hit_<type>` 资产,蓝图一个字都不用动。
+
+⚠️ **路径必须是 `/Game/VFX/NS_Hit_fire.NS_Hit_fire` 这种带资产名后缀的完整形式**,只拼到 `/Game/VFX/NS_Hit_fire` 软引用解析不到。所以用了**两个** `BuildString(Name)` 串起来(`BuildString_Name(AppendTo, Prefix, InName, Suffix)` 一次只能拼一个 Name)。
+
+⚠️ `MakeSoftObjectPath` 出的是 `FSoftObjectPath`,`LoadAssetBlocking` 要的是 `TSoftObjectPtr`,中间必须插 **`Utilities|ToSoftObjectReference`**,直连报 "pins may be incompatible types"。
+
+**两个调用点都传 `PendingSkillRowName`**(`TryAttack` 和 `ResolveCounterAttack`)——反击函数自己会先把它设成基础攻击,所以反击拿到的是 normal,符合规则(反击只用基础招式)。
+
+#### 验证
+
+- 70 秒正常对局:两个单位挨打,飘出 `4` / `7`;
+- PIE 期间日志**零** `Failed to find object` / `Failed to load` / `Accessed None`(若路径拼错必然会有 load 警告);
+- 路径解析实测:`ObjectTools.get_class('/Game/VFX/NS_Hit_normal.NS_Hit_normal')` → `/Script/Niagara.NiagaraSystem`,`fire`/`ground` 同样;这就是蓝图运行时拼出来的同一个字符串;
+- 回归 26 条断言全绿、MISS 0。
+- ❌ **"实际走的是按属性那条还是兜底那条"程序化观测不到**(同坑102),颜色和形态差异**要人工 Play 看**。
+
+#### 已知局限
+
+- 只有 `basic`(normal)在普通攻击里高频出现;要看到火/冰/岩的效果,得在技能栏选对应技能打(`ember` 是唯一的火系技能)。
+- 电系(`electric`)配色已写进表但**技能表里没有电系技能**,所以没建资产;真加了电系技能要补一个 `NS_Hit_electric`。
+- 暴击/克制的闪屏和加强特效仍未做(暴击骰本身也还没接)。
