@@ -1,6 +1,6 @@
 # UE 硬规则速查表(必读)
 
-> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 98 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
+> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 100 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
 >
 > 需要某条的完整排查过程时,按括号里的"(见坑XX)"到 `UE节点备忘录.md` 里 grep 那个编号——那份文件是**案例档案,按需查,不必通读**(261KB)。
 >
@@ -136,6 +136,9 @@
 - 断言的时序假设会被产品改动悄悄作废:同步的操作改成 Tick 插值异步之后,"调用返回后立刻检查结果"这类断言会恒假。改成测"意图"(函数写下的目标值)比加延迟更稳。(见坑93)
 - MCP 工具返回 `false` 而不是报错时,先去 `describe_toolset` 看参数的 `type`,不要归因成"环境不支持"——`ObjectTools.set_properties` 的 `values` 要的是 JSON **字符串**,传字典会静默失败。历史上被记成"环境限制"而放弃的验证路子,应该重新试。(见坑91)
 - `create_node` 的 `type_id` 里**下划线一律去掉**(`DT_Skills` → `GetDTSkills`,`BP_Unit` → `Class|BPUnit|`),函数名大小写也会被规范化,照 `find_node_types` 返回的字符串抄别照 C++ 声明抄;`find_node_types` 搜不到 ≠ 不存在(索引会过期),用类别前缀列全量再自己过滤。promotable 运算符不能按目标类型建(用 `Utilities|Operators|NotEqual(!=)`,接上 pin 后自动 promote)。(见坑97、坑93)
+- **改血量的地方不止一处**:`TryAttack` 和 `ResolveCounterAttack` 各有一套 `SetHP`+`UpdateHealthBar`(`PerformAoeSkillAttack` 是内部调 `TryAttack`,不算独立出口)。任何"跟着伤害走"的东西(飘字/粒子/震屏/音效/统计)都要**两处都挂**。判断方法:把候选函数 dump 下来 grep `SetHP`,别读调用链猜。(见坑99)
+- `compile_blueprint` **不等于存盘**,每完成一个可验证的小步就 `save_assets`,别攒着。`create_node` 返回**空**错误串通常是编辑器已经退出(curl 拿不到响应),不是 type_id 写错——错误串里有 `does not exist` 才是 type_id 问题。(见坑100)
+- `CanvasPanelSlot` 的偏移在 **`layoutData.offsets`** 里(`layoutData` 是 `AnchorData`,还含 `anchors`/`alignment`),直接写顶层 `offsets` 会报 could not be set。`SetTimerbyFunctionName` 的 `Object` 引脚必须显式接 self(`Variables|Getareferencetoself`),不接定时器不会回调。(见 2026-09-06 VFX 一节)
 - 加 `UFUNCTION`/改 `USTRUCT` 布局 Live Coding 顶不住,必须关编辑器 → UBT 重编 → 重开;但**实测全量重编只要 17 秒**(`Build.bat MyProjectEditor Win64 Development -Project=...`),不要因为"要重编"就绕开 C++ 改动。(见坑98)
 - 默认不要求整张 EventGraph 回传核对,只要新加的那几个节点+邻居节点即可,只有怀疑有旧节点/其他事件干扰时才要整图;复杂改动优先做成独立 Function 而不是往 EventGraph 里加分支,出错时可以整体重新生成替换。(见'请求用户回传时的省token原则')
 - Enhanced Input 鼠标常驻可见(`bShowMouseCursor=true`)时视角输入基本收不到;需要"看得见鼠标点UI"和"锁鼠标转视角"两种模式来回切换,按 Possess/UnPossess 状态显式切 `SetInputMode`+`SetShowMouseCursor`。(见坑40)
