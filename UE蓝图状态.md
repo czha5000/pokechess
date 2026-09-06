@@ -1502,3 +1502,50 @@ Z 偏移 90 是打在胶囊体中段(胶囊半高 88),不是脚底也不是头�
 - 按属性配色(`js/ui/vfx.js` 的 `vfxHit` 是按 type 出不同颜色/形状)——要给系统加 User 变量再从蓝图 `SetVariable`;
 - 暴击/克制闪屏;
 - 第 3 层相机抖动。
+
+---
+
+### 2026-09-06(第七轮)VFX 第 3 层:命中相机抖动
+
+#### 新资产 `BP_HitCameraShake`(`/Game/VFX/BP_HitCameraShake`)
+
+父类 **`/Script/EngineCameras.LegacyCameraShake`**。
+
+⚠️ **类路径不在 `/Script/Engine` 下**:`LegacyCameraShake` 属于 `EngineCameras` 插件模块,写 `/Script/Engine.LegacyCameraShake` 会报 "is not valid Class for property 'asset_type'"。用 `ObjectTools.search_subclasses(base_class='/Script/Engine.CameraShakeBase')` 拿完整路径,别猜。
+
+**为什么选 Legacy 而不是现代的 `CameraShakeBase` + `ShakePattern`**:Legacy 版把参数摊平在 CDO 上(`oscillationDuration` / `rotOscillation.pitch.amplitude` …),一次 `set_properties` 就能配完;现代版要先构造一个 `RootShakePattern` 子对象再往里写,MCP 侧麻烦得多。表现力对"命中一震"这种需求完全够。
+
+CDO 参数:
+
+| 属性 | 值 |
+|---|---|
+| `oscillationDuration` | 0.18 |
+| `oscillationBlendInTime` / `oscillationBlendOutTime` | 0.02 / 0.12 |
+| `rotOscillation.pitch` / `.yaw` / `.roll`(amplitude, frequency) | (1.1, 28) / (1.1, 26) / (0.6, 22) |
+| `locOscillation.y` / `.z` | (1.5, 24) / (1.5, 20),x 为 0 |
+
+结构体是嵌套写的,`set_properties` 一次传整个 `rotOscillation`/`locOscillation`(每个轴要带齐 `amplitude`/`frequency`/`initialOffset`/`waveform` 四个字段),读回来逐值核对过。
+
+#### 接入
+
+`BP_Unit.ShowHitFeedback` 命中分支,接在 Niagara 粒子之后:
+
+```
+Game|GetPlayerController(0) ──self──> Game|Feedback|ClientStartCameraShake
+                                        Shake = BP_HitCameraShake_C
+                                        Scale = 1.0, PlaySpace = CameraLocal
+```
+
+至此命中分支的完整链路:`ShowText(伤害数字)` → `SpawnSystemAtLocation(NS_HitImpact)` → `ClientStartCameraShake`。MISS 分支只有 `ShowText("MISS")`,不放粒子也不震屏。
+
+#### 验证
+
+- 60 秒正常对局:两个单位挨打,飘出 `4` / `7`;抖动节点在同一条线性 exec 链上、粒子之后,**飘字出现即证明它也执行了**;
+- 运行期日志无 `Accessed None`、无 CameraShake 相关报错(能查到的 13 条 Error 全是引擎启动噪音:DLL 加载失败、UnifiedError 自检、GameFeatureData 规则缺失,和本轮无关);
+- 回归 26 条断言全绿、MISS 0。
+- ❌ **抖动的实际手感没法程序化验证**,同坑102,待人工 Play。
+
+#### 已知的可调项 / 设计决定
+
+- **每一次命中都震,包括敌方打敌方、屏幕外的战斗**。当前是单相机战棋,能看到全场,所以没有加距离衰减;如果实测觉得吵,选项是:①只在 `Defender.Side == true`(我方挨打)时震;②改用 `ClientStartCameraShakefromSource` 加距离衰减。
+- 暴击/克制目前不区分强度(`Scale` 恒为 1.0)——暴击骰本身也还没接。

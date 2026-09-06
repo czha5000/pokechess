@@ -1234,3 +1234,23 @@ const int32 Roll = CombatFormulaPrivate::bDeterministicHitRoll
 3. **链路证据**:把粒子节点接在一个**可观测**的节点之后(本轮是飘字 `ShowText`),中间不放分支。飘字出现 = 这条 exec 链走到底了 = 粒子节点也执行了。
 
 **拿不到的**:粒子到底看不看得见、大小颜色对不对。**这部分老老实实标成"待人工 Play 确认",别用"编译通过 + 没报错"冒充视觉验收。**
+
+---
+
+### 坑103:`LegacyCameraShake` 的类路径在 `/Script/EngineCameras` 不在 `/Script/Engine`;做"命中一震"用它比现代 ShakePattern 省事得多(2026-09-06)#相机抖动 #类路径 #VFX
+
+**建资产报错**:`BlueprintTools.create(asset_type='/Script/Engine.LegacyCameraShake')` → `is not valid Class for property 'asset_type'`。因为 `ULegacyCameraShake` 在 **`EngineCameras` 插件模块**里,正确路径是 **`/Script/EngineCameras.LegacyCameraShake`**。
+
+**通用做法**:别猜模块名,用 `ObjectTools.search_subclasses(base_class='/Script/Engine.CameraShakeBase', class_name='')` 拿回带完整 `/Script/<模块>.<类>` 的 refPath。这轮它一次列清:
+```
+/Script/Engine.CameraShakeBase
+/Script/EngineCameras.DefaultCameraShakeBase
+/Script/EngineCameras.LegacyCameraShake
+```
+同理 `CameraShakePattern` 的子类(`WaveOscillator` / `PerlinNoise` / `Composite` / `Sequence` …)也能这么列。
+
+**选型结论**:做"命中一震"选 `LegacyCameraShake`,不选现代的 `CameraShakeBase` + `RootShakePattern`。Legacy 把参数**摊平在 CDO 上**(`oscillationDuration`、`rotOscillation.pitch.amplitude`…),一次 `set_properties` 配完;现代版要先构造 `RootShakePattern` 子对象再往里写,MCP 侧多好几步且容易踩子对象的坑。
+
+**结构体写法**:`rotOscillation`/`locOscillation` 是嵌套结构,一次传整个对象,**每个轴要带齐四个字段**(`amplitude`/`frequency`/`initialOffset`/`waveform`),漏字段会被忽略。写完 `get_properties` 读回来逐值核对。
+
+**触发**:`Game|Feedback|ClientStartCameraShake`(PlayerController 上的方法),配 `Game|GetPlayerController(PlayerIndex=0)`。注意它**对全局生效**——每次命中都震,包括屏幕外的战斗;要做距离衰减得换 `ClientStartCameraShakefromSource`。
