@@ -1396,3 +1396,55 @@ GetDT_Skills ──────────┴─> Combat|IsAoeSkillRow ──> 
 
 - **`IsAoeSkill` 的真实调用路径没有端到端覆盖**:T12a/T12b 只证明函数本身查表正确,"按 E 用 quake 真的走 AOE 分支"仍然只有人工 Play 能验。
 - 表里 4 行 AOE 的 `bEnabledInSlice` 都是 `False`,这是既有数据状态,本轮没动。
+
+---
+
+### 2026-09-06(第五轮)VFX 打击感 —— 第 1 层(UMG 伤害飘字)已完成并实测生效
+
+对照 `UE移植课程大纲.md` **M25 战斗特效**(移植 `js/ui/vfx.js`)。开工前现状:UE 工程 `Content/` 下**一个特效资产都没有**,没装 Starter Content,命中反馈只有血条动一下 + `Output Log` 一行 `HIT dmg=`,**连伤害数字都没有**。
+
+M25 在 UE 里要拆成三层:①UMG 飘字/闪屏 ②Niagara 粒子 ③相机抖动。**本轮只做第 1 层**。
+
+#### 新资产 `WBP_FloatingText`(`/Game/UI/WBP_FloatingText.WBP_FloatingText_C`)
+
+- 结构:`RootCanvas`(CanvasPanel)→ `Txt_Value`(TextBlock,`bIsVariable=true`)。槽位 `layoutData.offsets={left:0,top:0,right:150,bottom:40}`,文字居中、金黄色 `(1,0.85,0.2)`、带 1.5px 黑色投影,**默认 `Visibility=Collapsed`**。
+  ⚠️ `CanvasPanelSlot` 的偏移**不是**顶层的 `offsets` 属性,而是 `layoutData.offsets`(`layoutData` 是 `AnchorData`,里面还有 `anchors`/`alignment`)。直接写 `offsets` 会报 "could not be set"。
+- **ShowText(Msg: String)**:`ToText(String)` → `Widget|SetText(Text)(Txt_Value)` → `Widget|SetVisibility(Txt_Value, Visible)` → `SetTimerbyFunctionName(self, "HideText", 0.9, false)`。
+  ⚠️ `SetTimerbyFunctionName` 的 `Object` 引脚**必须显式接 self**(`Variables|Getareferencetoself`),不接就是空,定时器不会回调。
+- **HideText()**:`Widget|SetVisibility(Txt_Value, Collapsed)`。
+
+#### `BP_Unit` 改动
+
+- 新增变量 **`FloatingTextComponent`**(WidgetComponent)、**`FloatingTextWidget`**(WBP_FloatingText)。
+- `UserConstructionScript` 末尾追加(**照抄血条那套已验证可用的顺序**,坑:`SetWidget` 必须排在 `SetWidgetSpace`/`SetDrawSize` 前面):
+  `ConstructObjectfromClass(WBP_FloatingText_C)` → `AddWidgetComponent(RelativeTransform=MakeTransform(Location=(0,0,75)))` → `SetWidget` → `SetWidgetSpace(Screen)` → `SetDrawSize(150,40)` → `Set FloatingTextComponent` → `Set FloatingTextWidget`。
+  Z=75 是刻意放在血条(Z=40)**上方**,两套 WidgetComponent 互相独立——不动血条布局,避免碰 2026-08-30 那次"血条完全不可见"修好的东西。
+- 新函数 **`ShowHitFeedback(Damage: Int)`**:`Branch(Damage > 0)` → true 分支 `FloatingTextWidget.ShowText(ToString(Damage))`;false 分支 `ShowText("MISS")`。
+  MISS 判据用的是 `Damage == 0`——C++ `CalculateSkillDamage` 未命中时明确把 `Damage` 置 0,命中时至少为 1,所以这个判据是可靠的。
+
+#### 挂载点(**两处,不是一处**)
+
+| 函数 | 插入位置 | 目标 / 伤害 |
+|---|---|---|
+| `TryAttack` | `UpdateHealthBar` 之后、`PrintString` 之前 | `Defender` / `AttackDmgTmp` |
+| `ResolveCounterAttack` | `UpdateHealthBar` 之后 | `SelectedUnit` / `CounterDmgTmp` |
+
+⚠️ **一开始只挂了 `TryAttack`,实测漏掉反击伤害**——`ResolveCounterAttack` 有自己独立的 `SetHP`+`UpdateHealthBar`,完全不经过 `TryAttack`。`PerformAoeSkillAttack` 则是内部调 `TryAttack`,不用单独挂。详见坑99。
+
+#### 验证(实测,不是"编译通过就算")
+
+截图路线走不通(Message Log 窗口盖住视口、镜头没对着单位),改成**程序化读运行时状态**:开正常对局跑 30 秒让 AI 互相打,然后逐个读 `FloatingTextWidget.Txt_Value.text`:
+
+| 单位 | HP | `Txt_Value.text` |
+|---|---|---|
+| `BP_Unit_C_1`(我方) | 16/20 | **`4`** |
+| `BP_Unit_C_2`(敌方) | 13/20 | **`7`** |
+| 另外两个(没挨打) | 20/20 | 默认 `Text Block` |
+
+**掉的血和飘的字逐一对得上。** 回归 26 条断言仍然全绿、MISS 0,没有打坏任何东西。
+
+#### 本轮没做的(VFX 剩余两层)
+
+- **Niagara 命中粒子**(按属性配色):工程里零 Niagara 资产,MCP 的 `NiagaraToolsets` 一次都没用过,要先探路。
+- **相机抖动**:需要建一个 CameraShake 蓝图子类,再在命中时 `ClientStartCameraShake`。
+- **飘字的运动和配色**:现在是"原地显示 0.9 秒然后消失",没有上飘动画,暴击/克制也没有区分颜色(`SetColorAndOpacity` 要构造 `SlateColor` 结构体,本轮为降风险跳过了)。

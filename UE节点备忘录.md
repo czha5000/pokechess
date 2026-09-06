@@ -1164,3 +1164,40 @@ const int32 Roll = CombatFormulaPrivate::bDeterministicHitRoll
 **效果**:连跑多轮,`MISS` 恒为 0,**26 条断言全绿且可重复**。在此之前"全绿"从来不是一个能稳定复现的状态。
 
 ⚠️ **加 `UFUNCTION` 会改动生成头文件,Live Coding 顶不住**,必须走关编辑器 → UBT 重编 → 重开。实测这次全量重编只花 17 秒(`Build.bat MyProjectEditor Win64 Development -Project=...`),比想象中便宜得多——以后不要因为"要重编"就绕开 C++ 改动。
+
+---
+
+### 坑99:`TryAttack` **不是**唯一的伤害出口——`ResolveCounterAttack` 自己扣血,挂在 `TryAttack` 上的表现层会漏掉反击(2026-09-06,VFX 打击感)#伤害路径 #反击 #挂载点
+
+做命中飘字时,先入为主地认为"所有伤害都过 `TryAttack`,挂这一处就全覆盖了"。实测打脸:
+
+| 单位 | HP | 飘字 |
+|---|---|---|
+| `BP_Unit_C_1` | 16/20 | `4` ✅ |
+| `BP_Unit_C_2` | **13/20** | **默认值,没触发** ❌ |
+
+两个单位都掉血了,只有一个出了飘字。查函数体:
+
+- `PerformAoeSkillAttack` → 内部调 `TryAttack`,**已覆盖**;
+- `ResolveCounterAttack` → **自己有一套 `SetHP` + `UpdateHealthBar`**(`VariableSet_5`/`CallFunction_12`),完全不经过 `TryAttack`。
+
+所以**改血量的地方有两处,不是一处**。以后任何"跟着伤害走"的东西(飘字、粒子、震屏、音效、伤害统计),都要同时挂 `TryAttack` 和 `ResolveCounterAttack`。
+
+**判断方法**:别读调用链猜,直接 `dumpfn` 把候选函数拉下来 grep `SetHP`/`UpdateHealthBar`——谁自己写了这两个节点,谁就是一条独立的伤害出口。
+
+**反击那处的挂载参数**:目标是 `SelectedUnit`(反击的承受者是原攻击者),伤害是 `CounterDmgTmp`,插在 `UpdateHealthBar` 之后。
+
+---
+
+### 坑100:`compile_blueprint` 不等于存盘;`create_node` 返回**空错误串**通常是编辑器已经没了,不是 type_id 写错(2026-09-06)#存盘 #崩溃排查 #误判
+
+同一轮里连着踩了两次,都是"把环境问题误判成自己写错了"。
+
+**1. 空错误 = 编辑器没了。**
+`create_node('Utilities|IsValid', ...)` 和 `create_node('Utilities|Operators|Greater(>)', ...)` 接连失败,报错内容是**空字符串**。第一反应是"`Utilities|IsValid` 在 `find_node_types` 里返回了 3 条同名项,大概是有歧义要传 `declaring_class`"——**错的**。查进程发现编辑器已经退出,8001 端口也没了;`mcp.py` 在 curl 拿不到响应时返回 `(raw='', True)`,所以"空错误"就是"根本没连上"。
+**判据**:错误串里**有内容**(比如 `does not exist`)才是 type_id 问题;**空的**先去 `Get-Process UnrealEditor` 和端口探一下。
+
+**2. 编辑器退出时会把脏资产存盘。**
+那次退出日志是 `Cmd: QUIT_EDITOR` → `Engine exit requested (reason: UUnrealEdEngine::CloseEditor())` → `LogExit: Exiting.`,**正常退出不是崩溃**,而且退出前跑了 `LogContentValidation` 校验那 2 个脏资产并落了盘(`BP_Unit.uasset` / `WBP_FloatingText.uasset` 时间戳都等于退出时刻)。所以这一轮只 `compile_blueprint` 没 `save_assets` 的改动**侥幸没丢**。
+
+**但不能靠这个**:`compile_blueprint` 只保证图合法、进了内存,**没写磁盘**。这轮改了一个多小时的 UCS + 新建 Widget 全靠退出时那次自动保存捡回来。**每完成一个可验证的小步就 `save_assets`**,别攒着。
