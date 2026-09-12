@@ -1420,6 +1420,15 @@ MCP server 是**普通 HTTP JSON-RPC**(`127.0.0.1:8001/mcp`),完全可以自己�
 
 ---
 
+### 坑115:皮卡丘在 UE 里"没眼睛没腮红"——贴片部件法线整片朝内,Blender 双面渲染看不出,UE 单面剔除后消失(2026-09-12)#美术 #法线 #Blender导出
+
+**现象**:`SK_Pikachu` 在 UE 里只有鼻子和嘴,眼睛/高光/腮红全没有;Blender 关键帧渲染里都在;导出网格里这几片各 576 面、材质槽也都在。
+**排查**:Blender 脚本算每片多边形法线与"到头中心方向"的点积——`Cheek_L/R`、`Eye_L/R`、`EyeHighlight_L/R` 六个对象 **outward=0.00**(100% 朝内),鼻子/嘴是闭合体所以 0.27/0.51 正常。Blender 材质默认不做背面剔除所以看起来正常,UE 默认 One-Sided 就整片剔掉。
+**修法**:`scripts/pikachu_fix_face_normals_v1.py`(bmesh `normal_flip` 六个对象,原地保存,修前备份)→ `pikachu_export_v2.py` 重导 7 个 FBX → UE 只换 `SK_Pikachu`(流程见 `UE角色资产规范.md` 3b)。不要在 UE 侧把材质改 Two Sided 糊过去——法线朝内会让那几片光照反着算。
+**规律**:程序化/手工建的贴片部件(眼睛、腮红、花纹、鳞片)导出前必须查法线朝向;`UE角色资产规范.md` SOP 第 2 步已加这条。
+
+---
+
 ### 坑114:批量搬迁/删除资产(`AssetTools.move`/`delete`)实测边界(2026-09-12)#AssetTools #资产整理 #删除顺序
 
 2026-09-12 把 4 只角色 55 个资产搬到 `/Game/Characters/`、删 77 个废弃资产时的实测:

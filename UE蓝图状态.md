@@ -708,7 +708,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | `mewtwo` | 超梦 | 22 | 14 | 5 | 8 | 5 | 2 | 0 | `SK_Mewtwo`,Loc(0,0,-80) Rot(0,270,0) Scale 54.294 |
 | `eevee` | 伊布 | 26 | 12 | 8 | 7 | 5 | 1 | 0 | `SK_Eevee`,Loc(0,0,-88.173) Rot(0,0,0) Scale 0.75。朝向 A/B 已验证脸朝 +X |
 | `gyarados` | 暴鲤龙 | 32 | 15 | 9 | 5 | 4 | 1 | 2(Water) | `SK_Gyarados`,Loc(0,0,-93.54) Rot(0,270,0) Scale 0.15 |
-| `pikachu` | 皮卡丘 | 20 | 14 | 5 | 11 | 6 | 2 | 0(电系待克制表) | `SK_Pikachu`,Loc(0,0,-88) Rot(0,0,0) Scale 1(局部高 90 cm)。2026-09-12 新增,朝向 A/B 已验证脸朝 +X,PIE 生成正常 |
+| `pikachu` | 皮卡丘 | 20 | 14 | 5 | 11 | 6 | 2 | 0(电系待克制表) | `SK_Pikachu`,Loc(0,0,-88) Rot(0,0,0) Scale 1(局部高 90 cm)。2026-09-12 新增,朝向 A/B 已验证脸朝 +X,PIE 生成正常。**同日晚:`SK_Pikachu` 换成法线修复版(眼睛/高光/腮红 6 片原来法线朝内,UE 单面剔除后整张脸只剩鼻嘴),`A_Pikachu_Magic` 换成放电版 81 帧/2.667 s;都用"导入到 `_Import/` → 表先指新资产 → 删旧 → `move` 顶名"的流程换入,材质槽用 `SkeletalMeshTools.set_material` 重新指回 `M_Pikachu_*`,物理资产 `assign_physics_asset` |
 
 动画列一律 `Animations/A_<S>_{Idle,Walk,WalkBackward,Attack,Magic,Hurt,Death}`。**2026-09-12 资产搬迁**:4 只角色 55 个资产从 `Meshes/*`、`Gyarados/*` 搬到 `/Game/Characters/<S>/` 并统一改名(`AssetTools.move`,引用自动修正、不留重定向器),删除 77 个废弃资产(动画 FBX 附带的重复网格副本、EeveeProc 三代、Gyarados v3_4、BP_Gyarados、GridManager 备份蓝图、_TempDiag 等)。加角色用 `ue/tools/add_species.py`。
 

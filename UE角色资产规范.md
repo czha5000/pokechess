@@ -46,7 +46,7 @@ CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列)。**资产才�
 ## 3. 加一只新角色(SOP)
 
 1. **导入**:`SkeletalMeshTools.import_file`(或编辑器手动)把 FBX 导到 `/Game/Characters/<Species>/`,网格命名 `SK_<Species>`;7 个动画 FBX 各导一次,`skeleton` 传 `SK_<Species>_Skeleton`。导出参数按 `UE美术管线.md`(`global_scale=1` + `apply_unit_scale=True` + `FBX_SCALE_NONE`)。
-2. **整理**:每个动画 FBX 会顺带生成一个重复网格 `<Name>`(和 `<Name>_Anim` 成对)——`get_referencers` 确认零引用后 **删掉**;`_Anim` 改名成 `A_<Species>_<动作>` 搬进 `Animations/`;材质改名进 `Materials/`。`AssetTools.move` 会自动修引用、不留重定向器。
+2. **整理**:**导出前在 Blender 里核对法线朝外**(贴片类部件——眼睛、腮红、花纹——很容易整片朝内,Blender 双面渲染看不出,UE 单面剔除后直接消失;`pikachu_fix_face_normals_v1.py` 是现成的检查+翻转脚本)。每个动画 FBX 会顺带生成一个重复网格 `<Name>`(和 `<Name>_Anim` 成对)——`get_referencers` 确认零引用后 **删掉**;`_Anim` 改名成 `A_<Species>_<动作>` 搬进 `Animations/`;材质改名进 `Materials/`。`AssetTools.move` 会自动修引用、不留重定向器。
 3. **朝向 A/B**(不可跳过,坑105):编辑器里 `add_to_scene_from_asset` 把 `SK_<Species>` 摆到 `(10000,10000,0)`、Rot 0,`CaptureViewport` 分别从 +X 侧(`x=10200, yaw=180`)和 -X 侧(`x=9800, yaw=0`)各拍一张——**哪张看得到脸,脸就朝哪边**。脸朝 +X → `Yaw=0`;脸朝 -X → `Yaw=180`;朝 ±Y → 270/90。拍完 `remove_from_scene`。
 4. **写表**:
    ```
@@ -56,6 +56,13 @@ CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列)。**资产才�
 5. **看一眼**:DBG(左 Ctrl)阵容下拉里选它 → 应用阵容并重开;或临时改 `TestMap` 里 `BP_GridManager` 放置实例的 `DefaultAllyRoster`(改 CDO 没用,实例有自己的值)开 PIE,`get_properties` 读 `SpeciesId/CurrentLocoAnim/CharacterMesh0.SkeletalMeshAsset`。
 6. **文档**:`UE蓝图状态.md` 的 `## DT_Species` 表格加一行;数值初稿写进 `UE规则对齐表.md` 的"单位基础数值"行。
 
+## 3b. 替换已有角色的网格 / 某个动画(不改名、不改表结构)
+
+1. `SkeletalMeshTools.import_file` 导到 `/Game/Characters/<S>/_Import/`(`skeleton` 传现有 `SK_<S>_Skeleton`;换网格时 `import_materials=false`,之后用 `set_material` 把 5 个槽指回 `M_<S>_*`,`assign_physics_asset` 指回物理资产)。
+2. `DataTableTools.set_rows` 把表里对应列**先指向 `_Import` 里的新资产**(否则删旧资产会被引用挡住)。
+3. `AssetTools.delete` 旧资产 → `AssetTools.move` 新资产到旧名字(表引用自动跟回)→ `delete` `_Import` 里的副本和目录 → `save_assets`。
+4. `get_rows` 复读 + PIE 里 `get_properties` 看 `CharacterMesh0.SkeletalMeshAsset` / `MagicAttackAnim.SequenceLength`。
+
 ## 4. 现有角色(2026-09-12 快照)
 
 | 行名 | 名 | 网格 | Yaw | Scale | Z | 备注 |
@@ -63,4 +70,4 @@ CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列)。**资产才�
 | mewtwo | 超梦 | `SK_Mewtwo`(Mixamo 灰模,局部尺寸 ≈2 cm) | 270 | 54.294 | -80 | 唯一还在用 Mixamo 命名来源的;单材质 |
 | eevee | 伊布 | `SK_Eevee`(EeveeV6) | 0 | 0.75 | -88.173 | 8 材质 + 1 贴图 |
 | gyarados | 暴鲤龙 | `SK_Gyarados`(v3_4_Revision_CM) | 270 | 0.15 | -93.54 | 14 材质;`Setup` 只染槽 0(犬齿),敌方配色几乎不可见 |
-| pikachu | 皮卡丘 | `SK_Pikachu`(V1) | 0 | 1 | -88 | 90 cm;Blender 里 Magic 已改成放电版但 UE 里还是旧版,重导即可;眼睛/腮红在截图里不明显,美术待看 |
+| pikachu | 皮卡丘 | `SK_Pikachu`(V1,法线修复版) | 0 | 1 | -88 | 90 cm;Magic = 放电版 81 帧。导出源 `art-pipeline/output/pikachu/v1/animation/magic_discharge/pikachu_v1_magic_discharge.blend`,脚本 `scripts/pikachu_export_v2.py` |

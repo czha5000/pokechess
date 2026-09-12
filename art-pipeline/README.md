@@ -1,5 +1,49 @@
 # 纹兽战记 · 四足 3D 动画管线(实验本)
 
+路卡利欧 v1 使用单一状态单：[当前阶段、批准与产物](output/lucario/v1/STATUS.md)。
+
+## 卡比兽 v1 七动作与正常速度预览完成（最新）
+
+用户同意图像服务四视图生成失败后，按三张输入直接Blender建模，再从模型渲染四视图，并以“ok”批准模型。静态源：`output/snorlax/v1/snorlax_v1_static_review.blend`；四视图：`output/snorlax/v1/renders/snorlax_v1_four_view_board.png`。高1.30m，29,222求值顶点、5材质。最新绑定源：`output/snorlax/v1/rigging/snorlax_v1_rigged.blend`，17骨（14变形），0动作；六个静态诊断姿势见 `rigging/renders/snorlax_v1_static_pose_board.png`，权重及接地结果见 `rigging/validation_rigging.json`。这些是绑定诊断，不是动画全帧验收。角色卡`snorlax_v1_character_card.md`，验收`output/snorlax/v1/acceptance.md`。动画意图方案A见 `output/snorlax/v1/ANIMATION_INTENT.md`，用户已另行回复“ok”批准全部七动作，最新动画源为 `output/snorlax/v1/animation/snorlax_v1_animated.blend`；正常速度总览 `output/snorlax/v1/animation/videos/Snorlax_All_Actions_30fps.mp4`（28.40秒，30fps，循环各两遍），同目录含七个单动作MP4。615帧采样检查完成，主代理关键姿势审阅及总览完整解码通过，最终观感待用户观看。无FBX、无UE。
+
+**新角色工作顺序**：你提供1–2张参考图 → 生成正/左/右/背四视图 → 制作模型并审阅 → 模型确认后绑骨 → 简述动作意图，等你批准 → 制作动画并展示正常速度视频。动画制作前必须记录方案批准；不默认导出FBX或接入UE。适用于双足和四足，按实际体态选骨架。
+
+> **长期范围（2026-09-12 用户确认）**：新角色默认交付Blender模型、骨架权重、动画与正常速度视频，做到绑骨动画即止。UE接入不自动执行；FBX和引擎步骤仅另行明确要求时做，下面相关内容为历史/可选流程。
+
+**2026-09-12 晚已导入 UE**:`scripts/pikachu_export_v2.py`(源 = `magic_discharge/pikachu_v1_magic_discharge.blend`,七 clip 全导,Magic 81 帧)取代 v1 导出脚本;同时修了眼睛/高光/腮红 6 片法线朝内的问题(`scripts/pikachu_fix_face_normals_v1.py`,修前备份 `magic_discharge/backups/pikachu_v1_magic_discharge_pre_normalfix.blend`),UE 的 `SK_Pikachu`/`A_Pikachu_Magic` 已替换。皮卡丘Magic已改成低重心蓄力→双臂侧展放电→恢复，最新源 `output/pikachu/v1/animation/magic_discharge/pikachu_v1_magic_discharge.blend`。同目录 `videos/PikachuV1_Magic_Discharge_3x_30fps_1x.mp4` 为正常速度三遍预览，`PikachuV1_AllActions_Discharge_30fps_1x.mp4` 为更新总览；其余六动作保持原样。81帧验证通过，详见 `MAGIC_DISCHARGE_REVIEW.md`。UE停止时仅导入了旧版资产，未修改蓝图或启动PIE；不继续推进，UE暂存资源不代表最新Magic。
+
+通用流程入口：[通用3D管线流程](../通用3D管线流程.md)。包含分阶段验收、导出、UE 接入、朝向/尺寸/接地公式及交付模板。
+
+## 2026-09-12 皮卡丘 v1：静态审阅
+
+最新用户反馈修订：双手增加可辨短指/拇指，头部与腹臀侧面加厚变圆。当前源改为 `output/pikachu/v1/hand_refinement/pikachu_v1_hands_volume_static_review.blend`，预览及旧新侧面对比见同目录 `previews/`。最新28,860顶点、5材质、65.70×64.11×90.00cm；详见 `hand_refinement/HANDS_VOLUME_REVIEW.md`，仍待人工模型确认。以下原始版本保留对照。
+
+- [角色卡](pikachu_v1_character_card.md)；[验收记录](output/pikachu/v1/acceptance.md)。当前停在人工MODEL APPROVED门禁，尚未制作骨架、动作、FBX或写入UE。
+- 源文件：`output/pikachu/v1/pikachu_v1_static_review.blend`；四视图：`output/pikachu/v1/previews/review_board.png`；分阶段checkpoint保留。
+- 以多视图设定为参考在Blender直接建模，完成宽脸、短肢、红脸颊、黑耳尖、背纹和闪电尾，已修整耳根连接与耳尖色界。
+- 静态尺寸：宽65.70×深55.39×高90.00 cm，脚底Z=0；28,768求值顶点、5材质。数字检查与主代理审阅不能代替用户的最终造型确认。
+- UE实时只读预检表明当前现场已更新为Mewtwo默认、Tile52的Gyarados显式外观，后续增加皮卡丘时保留现有角色；下文9月11日伊布接入为历史记录。
+
+## 最新状态：2026-09-11 Blender v6 修复
+
+用户否定旧伊布的模型质量、动作表达与碎裂问题后，本轮通过 **Blender MCP 直接操作编辑器**，另存并重建了模型和骨架。旧 v5 文件及工作区已有改动保留。
+
+- **当前 Blender 修复文件**：`output/repair_v6/eevee_v6_animated.blend`。旧场景备份：同目录 `before_repair.blend`。
+- **打开即看**：默认选中 `V6_Preview_All`，空格播放 401 帧串联预览，时间线有六个动作名称标记。这是额外的审阅动作，不是第七条游戏动作，也不应导出进游戏。
+- **修复脚本**：`scripts/06_repair_eevee.py`；分阶段调用 `build_model()` → `build_rig()` → `build_actions()` → `ground_actions()` → `validate()`。脚本不是原 `run_pipeline.ps1` 的一部分，直接运行脚本只定义函数；`build_model()` 会重建当前场景，调用前先另存。
+- **模型**：重做头脸、叶片形厚耳、收尖尾巴与较整齐的奶油毛领；尾尖采用打包进 blend 的 UV 基础色贴图，避免逐面判色锯齿；鼻嘴/眼睛与头部骨架一致，眼部有闭眼控制。
+- **骨架**：按 +Y 朝向与真实解剖位置建立 28 骨（含四脚 IK 控制），不再套用旧 Rigify 错位骨链。身体权重沿网格邻接边平滑，并固定脚掌和躯干中心的权重。耳、头、尾各有明确归属。
+- **动作**：`V6_Idle` 61 帧、`V6_Walk` 33 帧、`V6_Attack` 46 帧、`V6_Magic` 61 帧、`V6_Hurt` 31 帧、`V6_Death` 76 帧，30 fps。前两条循环，后四条一次性。攻击是蓄力→前冲撞击→恢复；施法是聚拢→抬身举爪→前推释放；死亡是腿软→闭眼侧倒→停住。
+- **验证**：全 308 帧检查通过。无缺失/未归一化权重、无地面穿透；头部刚性跟随误差 < 0.001 mm；身体边长拉伸的最坏 99.9 分位 < 1.83 倍，最大值 < 2 倍。详细指标见 `reports/06_repair_v6.json`。这些是几何门禁，**不代替模型外观、动作意图的人工验收**。
+- **预览**：`output/repair_v6/` 中有 `final_*.png`、每条动作的 MP4 和六动作总览；`frames/` 保留预览帧。
+- **预览复跑**：`start_previews()` 通过 Blender 定时器逐帧渲染；待 `preview_status.json` 显示 `complete` 后运行 `scripts/06_encode_previews.ps1`，得到 `review_grid.mp4`。视频是 15 fps 审阅采样，源动作仍为 30 fps。
+- **UE 状态（2026-09-11）**：已导入 `/Game/Meshes/EeveeV6/` 并替换 BP_Unit 网格及七个动作变量（增加倒放 Walk 的 WalkBackward）。PIE 已确认四个实例、Idle/Walk 引用及组件变换。scale=0.75、局部旋转0、Z=-88.173；参考尺寸约91.13×55.40×94.51 cm。最终 UE 动作视觉、四向及接地仍待验收，不继承旧版本 PASS。
+- **UE 导出**：`scripts/07_export_ue_v6.py` 在 Blender 内调用 `export()`；源骨架28骨烘焙成24骨，产物见 `output/repair_v6/ue/export.json`。该脚本未接入旧 `run_pipeline.ps1`，含伊布专属名称和路径。
+
+现场确认的旧骨架问题：胸口根骨 `spine.004` 的 Z≈1.024 m，脸链伸到 Y≈1.012 m，脚骨长度约 0.000002 m；骨名、实际位置和动作驱动不一致。仅仅继续添加尾巴/眼睛的局部权重补丁不足以修好整套变形。
+
+下面保留 9 月 6 日实验史，不能将旧 PASS 当作 v6 的 UE 验收。
+
 本目录把「Hunyuan 灰模 → Blender 重网格/绑骨/程序化动作 → UE 隔离导入」收成可复跑脚本。
 第一只实验体是仓库里已有的伊布四视图灰模,不是超梦。
 
