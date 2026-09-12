@@ -15,6 +15,12 @@
 - [x] 回归测试 `bRunRegressionTestsOnBeginPlay=true`:**27 条全部 PASS**(T1–T12,含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位。
 - [x] 临时改动全部复原并复读:CDO/实例默认阵容、`SkillSlots`/`EquippedRelicIds` 的 Instance Editable 标记、临时 SkeletalMeshActor。
 
+**2026-09-12 晚:属性克制表接入(MCP 实测)**
+- [x] `DT_TypeChart` 120 行导入,`Atk1_Def3=2 / Atk4_Def2=2 / Atk0_Def5=0 / Atk4_Def11=0` 复读正确。
+- [x] 回归 `T13a–j` 全 PASS(火→草 2、水→火 2、电→水 2、电→地免疫、普→幽免疫、普→普 1、超→斗 2、开关关 1、name→id、18 种),`LogTemp` 无 "DT_TypeChart 加载失败" 警告。
+- [x] 皮卡丘 `AtkType=4`(电)已写表 + CSV。
+- [ ] **开关仍关**(`bUseTypeChartInSlice=false`)。人工决定要不要开:开了之后火花打伊布(普)1.0、水枪打皮卡丘 1.0、皮卡丘若有电系技能打暴鲤龙 ×2——目前 `DT_Skills` 里没有电系技能(TypeId 4 一个都没有),要给皮卡丘配技能得先加行。
+
 **2026-09-12 下午追加:资产搬迁 + 皮卡丘进表(MCP 实测)**
 - [x] 4 只角色 55 个资产 `AssetTools.move` 到 `/Game/Characters/<S>/` 并改名,`DT_Species` 三行、`BP_Unit` CDO、网格材质槽的引用全部自动跟到新路径(`get_rows`/`get_properties`/`get_dependencies` 复读)。
 - [x] 77 个废弃资产删除,注册表 `find_assets` 搜 `Gyarados_v3|EeveeProc|Eevee_Rigify|PikachuV1|_import_Anim` 为空;`Meshes/`、`Gyarados/`、`Mewtwo_anim/`、`_TempDiag/` 目录已不存在。

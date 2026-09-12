@@ -35,7 +35,7 @@
 |---|---|
 | `DisplayName` | 中文名,DBG 下拉显示 |
 | `MaxHP / Atk / Def / Spd / MoveRange / AtkRange` | 基础数值,对应 web `js/data/creatures.js`;web 没有的角色自己拍初稿,走 `balance/SKILL.md` 调 |
-| `AtkType` | 0 Normal / 1 Fire / 2 Water / 3 Grass。**其它属性(电、超能…)暂填 0**——`CombatFormula::GetTypeMultiplier` 对 4+ 一律按"被克 0.5"处理,克制表默认关但别埋雷 |
+| `AtkType` | 0–17,对照 `属性克制配置.md` 第 1 节(0 normal 1 fire 2 water 3 grass 4 electric 5 ghost 6 flying 7 fighting 8 rock 9 poison 10 dark 11 ground 12 bug 13 ice 14 steel 15 psychic 16 fairy 17 dragon)。2026-09-12 起克制走 `DT_TypeChart` 全表,任何 id 都安全 |
 | `Mesh` + 7 个 `*Anim` | 硬引用,按第 1 节规则可以机械推出 |
 | `MeshRelativeLocation.Z` | `-88 - 模型局部最低点Z × Scale`(88 = 胶囊半高),`add_species.py` 自动算 |
 | `MeshRelativeRotation.Yaw` | **必须 A/B 拍照定**(第 3 步),Blender 管线出来的通常是 0,Mixamo 类通常 270 |
@@ -70,4 +70,4 @@ CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列)。**资产才�
 | mewtwo | 超梦 | `SK_Mewtwo`(Mixamo 灰模,局部尺寸 ≈2 cm) | 270 | 54.294 | -80 | 唯一还在用 Mixamo 命名来源的;单材质 |
 | eevee | 伊布 | `SK_Eevee`(EeveeV6) | 0 | 0.75 | -88.173 | 8 材质 + 1 贴图 |
 | gyarados | 暴鲤龙 | `SK_Gyarados`(v3_4_Revision_CM) | 270 | 0.15 | -93.54 | 14 材质;`Setup` 只染槽 0(犬齿),敌方配色几乎不可见 |
-| pikachu | 皮卡丘 | `SK_Pikachu`(V1,法线修复版) | 0 | 1 | -88 | 90 cm;Magic = 放电版 81 帧。导出源 `art-pipeline/output/pikachu/v1/animation/magic_discharge/pikachu_v1_magic_discharge.blend`,脚本 `scripts/pikachu_export_v2.py` |
+| pikachu | 皮卡丘(电,AtkType 4) | `SK_Pikachu`(V1,法线修复版) | 0 | 1 | -88 | 90 cm;Magic = 放电版 81 帧。导出源 `art-pipeline/output/pikachu/v1/animation/magic_discharge/pikachu_v1_magic_discharge.blend`,脚本 `scripts/pikachu_export_v2.py` |

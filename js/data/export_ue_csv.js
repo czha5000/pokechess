@@ -58,12 +58,29 @@ for (const r of NUMERIC_RELICS) {
 const skillCsv = '\uFEFF' + skillLines.join('\n') + '\n';
 const relicCsv = '\uFEFF' + relicLines.join('\n') + '\n';
 
+// ---- DT_TypeChart:18 属性克制表,真相源是 js/data/types.js 的 CHART(只列非 1 倍) ----
+// TypeId 顺序 = 属性克制配置.md 第 1 节 / C++ CombatFormula.cpp 的 TypeNames,三处必须一致。
+const TYPE_IDS = ['normal','fire','water','grass','electric','ghost','flying','fighting','rock',
+  'poison','dark','ground','bug','ice','steel','psychic','fairy','dragon'];
+const typesSrc = fs.readFileSync(path.join(__dirname, 'types.js'), 'utf8');
+vm.runInThisContext(typesSrc, { filename: 'types.js' });
+const typeLines = ['---,AttackTypeId,DefendTypeId,Multiplier'];
+for (const [atk, row] of Object.entries(CHART)) {
+  for (const [def, mult] of Object.entries(row)) {
+    const a = TYPE_IDS.indexOf(atk), d = TYPE_IDS.indexOf(def);
+    if (a < 0 || d < 0) throw new Error(`types.js CHART 里的属性 "${atk}"/"${def}" 不在 TYPE_IDS 里`);
+    typeLines.push(`Atk${a}_Def${d},${a},${d},${mult}`);
+  }
+}
+const typeCsv = '\uFEFF' + typeLines.join('\n') + '\n';
+
 // 仓库内副本:永远写,是 git 里可 review 的那一份
 const webImport = path.join(__dirname, 'ue_import');
 fs.mkdirSync(webImport, { recursive: true });
 fs.writeFileSync(path.join(webImport, 'DT_Skills.csv'), skillCsv);
 fs.writeFileSync(path.join(webImport, 'DT_Relics.csv'), relicCsv);
-console.log('wrote', NUMERIC_SKILLS.length, 'skills,', NUMERIC_RELICS.length, 'relics ->', webImport);
+fs.writeFileSync(path.join(webImport, 'DT_TypeChart.csv'), typeCsv);
+console.log('wrote', NUMERIC_SKILLS.length, 'skills,', NUMERIC_RELICS.length, 'relics,', typeLines.length - 1, 'type-chart rows ->', webImport);
 
 // UE 工程的导入目录:路径因机器/工程名而异,用环境变量指定,不再硬编码。
 // 以前这里写死 'C:/Users/AI_Work/Documents/Unreal Projects/MyProject 5.8/Saved/Import',
@@ -80,8 +97,9 @@ if (!ueImport) {
 } else {
   fs.writeFileSync(path.join(ueImport, 'DT_Skills.csv'), skillCsv);
   fs.writeFileSync(path.join(ueImport, 'DT_Relics.csv'), relicCsv);
+  fs.writeFileSync(path.join(ueImport, 'DT_TypeChart.csv'), typeCsv);
   console.log('也写入 UE 导入目录 ->', ueImport);
 }
 
 // ⚠ 写完 CSV 不等于 UE 里的 DataTable 更新了——还要在 UE 编辑器里重新导入一次。
-console.log('\n⚠ 记得在 UE 编辑器里重新导入 DT_Skills / DT_Relics,CSV 和 DataTable 资产不会自动同步。');
+console.log('\n⚠ 记得在 UE 编辑器里重新导入 DT_Skills / DT_Relics / DT_TypeChart,CSV 和 DataTable 资产不会自动同步。');

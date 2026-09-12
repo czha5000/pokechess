@@ -676,7 +676,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 `BP_GridManager.EventGraph.EventBeginPlay` 在原有的建图/生成初始单位逻辑之后,新增了 `Branch(bRunRegressionTestsOnBeginPlay) → True → RunRegressionTests(self)`。默认 false,不影响正常游玩。
 
-### RunRegressionTests 覆盖的断言(当前 12 条)
+### RunRegressionTests 覆盖的断言(当前 12 条 + T10/T11/T12 + **T13a–j**)
 
 在 `Tiles[0]`/`Tiles[1]`(11×8 网格里的两个相邻空格,离初始 4 个单位所在的 30/41/52/63 号格远,不会撞车)上:
 
@@ -708,7 +708,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | `mewtwo` | 超梦 | 22 | 14 | 5 | 8 | 5 | 2 | 0 | `SK_Mewtwo`,Loc(0,0,-80) Rot(0,270,0) Scale 54.294 |
 | `eevee` | 伊布 | 26 | 12 | 8 | 7 | 5 | 1 | 0 | `SK_Eevee`,Loc(0,0,-88.173) Rot(0,0,0) Scale 0.75。朝向 A/B 已验证脸朝 +X |
 | `gyarados` | 暴鲤龙 | 32 | 15 | 9 | 5 | 4 | 1 | 2(Water) | `SK_Gyarados`,Loc(0,0,-93.54) Rot(0,270,0) Scale 0.15 |
-| `pikachu` | 皮卡丘 | 20 | 14 | 5 | 11 | 6 | 2 | 0(电系待克制表) | `SK_Pikachu`,Loc(0,0,-88) Rot(0,0,0) Scale 1(局部高 90 cm)。2026-09-12 新增,朝向 A/B 已验证脸朝 +X,PIE 生成正常。**同日晚:`SK_Pikachu` 换成法线修复版(眼睛/高光/腮红 6 片原来法线朝内,UE 单面剔除后整张脸只剩鼻嘴),`A_Pikachu_Magic` 换成放电版 81 帧/2.667 s;都用"导入到 `_Import/` → 表先指新资产 → 删旧 → `move` 顶名"的流程换入,材质槽用 `SkeletalMeshTools.set_material` 重新指回 `M_Pikachu_*`,物理资产 `assign_physics_asset` |
+| `pikachu` | 皮卡丘 | 20 | 14 | 5 | 11 | 6 | 2 | 4(Electric,2026-09-12 晚起) | `SK_Pikachu`,Loc(0,0,-88) Rot(0,0,0) Scale 1(局部高 90 cm)。2026-09-12 新增,朝向 A/B 已验证脸朝 +X,PIE 生成正常。**同日晚:`SK_Pikachu` 换成法线修复版(眼睛/高光/腮红 6 片原来法线朝内,UE 单面剔除后整张脸只剩鼻嘴),`A_Pikachu_Magic` 换成放电版 81 帧/2.667 s;都用"导入到 `_Import/` → 表先指新资产 → 删旧 → `move` 顶名"的流程换入,材质槽用 `SkeletalMeshTools.set_material` 重新指回 `M_Pikachu_*`,物理资产 `assign_physics_asset` |
 
 动画列一律 `Animations/A_<S>_{Idle,Walk,WalkBackward,Attack,Magic,Hurt,Death}`。**2026-09-12 资产搬迁**:4 只角色 55 个资产从 `Meshes/*`、`Gyarados/*` 搬到 `/Game/Characters/<S>/` 并统一改名(`AssetTools.move`,引用自动修正、不留重定向器),删除 77 个废弃资产(动画 FBX 附带的重复网格副本、EeveeProc 三代、Gyarados v3_4、BP_Gyarados、GridManager 备份蓝图、_TempDiag 等)。加角色用 `ue/tools/add_species.py`。
 
@@ -732,6 +732,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 ## 数据层 C++（2026-08-16）
 
 - 模块:`Source/MyProject/`（`FSkillRow` / `FRelicRow` / `FTypeChartRow` 在 `CombatTables.h`；公式在 `CombatFormula.h/.cpp`）
+- **2026-09-12 晚新增**:`CombatFormula::GetTypeMultiplier` 改为读 `/Game/Data/DT_TypeChart`(`FTypeChartRow`,120 行,`import_file` 从 `Saved/Import/DT_TypeChart.csv` 导入;C++ 里 `LoadObject` 按固定路径加载并缓存,表缺失回退旧三角),`CalculateSkillDamage` 加免疫分支(TypeMult≤0 → Damage 0,打印 `IMMUNE dmg=0`);新 `GetTypeNameFromId/GetTypeIdFromName/GetTypeCount`。蓝图签名一个没改。`BP_GridManager` 新函数 `T13_TypeChart()`(10 条 Assert,DSL 生成)接在 `RunRegressionTests` 最后一个 `DestroyActor` 和 `REGRESSION_TESTS_DONE` 之间(`K2Node_CallFunction_132`)。**`CallFunction|` 自身函数节点 type_id 会把下划线去掉:`T13_TypeChart` → `CallFunction|T13TypeChart`**(硬规则 ⑧ 已有,再次印证)。
 - **2026-09-12 新增** `UnitSpecies.h/.cpp`:`FSpeciesRow`(角色表 `DT_Species` 行结构,含网格/7 动画硬引用/挂载变换/基础数值)+ `UUnitSpecies` 静态库(DBG 阵容下拉的显示名⇄行名转换、`ParseSpeciesCsv`)。`DT_Species` 资产待导入(CSV 备档 `js/data/ue_import/DT_Species.csv`)。
 - 资产:`/Game/Data/DT_Skills`（31 行）、`/Game/Data/DT_Relics`（24 行），已保存
 - CSV 源:`Saved/Import/DT_Skills.csv`、`DT_Relics.csv`（`js/data/export_ue_csv.js`）；克制草稿 `js/data/ue_import/DT_TypeChart.csv`
@@ -756,7 +757,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 公式:`max(1, round(Atk × SkillMult × TypeMult × 9/(9+Def) × RelicMults))`。查不到技能行则 Mult=0.9 / Hit=95 / TypeId=0。遗物 Atk/Def 加成已经在 `ApplyStartingRelics` 写进单位属性,C++ **不会再加一遍** RelicAtkAdd,只吃乘区。
 
-**属性克制默认关**(`BP_GridManager.bUseTypeChartInSlice=false` → TypeMult 恒 1.0)。配置对照见 `属性克制配置.md`。打开开关会再用四属性三角,20 血可能再次被秒,先手算再勾。
+**属性克制默认关**(`BP_GridManager.bUseTypeChartInSlice=false` → TypeMult 恒 1.0)。**2026-09-12 起开关打开后走的是 `DT_TypeChart` 18 属性完整表**(不再是四属性三角;0 倍免疫伤害 0),细节见 `属性克制配置.md` 1b 节。打开前先手算,20 血可能被秒。
 
 `ShowAttackForecast` 反击预览会把 Grid.`PendingSkillRowName` 临时改成 `basic`,算完立刻用 `FcSavedSkillRow` 还原。不还原的话,点确认会打出普通攻击而不是刚选的技能。主攻击预览已显式传 `bAttackerIsPlayer=true`;反击预览传 `bAttackerIsPlayer=false` / `bDefenderIsPlayer=true`(吃铁甲皮受伤乘区)。
 
