@@ -2,7 +2,7 @@
 
 > 2026-09-11 3D验收补充：新骨架重新验收，不继承旧资源PASS。导入成功、CDO配置、PIE实例引用与实际视觉表现分开记录；截图必须确实包含目标运行世界。参考bounds不包含动画；胶囊底面对齐不等于运行时脚底贴地，需核对CharacterMovement间隙和未控制单位高度。
 
-> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 113 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
+> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 114 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
 >
 > 需要某条的完整排查过程时,按括号里的"(见坑XX)"到 `UE节点备忘录.md` 里 grep 那个编号——那份文件是**案例档案,按需查,不必通读**(261KB)。
 >
@@ -130,6 +130,7 @@
 - **新建的蓝图类在别的图里建 Cast/Getter 节点前,先 `AssetTools.load_asset` 加载它**,否则 `create_node`/DSL 一律 "does not exist";`find_node_types` 索引加载后也照样搜不到,别拿它当依据。(见坑110)
 - **PIE 里做 UI 端到端验证的可用手段**:`SlateInspectorToolset.PressKey` 触发 legacy 按键事件**稳定可用**;点 UMG 按钮要 **`Hover` 再 `Click`**,并读蓝图变量/`LogWorld: Bringing World` 确认生效;`ComboBoxString` 下拉**驱动不了**、ScrollBox 裁掉的控件点不到、`Escape` 会停 PIE。(见坑111)
 - **给现有变量喂数据前先 `get_node_type_pins` 看 pin 真实类型**:`BP_Unit` 7 个动画变量是 `AnimSequence`,不是 skill 文档说的 `AnimationAsset`;C++ 结构体/参数类型对不上,DSL 连线直接失败。`write_graph_dsl` 失败是整体不写入,不留半截。(见坑113)
+- **角色资产只认 `/Game/Characters/<Species>/SK_<Species>` + `Animations/A_<Species>_{Idle,Walk,WalkBackward,Attack,Magic,Hurt,Death}`**(2026-09-12 起,4 只都已搬迁改名),加角色走 `UE角色资产规范.md` 的 SOP + `ue/tools/add_species.py`;`AssetTools.move` 自动修引用不留重定向器,但 **PIE 期间所有资产操作静默返回 false**、**删骨架前先删动画**。(见坑114)
 - **加角色 = `DT_Species` 加一行 + 放资产**(网格/7 动画/挂载变换/数值全在表里,`BP_Unit.ApplySpecies` 查表),不要再往 `SpawnUnit`/`BP_Unit` 里写任何"某某角色专用"分支。阵容改 `BP_GridManager.DefaultAllyRoster/EnemyRoster`(**放置实例有自己的值,改 CDO 不生效**)或 DBG 面板;出生格在 `AllySpawnTiles/EnemySpawnTiles`。(见 `UE蓝图状态.md` 2026-09-12 节)
 - 粘贴是纯增量的:新节点内部互相连线可靠生效,但新节点连到"已经存在于图里的旧节点"不会生效,这类连线必须让用户手动拖。(见'剪贴板粘贴技术的硬规则'第1条)
 - K2Node_VariableGet/Set 读取"不是 self 自己"的变量时,`MemberParent`/`SelfContextInfo=NotSelfContext`/self pin 的 `PinSubCategoryObject` 三件套必须齐全,漏一个轻则 pin 退化成泛型报错,重则编译器去错误的类里找变量。(见'剪贴板粘贴技术的硬规则'第2条)

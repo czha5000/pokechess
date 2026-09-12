@@ -1420,6 +1420,19 @@ MCP server 是**普通 HTTP JSON-RPC**(`127.0.0.1:8001/mcp`),完全可以自己�
 
 ---
 
+### 坑114:批量搬迁/删除资产(`AssetTools.move`/`delete`)实测边界(2026-09-12)#AssetTools #资产整理 #删除顺序
+
+2026-09-12 把 4 只角色 55 个资产搬到 `/Game/Characters/`、删 77 个废弃资产时的实测:
+
+1. **`move` 会自动修正所有引用,不留重定向器**——DT_Species 的硬引用、`BP_Unit` CDO 的网格/动画默认值、网格的材质槽、Skeleton/PhysicsAsset 互相引用全部跟着改,旧路径的 `.uasset` 直接消失。搬完只要 `get_rows`/`get_properties` 复读一遍就行,不用 fix-up redirectors。
+2. **PIE 期间 `move`/`create_folder`/`delete` 全部静默返回 `false`**,没有任何报错说明原因。先 `IsPIERunning`。
+3. **`delete` 的顺序:先删动画,再删骨架**。先删 Skeleton 的话,同骨架的 AnimSequence 再删会报 `Invalid USkeleton supplied / Unable to initialize RigHierarchy`——这时改用 `delete(整个目录)` 能连带清掉(目录删除不逐个加载资产)。
+4. **`delete` 返回 `true` 不等于文件没了**:`LS_Gyarados_DynamicDiag`(LevelSequence)和 `_TempDiag/*_Skeleton` 注册表里没了、磁盘上 `.uasset` 还在(推测是被打开的编辑器/序列器窗口持有)。收尾要 `find`/`ls` 磁盘目录核对,残留文件在确认注册表没有它之后直接 `rm`。
+5. 删空目录用 `delete(folder)`;`create_folder`/`delete` 对 `/Game/Foo` 返回 false 而 `find_assets` 是空,基本就是 PIE 在跑或目录本来就不存在。
+6. 材质名带 `•`、空格、连字符(Blender 导出器给的)`move` 改名照样成功,不需要特殊转义。
+
+---
+
 ### 坑113:`BP_Unit` 的 7 个动画变量真实类型是 `AnimSequence`,不是 skill 文档写的 `AnimationAsset`;C++ 结构体字段类型对不上 DSL 直接连不上线(2026-09-12)#类型 #AnimSequence #DataTable
 
 `FSpeciesRow` 最初按 `ue-add-animation/SKILL.md`"新变量统一用 AnimationAsset"写成 `TObjectPtr<UAnimationAsset>`,`write_graph_dsl` 报 `Could not connect pin IdleAnim to IdleAnimAsset. The pins may be incompatible types`——`get_node_type_pins("Variables|Default|SetIdleAnimAsset")` 显示 pin 是 `Anim Sequence Object Reference`。改成 `TObjectPtr<UAnimSequence>` 重编(编辑器关→Build 6 秒→开),DataTable 里已导入的引用**不受影响**(对象路径照常解析)。**规律**:给现有变量喂数据前 `get_node_type_pins` 看一眼 pin 类型,别信文档里写的类型名。另:`write_graph_dsl` 失败是**整体不写入**(`find_nodes` 只剩 FunctionEntry),不会留半截,不用 remove_function_graph 重来。

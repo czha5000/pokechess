@@ -40,7 +40,8 @@
   - §F 回归:`bRunRegressionTestsOnBeginPlay=true` 跑一轮 **27 条全 PASS**(含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位 false 后才 `save_assets`。
   - 面板打开后下拉正确显示当前阵容(`超梦/伊布/(空)×3` vs `暴鲤龙/超梦/(空)×3`)。
   - **没能程序化验证**:①UMG `ComboBoxString` 的下拉弹窗用 Slate 注入打不开(`SelectOption`/点内部按钮都返回 true 但选项不变),所以"在面板里换角色再重开"这一步只验证了数据链(`ParseSpeciesCsv` C++ 单测级别 + 组合框回填),**换角色的人机操作待人工 Play**;②伊布/暴鲤龙的攻击/受击/死亡动画视觉。见 `UE测试用例.md` 2026-09-12 节。
-- **待做**:/`SpawnUnit` 加 `SpeciesId`/`SpawnRoster`/替换 BeginPlay 4 个调用 → `BP_TurnManager.ApplyRosterAndRestart` + BeginPlay 配装回填 → `WBP_DebugLoadout` 阵容区 → 文档。
+- ✅ **2026-09-12 下午:资产整理**——4 只角色搬到 `/Game/Characters/<S>/` 统一命名、废弃资产已删,见 `## DT_Species` 节和 `UE角色资产规范.md`;皮卡丘已进表(第 4 只)。`NewMap`(World Partition 模板关卡,150 个外部 Actor)没删,MCP 删不干净,留着无害。
+- **后续可选**:`Setup` 只染材质槽 0 的敌我配色问题(血条已有 ☠);DBG 面板在小视口下需要滚动;角色数值初稿按 `balance/SKILL.md` 再调;皮卡丘 Magic 新版(放电)待重导。
 
 ⚠ 下面 2026-09-11 20:00 那节里"`SpawnUnit` 里 `if TileIndex==52 → ApplyGyaradosAppearance`"是**即将被替换**的现状;"9 列棋盘:5*9+7=52"是误记,棋盘是 **11×8、`TileIndex=(Col-1)*8+(Row-1)`**(30/41/52/63 ↔ (4,7)/(6,2)/(7,5)/(8,8) 全部对得上)。
 
@@ -702,13 +703,16 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 行结构 `FSpeciesRow`(`Source/MyProject/UnitSpecies.h`):`DisplayName`(Text)、`MaxHP/Atk/Def/Spd/MoveRange/AtkRange/AtkType`(Int)、`Mesh`(SkeletalMesh 硬引用)、`IdleAnim/WalkForwardAnim/WalkBackwardAnim/AttackAnim/MagicAnim/HurtAnim/DeathAnim`(**AnimSequence** 硬引用,和 `BP_Unit` 的 7 个动画变量同类型)、`MeshRelativeLocation`(Vector)/`MeshRelativeRotation`(Rotator)/`MeshRelativeScale`(Vector)。
 
-| 行名 | 名 | HP | Atk | Def | Spd | Mov | Rng | Type | 网格 / 变换 |
+| 行名 | 名 | HP | Atk | Def | Spd | Mov | Rng | Type | 网格 / 变换(路径全部 `/Game/Characters/<S>/…`,见 `UE角色资产规范.md`) |
 |---|---|---|---|---|---|---|---|---|---|
-| `mewtwo` | 超梦 | 22 | 14 | 5 | 8 | 5 | 2 | 0 | `Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`,Loc(0,0,-80) Rot(0,270,0) Scale 54.294;`*_import_Anim` |
-| `eevee` | 伊布 | 26 | 12 | 8 | 7 | 5 | 1 | 0 | `EeveeV6/EeveeV6`,Loc(0,0,-88.173) Rot(0,0,0) Scale 0.75;`EeveeV6_Anim` + `Animations/EeveeV6_*_Anim`。**朝向 A/B 已验证脸朝 +X** |
-| `gyarados` | 暴鲤龙 | 32 | 15 | 9 | 5 | 4 | 1 | 2(Water) | `Gyarados/v3_4_Revision/SK_Gyarados_v3_4_Revision_CM`,Loc(0,0,-93.54) Rot(0,270,0) Scale 0.15;`A_Gyarados_v3_4_*_Revision_CM_Anim` |
+| `mewtwo` | 超梦 | 22 | 14 | 5 | 8 | 5 | 2 | 0 | `SK_Mewtwo`,Loc(0,0,-80) Rot(0,270,0) Scale 54.294 |
+| `eevee` | 伊布 | 26 | 12 | 8 | 7 | 5 | 1 | 0 | `SK_Eevee`,Loc(0,0,-88.173) Rot(0,0,0) Scale 0.75。朝向 A/B 已验证脸朝 +X |
+| `gyarados` | 暴鲤龙 | 32 | 15 | 9 | 5 | 4 | 1 | 2(Water) | `SK_Gyarados`,Loc(0,0,-93.54) Rot(0,270,0) Scale 0.15 |
+| `pikachu` | 皮卡丘 | 20 | 14 | 5 | 11 | 6 | 2 | 0(电系待克制表) | `SK_Pikachu`,Loc(0,0,-88) Rot(0,0,0) Scale 1(局部高 90 cm)。2026-09-12 新增,朝向 A/B 已验证脸朝 +X,PIE 生成正常 |
 
-- 伊布数值 = web `js/data/creatures.js`;超梦/暴鲤龙 web 没有,是初稿。属性克制默认关,`AtkType` 暂时只是数据。
+动画列一律 `Animations/A_<S>_{Idle,Walk,WalkBackward,Attack,Magic,Hurt,Death}`。**2026-09-12 资产搬迁**:4 只角色 55 个资产从 `Meshes/*`、`Gyarados/*` 搬到 `/Game/Characters/<S>/` 并统一改名(`AssetTools.move`,引用自动修正、不留重定向器),删除 77 个废弃资产(动画 FBX 附带的重复网格副本、EeveeProc 三代、Gyarados v3_4、BP_Gyarados、GridManager 备份蓝图、_TempDiag 等)。加角色用 `ue/tools/add_species.py`。
+
+- 伊布/皮卡丘数值 = web `js/data/creatures.js`;超梦/暴鲤龙 web 没有,是初稿。属性克制默认关,`AtkType` 暂时只是数据。
 - **加新角色 = 表里加一行 + 放资产,不改蓝图**(DBG 下拉、生成、外观全部查表)。CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列,对象列写 `/Game/.../X.X` 全路径),`DataTableTools.import_file(schema=/Script/MyProject.SpeciesRow)` 导入;和 DT_Skills 一样**资产才是真相**,改表记得同步 CSV。
 - C++ 辅助 `UUnitSpecies`(蓝图节点前缀 `Species|`):`GetEmptySlotLabel()="(空)"`、`GetSpeciesDisplayNames(DT)`、`SpeciesDisplayNameToId(DT, 中文名或行名)`、`ParseSpeciesCsv(DT, csv)`、`SpeciesIdToDisplayName(DT, id)`。
 

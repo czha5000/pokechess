@@ -1,5 +1,7 @@
 # 纹兽战记 · 2D→3D 美术管线(可复用手册)
 
+> **2026-09-11 更新**：通用操作与验收标准已整理为 [通用3D管线流程](通用3D管线流程.md)。伊布 v6 完成 Blender 修复、七动作导出和 UE BP_Unit 接入，PIE 已确认四个实例使用新网格及动画引用。缩放0.75，参考尺寸约91.13×55.40×94.51 cm；最终 UE 动作视觉、朝向与接地仍待验证。下文旧骨架与旧 PASS 不作为 v6 验收证据。
+
 > 目标:一只怪的 **2D 概念 → 3D 模型 → 套到 UE 棋子**。每做一只照着走。
 > 版权:私用练手可用宝可梦;**公开发布必须原创设计**。
 > ✅ 已跑通(2026-07-19):Nano Banana 概念图 → ComfyUI 本地 Hunyuan3D 出灰模 .glb → UE 导入 → BP_Unit 棋子。整条免费、无付费墙。
@@ -90,14 +92,14 @@ clean design, centered, game character
 
 ## 第 7 步 · 四足绑骨/动画(2026-09-06 伊布试点已跑通)
 
-超梦那条 Mixamo 路只适合近人形。伊布/皮卡丘/杰尼龟这类四足走 `art-pipeline/` 里的脚本,不要再塞 Mixamo。
+按角色实际体态选择骨架：伊布使用四足骨架；皮卡丘、杰尼龟通常是直立双足，不能因同属宝可梦而套用伊布四足骨链。超梦的近人形 Mixamo 路也不能直接套到短肢、长耳和特殊尾部角色。制作与导出遵循 [通用3D管线流程](通用3D管线流程.md)。
 
 已验证(伊布四视图灰模 `eevee-4view/Hy3D_mv_grey.glb`):
 
 1. Blender 5.2 体素重网格 → 至少 3 个脚掌簇才允许绑骨。
 2. Rigify `basic_quadruped` + 自补 `tail.001..004`(wolf metarig 没有尾巴,190 根脸/手指骨会把围脖权重抢走)。
 3. `bpy` 程序化 Idle / 对角快步 Walk / Attack / Hurt / Death,导出 FBX。
-4. UE 导入到 `/Game/Meshes/Eevee_Skeletal/` 或 `/Game/Meshes/EeveeProc_Skeletal/`:**新建或共用该目录 Skeleton**,不要绑到超梦那副骨头上。
+4. UE 导入到 **`/Game/Characters/<Species>/`**(2026-09-12 起统一,旧的 `Meshes/*` 目录已删),网格 `SK_<Species>`、动画 `Animations/A_<Species>_<动作>`,每只角色独立 Skeleton,不要绑到别的角色骨头上。完整规则和加角色 SOP 见 `UE角色资产规范.md`。
 
 本轮**没有**改 `BP_Unit` / `SpawnUnit`。棋盘上所有单位仍是超梦。种类映射是下一阶段。
 

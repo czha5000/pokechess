@@ -15,7 +15,16 @@
 - [x] 回归测试 `bRunRegressionTestsOnBeginPlay=true`:**27 条全部 PASS**(T1–T12,含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位。
 - [x] 临时改动全部复原并复读:CDO/实例默认阵容、`SkillSlots`/`EquippedRelicIds` 的 Instance Editable 标记、临时 SkeletalMeshActor。
 
+**2026-09-12 下午追加:资产搬迁 + 皮卡丘进表(MCP 实测)**
+- [x] 4 只角色 55 个资产 `AssetTools.move` 到 `/Game/Characters/<S>/` 并改名,`DT_Species` 三行、`BP_Unit` CDO、网格材质槽的引用全部自动跟到新路径(`get_rows`/`get_properties`/`get_dependencies` 复读)。
+- [x] 77 个废弃资产删除,注册表 `find_assets` 搜 `Gyarados_v3|EeveeProc|Eevee_Rigify|PikachuV1|_import_Anim` 为空;`Meshes/`、`Gyarados/`、`Mewtwo_anim/`、`_TempDiag/` 目录已不存在。
+- [x] 皮卡丘朝向 A/B:Rot 0 时 +X 机位看到脸 ⇒ `Yaw=0`;`add_species.py` 写表(20/14/5/11/6/2,Scale 1,Z=-88)。
+- [x] PIE(放置实例临时 `DefaultAllyRoster=[pikachu,eevee,mewtwo]`):5 个单位全部用新路径网格/动画生成,皮卡丘 Idle 在播,槽 3 落在 (3,4);实例已复原。
+- [x] 回归测试再跑一轮 FAIL 0。
+- [x] 人工验收(用户):DBG 阵容功能整体通过(2026-09-12)。
+
 **还需要人工 Play 验收(MCP 做不到)**
+- [ ] 皮卡丘实战:攻击/受击/死亡动画、眼睛/腮红在游戏里是否看得清(截图里眼睛不明显)。
 - [ ] 左 Ctrl 打开 DBG,**在下拉里换角色**(例如我方第 3 槽选「暴鲤龙」、敌方第 1 槽选「(空)」)再点「应用阵容并重开战斗」——Slate 注入打不开 `ComboBoxString` 下拉,这一步的人机操作没测过;数据链(`ParseSpeciesCsv` 认中文名/跳过「(空)」)已在 C++ 和回填里验证。
 - [ ] 重开后鼠标/输入模式正常(`StartTurn` 重新 Possess,面板应处于关闭状态),没有残留的 UI。
 - [ ] 伊布 / 暴鲤龙作为我方被操控时 WASD 移动、E 攻击、受击、死亡动画肉眼正确;伊布接地(Z=-88.173)在动画期间是否穿地。

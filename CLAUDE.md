@@ -23,6 +23,7 @@
 3. **新增/修改任何 UE 战斗规则(伤害、命中、反击、技能效果、状态…)之前**:先查 `UE规则对齐表.md` 对应行,确认这次改动会不会让某条规则和 web 版产生不一致。改完回来更新那一行。
    这份表存在的理由:此前没有任何地方写着"UE 版的目标规则集是什么",导致每次都靠临时判断——**AOE 会引发逐目标反击(web 完全不引)就是这么漏进去的**,没人决定过,是从 `TryAttack` 的实现细节里渗出来的。
 4. **加新动画 / 换模型 / 排查动画朝向问题** → 走 `ue-add-animation/SKILL.md` 固化的流程,别凭记忆重新摸索一遍。
+   **加新角色 / 放角色资产** → 走 `UE角色资产规范.md`(目录 `/Game/Characters/<Species>/`、`SK_`/`A_` 命名、7 个固定动作名)+ `ue/tools/add_species.py`;不要再往 `Meshes/` 或顶层目录随手导。
 5. **大范围 Blueprint 图重构** → **直接走增量 MCP 节点操作**(`create_node`/`connect_pins`/`break_pins`/`delete_node`),配合坑90 的"全图判活"方法先把现状算清楚。
    ⚠️ **`ue/tools/paste_gen.py` 不是通用图重构工具**(2026-09-06 实测订正):它 428 行、CLI 只有 `choices=["calc_damage"]`,**只会生成 CalcDamage 那一个数学子图**,`ue/README.md` 自己也写着"本最小生成器不生成 TryAttack 全文"。以前这里(和评估报告 #17)写"大范围重构走 paste_gen"是错的,照做会直接撞墙。
    ⚠️ **禁止对 `EventGraph` 做整图 `write_graph_dsl` 回写**(坑1 是追加不是替换,多事件共享的图回写会断线)。新建的空函数图整体生成是安全的。
