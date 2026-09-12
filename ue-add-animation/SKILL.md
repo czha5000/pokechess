@@ -21,7 +21,8 @@ description: 纹兽战记 UE 项目里给 BP_Unit(或同类 Character 蓝图)新
 
 ## 第二步:加变量 + 接入播放逻辑
 
-1. 新变量类型统一用 `AnimationAsset`(不要用更窄的 `AnimSequence`,免得以后想换成 Montage/BlendSpace 要改类型)。
+1. ~~新变量类型统一用 `AnimationAsset`~~ **2026-09-12 订正:`BP_Unit` 现有的 7 个动画变量(`IdleAnimAsset`/`WalkForwardAnim`/…)实际类型是 `AnimSequence`**(`get_node_type_pins("Variables|Default|SetIdleAnimAsset")` 实读),给它们喂数据的 C++ 字段/DataTable 列/函数参数也必须是 `AnimSequence`,否则 DSL 连线报类型不兼容(坑113)。新加变量要跟现有的保持一致,别混用。
+   **2026-09-12 起动画资产不再写在 `BP_Unit` 变量默认值里,而是在 `/Game/Data/DT_Species` 每个角色一行**(`BP_Unit.ApplySpecies` 生成时查表赋值)。给某个角色换动画 = 改表里那一行;加新角色 = 加一行。
 2. 状态类动作(Idle/Walk 这种循环、Tick 驱动切换的)接进 `UpdateLocomotionAnim` 这类"目标变了才 Play"的函数,写法固定是:
    ```
    (if (Utilities|NotEqual(Object) target current)

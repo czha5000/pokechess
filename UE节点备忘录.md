@@ -1,5 +1,11 @@
 # UE 蓝图节点备忘录(踩坑记录,减少重复试错)
 
+## 2026-09-11 伊布 v6：导入返回与截图证据
+
+- SkeletalMeshTools.import_file 本次仅返回网格引用，但资源目录已生成Skeleton、AnimSequence及材质；需find_assets确认完整产物，不据返回数组长度断言无动画。
+- CaptureViewport 的annotations虽然schema描述可选，本机调用省略时返回“needs a default value”；显式提供后可调用。本次在PIE期间得到编辑器世界截图，不能作为PIE单位视觉证据。Slate截图返回空图像也不能标PASS。
+- 伊布参考bounds最低点约0.23064 cm，scale0.75及胶囊半高88时，Mesh Z=-88.173可对齐胶囊底面；PIE已控制单位中心Z95.15，未控制单位Z93，仍需按实际地面核验接触。
+
 > 目的:省 token——别让我对同一类错误重新猜第二次。每次踩到新坑,加一条。
 
 ---
@@ -1283,3 +1289,139 @@ BreakSkillRow.TypeName
 - 查一个输入到底该传什么形状,用 `GetStackInputData` 读现值最快——它直接回 `{"struct":{"refPath":…},"value":…}`,照抄结构就行。
 
 **验证路径拼得对不对的便宜办法**:`ObjectTools.get_class({'refPath': 拼出来的字符串})`,回 `/Script/Niagara.NiagaraSystem` 就说明这个字符串在运行时也解析得到。
+
+### 坑105:换新模型时"抄上一版的 Yaw"会 50% 概率抄反——判朝向要拍 +X/-X 两张对照,不要只拍一张看着像(2026-09-11,暴鲤龙 v3.4)#朝向 #moonwalk #验收方法
+
+**现象**:`BP_Unit.ApplyGyaradosAppearance` 把 `CharacterMesh0` 的 `RelativeRotation` 写成 `Yaw=90`,
+接入报告里也白纸黑字写着 "yaw 90",编译通过、PIE 里读回来也确实是 90,一切"自洽"。
+但实际上模型脸朝 **-X**,而 `ACharacter` 的前方(Arrow gizmo)是 **+X** —— 差 180°,就是坑64 那个 moonwalk。
+
+**为什么没被发现**:
+1. 静止 Idle 姿势下,暴鲤龙是个盘起来的蛇形,前后轮廓都是"一坨带鳍的身体",**单看一张截图分不出前后**。
+2. `get_bounds` 的 `boxExtent.x(314) > y(192)` 只能说明长轴在 X,**说明不了头在 +X 还是 -X 这一端**。
+   把"长轴在 X"当成"脸朝 +X 的证据"是本轮差点踩进去的第二个坑。
+3. 报告里的数字是上一版(或旁边那版资产)抄过来的,而坑96 明确写过"接 BP_Unit 不要抄超梦的 `Yaw=270`"——
+   结果这次是反过来:该用 270 的场合抄了 90。**"别抄"这条规则本身不区分方向,两边都会犯。**
+
+**可靠的判法(本轮实际用的)**:
+把测试用 Actor 摆到空地,`captureTransform` 分别放在 **+X 侧(yaw 180 回看)**和 **-X 侧(yaw 0 回看)**各拍一张:
+哪一张能看见**张开的嘴/眼睛**,脸就朝哪个方向。嘴和眼睛是无歧义特征,比"看轮廓猜"可靠得多。
+再把候选值(90 / 270)各设一次、拍同一个 +X 机位做 A/B,一眼定胜负。**四个正交机位(+X/-X/+Y/-Y)一起拍成 2×2 拼图**
+比拍六轮单图更省时间,也顺带验证了"长轴到底在世界哪根轴上"。
+
+**修法**:`MakeTransform` 的 Rotation pin 直接 `set_pin_value` 成 `"0,270,0"`(顺带确认:**这个字面量的顺序是
+Pitch,Yaw,Roll**——`"0,270,0"` 出来的就是 `yaw=270`,PIE 里复读确认过,不用猜)。
+
+---
+
+### 坑106:PIE 期间 `CaptureViewport` 拍的是**编辑器世界**,拍不到 PIE 里 runtime spawn 的东西;要拍游戏实景用 `CaptureEditorImage`(2026-09-11)#截图 #PIE #验证方法
+
+**现象**:PIE 跑着,`find_actors` 能列出 `UEDPIE_0_TestMap` 里的四个单位、`get_properties` 也读得到它们的
+mesh/动画/朝向,但 `EditorAppToolset.CaptureViewport` 传 Gyarados 实例的世界坐标当 `captureTransform`,
+拍回来是**一片空棋盘**——因为那四个单位是 runtime `SpawnActor` 出来的,只存在于 PIE 世界,
+而 `CaptureViewport` 渲染的是**编辑器世界**(编辑器世界里那些格子上根本没有单位)。
+
+**结论**:
+- 想要"游戏里实际长什么样"的图,用 **`EditorAppToolset.CaptureEditorImage`** —— 它抓的是整个编辑器窗口,
+  PIE 在 viewport 里跑的时候,这张图里就包含真实游戏画面(含 UMG 血条/技能栏)。
+  ⚠️ 订正:`gameplay-integration-report.md` 里"CaptureEditorImage returned no usable local image path"是**误判**
+  —— 它返回的是 `{mimeType, data}` 的 **base64 图像**,本来就不给本地路径;自己 `base64.b64decode` 落盘即可。
+- `CaptureEditorImage` 拍到的是"玩家当前看到的",机位不受控。要让某个 runtime 单位入镜,可以在 PIE 里
+  读 `PlayerCameraManager_0` 的 transform,再 `ActorTools.set_actor_transform` 把目标单位挪到相机前方
+  (PIE 世界的改动不落盘,停 PIE 就没了)。`BP_TacticsController_C_0` 的 `ControlRotation`/`AcknowledgedPawn`
+  **读不到**(`get_properties` 直接报 could not be read),别在那条路上耗。
+- 要**可控机位**的干净对照图(比如判朝向、逐帧看动作),停 PIE,在编辑器静态场景里摆一个临时 Actor,
+  用 `AnimationData{animToPlay, savedPosition, bSavedPlaying:false}` 摆姿势 + `CaptureViewport` 传显式
+  `captureTransform` 拍——这条路是可靠的,`savedPosition` 在编辑器里确实会把骨骼摆到那一帧。
+
+---
+
+### 坑107:`CaptureViewport` 的返回值有 2.8MB,直接当 MCP 工具调会把上下文冲爆;绕过去的办法是自己 curl MCP 端点(2026-09-11)#上下文预算 #MCP #工具用法
+
+`CaptureViewport` 返回的 PNG 是 base64 内联的,一张 1710×1597 的图 ≈ **280 万字符**,
+作为 `mcp__unreal-mcp__call_tool` 的结果会直接触发"输出过大"被落盘,等于白调一次。
+
+MCP server 是**普通 HTTP JSON-RPC**(`127.0.0.1:8001/mcp`),完全可以自己发请求:
+`initialize` 拿 `Mcp-Session-Id` 响应头 → `notifications/initialized` → `tools/call` 调 `call_tool`
+(参数 `{"tool_name":..., "toolset_name":..., "arguments":{...}}`),响应是 SSE 帧(`data: {...}` 一行)。
+把 `-o 文件` 落盘后再 `json.loads` + `base64.b64decode`,**整个过程零上下文成本**,
+还能写成循环一次跑几十张图(本轮 7 个动作 × 4 帧 = 28 张就是这么跑的)。
+
+同一招也适用于 `describe_toolset`(72KB,硬规则里早就说过"让它落盘"——具体怎么落盘就是这个办法)。
+⚠️ 用 `urllib` 直连实测拿不到响应体(空串),原因没细查;**直接 `subprocess` 调 `curl` 是能用的**,别在 urllib 上耗时间。
+
+---
+
+### 坑108:用 Bash/python 脚本写 harness 文档,Stop hook 认不出来——清哨兵的钩子只监听 `Edit`/`Write` 工具(2026-09-11)#hooks #文档同步 #工具选择
+
+**现象**:这一轮该同步的文档全写了(`UE蓝图状态.md` 新快照、`UE节点备忘录.md` 坑105–107、`UE硬规则.md`、
+`UE测试用例.md`),内容也落盘了(`ls` 看得到字节数变化),但结束这一轮时 Stop hook 仍然
+`exit 2` 拦下来,提示"有 compile_blueprint 改动还没同步进 harness 文档"。
+
+**根因**:`.claude/settings.json` 里清哨兵的那个 `PostToolUse` 钩子**只匹配 `Edit`/`Write` 两个工具**
+(见 `UE协作Harness规范.md` 1.5 节第 2 条)。这一轮为了处理 300KB 级中文文档的整段插入/替换,
+我全程用 `Bash` + python heredoc 改文件——**文件确实改了,但钩子看不见**,哨兵一直留着。
+这不是钩子写错了,是它的判据(工具名)和实际写文件的方式脱钩了。
+
+**怎么办**(按优先级):
+1. 改 harness 文档时**至少有一次走 `Edit`/`Write` 工具**。脚本批量改完之后,用 `Edit` 补一条真实内容
+   (比如这条记录本身),别为了骗哨兵加空行——那正是 1.5 节自己承认的"只看文件名不看内容"的漏洞。
+2. 大段结构化插入仍然可以用脚本(处理中文长文本比 `Edit` 的精确匹配省事),两者不冲突。
+3. 看到这条拦截提示时,**先确认文档到底写没写**(`git diff --stat` / `ls -la`),再决定是补内容还是补工具调用;
+   不要条件反射地把已经写好的内容再写一遍。
+
+---
+
+### 坑109:给已有 Function 用 `add_function_param` 加**输入**参数,25 个既有调用点全部 stale("Could not find a pin for the parameter")——"加输入参数对旧调用点安全"的旧结论不成立(2026-09-12)#add_function_param #签名 #stale
+
+**背景**:想给 `BP_GridManager.SpawnUnit(TileIndex, bAlly)` 加一个 `SpeciesId: Name` 输入。文档里 `bUseSkill2` 那次的记录说"新增的是输入参数,旧调用点自动用默认值编译通过"。
+
+**现象**:`add_function_param(..., input_param=true)` 之后 `compile_blueprint` 报 25 条 `Could not find a pin for the parameter SpeciesId of SpawnUnit on SpawnUnit`——EventGraph 里 4 个 + `RunRegressionTests` 里 21 个调用节点全部过期。和坑66(输出参数)一模一样,只是这次是输入参数。`bUseSkill2` 那次为什么没炸,查不出来了(可能当时调用点本来就被重建过)。
+
+**修法**:`remove_function_param` 撤回(撤回后旧调用点立刻恢复正常,不用重建),改走坑17 的老办法:加成员变量 `PendingSpeciesId`,调用前 `Set`,函数内部 `Get`,**函数末尾自动 `Set` 回 None**(防止残留污染下一次不设它的调用,比如回归测试)。
+
+**规律**:改一个有很多调用点的 Function 签名(**输入输出都算**),先 `find_nodes` 数一下调用点;超过一两个就别改签名,用成员变量传参。没有"刷新节点"工具。
+
+---
+
+### 坑110:新建的蓝图类(`BP_TacticsGameInstance`)在 `find_node_types` 里搜不到,`create_node`/DSL 也报 does not exist——要先 `AssetTools.load_asset` 把它加载进内存(2026-09-12)#create_node #新蓝图 #load_asset
+
+**现象**:`BlueprintTools.create` 建了 `BP_TacticsGameInstance` 并加变量、编译、保存;编辑器重启后在别的蓝图里 `Utilities|Casting|CastToBP_TacticsGameInstance` / `Class|BPTacticsGameInstance|GetAllyRoster` 全部 "does not exist",`find_node_types("TacticsGameInstance")` 空数组。同一格式对 `BP_TurnManager` 等老蓝图都正常。
+
+**根因**:那个蓝图资产没有被任何东西引用,重启后根本没加载进内存,节点数据库里自然没有它的类。
+
+**修法**:`AssetTools.load_asset("/Game/Maps/BP_TacticsGameInstance")`(顺手 `compile_blueprint` 一次)之后,`get_node_type_pins`/`create_node`/`write_graph_dsl` 立刻都能建;**`find_node_types` 索引仍然搜不到**(索引过期,硬规则 ⑧ 早说过"搜不到≠不存在")。
+
+---
+
+### 坑111:PIE 里驱动 UMG 面板做端到端验证——能用的和不能用的(2026-09-12)#SlateInspector #PIE #UI自动化
+
+用 `SlateInspectorToolset` 在 PIE 里点 DBG 面板做了完整的"应用阵容并重开"验证,踩出来的边界:
+
+| 操作 | 结果 |
+|---|---|
+| `PressKey("LeftControl")` 触发 `BP_Unit` 的 legacy 按键事件(打开 DBG 面板) | ✅ **稳定可用**——比点按钮可靠,以前"MCP 没有可靠键盘模拟"的记录对 Slate 注入不成立 |
+| `Click(ref)` 点 UMG Button | ⚠️ **时灵时不灵**(PIE 刚起来时灵,跑过几个回合后不灵);**先 `Hover(ref)` 再 `Click(ref)` 就稳定**,验证时用"读状态确认生效,不生效重试"的循环 |
+| `SelectOption(comboRef, "暴鲤龙")` / 点 ComboBoxString 内部按钮 | ❌ 返回 true 但选项不变,下拉弹窗打不开(没有新窗口、树里也没有菜单项)。**UMG 下拉换选项只能人工** |
+| 被 ScrollBox 裁掉的按钮(`Snapshot` 里 pos 正常但在 scrollable 可视区之外,或 `pos=0,0 size=0,0`) | ❌ 点了落空。要么滚动(没找到能驱动 ScrollBox 的工具),要么把控件挪到可视区 |
+| `PressKey("Escape")` | ⚠️ 会直接**停掉 PIE** |
+| `Snapshot` 找 PIE 里的 UMG 控件 | 要先 `Observe(ref="", maxDepth=80)`,用根快照按 `button "文字"` 正则拿 ref;每次关卡重载/面板开关后 ref 会变,重新 Snapshot |
+| 验证"点了有没有用" | 别信 `Click` 的返回值,读蓝图变量(`bDebugPanelOpen`、`Grid.SkillSlots`)或 `LogWorld: Bringing World ... up for play` 时间戳 |
+
+另:`ObjectTools.set_properties` 给**数组**赋值要先清空再整体赋(坑40 尾注再次印证,直接改会报 "ArrayRemove: elements changed alongside the size change");**非 Instance Editable 的蓝图变量(如 `SkillSlots`)在 PIE 实例上也设不了**,临时 `set_variable_instance_editable(true)` 测完记得改回。PIE 里的 GameInstance 对象路径没找到(`/Engine/Transient...` 猜了三种都不对),要验证 GameInstance 里的值只能靠行为差异(改默认阵容看重载结果)间接证。
+
+---
+
+### 坑112:`/mcp` 手动重连**有效**——硬规则 ⑧"会话启动时编辑器没开就永远连不上"是错的;另外 curl 调 MCP 每次要等 SSE 流 16 秒(2026-09-12)#MCP #连接 #curl
+
+1. 会话启动时 `unreal-mcp` ConnectionRefused,中途开编辑器后用户跑 `/mcp` → "Reconnected to unreal-mcp",工具立刻可用;而且**关编辑器重编 C++ 再开,MCP 请求照样通**(每次 tools/call 都是独立 HTTP 请求)。2026-09-01 的"一整轮没做成"应该是当时没试 `/mcp`。硬规则 ⑧ 已改。
+2. 坑107 的 curl 方案实测每次调用 **16–17 秒**:服务器发完 `data:` 帧后不关 SSE 流,curl 一直等。修法:`curl -N` + 读到第一行 `data:` 就 kill 掉 curl(`ue/tools/mcp_http.py` 已这么写,用法 `python ue/tools/mcp_http.py call <toolset> <tool> <json> [outfile]` / `describe <toolset>`),降到 <1 秒。改 `Accept: application/json` 没用。
+3. `add_component_bound_event` 只认 ActorComponent,给 UMG Button 绑 `OnClicked` 要用 `UMGToolSet.BindToEventProperty(eventName="OnClicked", propertyName="Btn_X", propertyClass=/Script/UMG.Button)`,返回的事件节点在 EventGraph 里叫 `AddEvent|OnClicked(Btn_X)`。
+
+---
+
+### 坑113:`BP_Unit` 的 7 个动画变量真实类型是 `AnimSequence`,不是 skill 文档写的 `AnimationAsset`;C++ 结构体字段类型对不上 DSL 直接连不上线(2026-09-12)#类型 #AnimSequence #DataTable
+
+`FSpeciesRow` 最初按 `ue-add-animation/SKILL.md`"新变量统一用 AnimationAsset"写成 `TObjectPtr<UAnimationAsset>`,`write_graph_dsl` 报 `Could not connect pin IdleAnim to IdleAnimAsset. The pins may be incompatible types`——`get_node_type_pins("Variables|Default|SetIdleAnimAsset")` 显示 pin 是 `Anim Sequence Object Reference`。改成 `TObjectPtr<UAnimSequence>` 重编(编辑器关→Build 6 秒→开),DataTable 里已导入的引用**不受影响**(对象路径照常解析)。**规律**:给现有变量喂数据前 `get_node_type_pins` 看一眼 pin 类型,别信文档里写的类型名。另:`write_graph_dsl` 失败是**整体不写入**(`find_nodes` 只剩 FunctionEntry),不会留半截,不用 remove_function_graph 重来。
+
+---

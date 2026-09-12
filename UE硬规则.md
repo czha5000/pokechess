@@ -1,6 +1,8 @@
 # UE 硬规则速查表(必读)
 
-> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 104 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
+> 2026-09-11 3D验收补充：新骨架重新验收，不继承旧资源PASS。导入成功、CDO配置、PIE实例引用与实际视觉表现分开记录；截图必须确实包含目标运行世界。参考bounds不包含动画；胶囊底面对齐不等于运行时脚底贴地，需核对CharacterMovement间隙和未控制单位高度。
+
+> **这是做 UE 工作前唯一必读的坑相关文档。** 全部 113 条踩坑记录的纯结论提炼,去掉了案例背景和排查过程。
 >
 > 需要某条的完整排查过程时,按括号里的"(见坑XX)"到 `UE节点备忘录.md` 里 grep 那个编号——那份文件是**案例档案,按需查,不必通读**(261KB)。
 >
@@ -22,7 +24,7 @@
 - Bool 类型成员变量的 type_id 创建时要去掉 `b` 前缀(`bHasMoved`→`HasMoved`),变量名本身仍带 `b`。(见坑13)
 - 跨对象**设值**的 DSL 语法是"值在前、目标对象在后",跨对象**取值**反而是"目标对象在前";两者顺序不对称,别凭直觉抄反。(见坑14)
 - 算术运算符 `+`/`-`/`*`/`/` 的 type_id 不在 `find_node_types` 搜索结果里,要从 `create_node` 工具自身的参数说明(docstring)里找(如 `Utilities|Operators|Add`)。(见坑15)
-- `add_function_param` 不支持 Object 类输入/输出参数,只支持基础类型和少数结构体;需要传对象时改成"调用前把值写进成员变量,函数内部读这个变量"的模式。(见坑17)
+- ~~`add_function_param` 不支持 Object 类输入/输出参数~~ → **2026-09-12 订正**:现在有 `add_object_function_param(graph, param_name, object_class, input_param)`(`WBP_DebugLoadout.FillRosterCombo` 的 `Combo: ComboBoxString` 就是这么加的)和 `add_object_variable`/`add_struct_variable`,`container_type="ARRAY"` 可加数组参数/变量。"调用前写成员变量、函数内部读"这个模式**仍然有用**——用于不想改既有函数签名的场合(见坑109)。(坑17 的限制已过时)
 - `get_node_type_pins` 会在图里创建一个临时/预览节点来读取 pin 信息,不是纯只读查询,它返回的 `refPath` 不保证是图里持久存在的真实节点——真正要用的节点必须显式 `create_node` 建,拿那次调用自己返回的 `refPath`。(见坑18、坑39、坑43)
 - 给已有 Function 新增/修改输出参数后,已存在的调用点(`K2Node_CallFunction`)不会自动刷新 pin,只能 `delete_node` 后 `create_node` 重建;改签名前先 `find_nodes` 数一下有几个调用点。(见'MCP BlueprintTools实测细节'第8条,坑66 是这条规律的一次代价高昂的重演)
 - `write_graph_dsl` 对**通过 `add_function_graph` 刚创建的、真正空白**的函数图是安全的整体写入(不会重复);但对着**已经有内容**的既有函数图(哪怕只想整体替换成"看起来一样但加了几个分支"的新版本)提交,行为是追加不是替换,旧节点全部留着不被清掉,新旧内容一起变成图里的孤儿——这条规律早就写在这个文件最上面,但"这个函数早就存在、不是全新的"这件事很容易在专注于内容对不对时被忽略,必须先用 `list_functions`/`find_nodes` 确认目标函数**当前是否已有节点**,已有就先 `remove_function_graph`→`compile_blueprint`→`add_function_graph` 清空重建,再 `write_graph_dsl`,不能图省事直接覆盖着写。(见坑66)
@@ -89,6 +91,9 @@
 - 给 `StaticMeshComponent` 算相对父组件(如胶囊体)的挂载偏移之前,必须用 `StaticMeshTools.get_bounds` 现场查这个资产的局部包围盒,确认 pivot 到底在哪——不能套用"骨骼网格局部原点在脚底"的经验公式,静态网格的 pivot 由美术/导入流程决定,可能在模型中心或任意位置。(见坑56)
 - MCP `SkeletalMeshTools.import_file` **不会**做 Interchange Convert Scene。Blender FBX 导出里,关掉 `apply_unit_scale` 不会变成 1,而是硬编码 `unit_scale=100`;再设 `global_scale=100` + `FBX_SCALE_NONE` = 10000 倍。正确组合是 `global_scale=1` + `apply_unit_scale=True` + `FBX_SCALE_NONE`。`FBX_SCALE_ALL` 只改文件头,MCP 会忽略。验收看 `get_bounds.boxExtent`(半高),1.14m 模型应对约 57,不是 0.57 也不是 5697。超梦 Scale≈54 只适用于厘米级灰模,厘米数字已写进顶点的网格 Scale 必须是 1。(见坑95)
 - 本管线 Blender 模型脸朝 +Y,UE Character 前方是 +X。`axis_forward=-Z`/`axis_up=Y` 经 MCP 导入后面朝 **-Y**(差 90°,不是 180° moonwalk)。导出前绕 Z -90° 打进 FBX;验收 `boxExtent.x > boxExtent.y`,并从 -X / +X 两台相机看背/脸。接 `BP_Unit` 不要抄超梦 `RelativeRotation.Yaw=270`。(见坑96、坑64)
+- 换模型/换骨架时**照抄上一版的 `RelativeRotation.Yaw` 有 50% 概率抄反**,而且静止姿势下两个方向都"看着像对的"。判朝向的唯一可靠做法:临时 Actor 摆空地,`captureTransform` 分别放 **+X 侧(yaw 180)**和 **-X 侧(yaw 0)**各拍一张,**哪张看得见张开的嘴/眼睛,脸就朝哪边**;候选 Yaw 值各设一次拍同机位做 A/B。`boxExtent.x > y` 只说明长轴在 X,**不能证明头在 +X 那一端**,别拿它当朝向证据。(见坑105)
+- `MakeTransform`/Rotator 的字面量 `"a,b,c"` 顺序是 **(Pitch, Yaw, Roll)** —— 中间那个才是 Yaw(2026-09-11 PIE 复读确认)。(见坑105)
+- `SkeletalMeshTools.get_bounds` 给的是**资产局部、缩放前**的尺寸;算游戏内实际大小必须乘组件 `RelativeScale3D`。把资产 bounds 当成"游戏里多大"写进报告是本项目反复出现的口径错误(暴鲤龙 628×384×648 cm 实为缩放前,乘 0.15 后只有 94×58×97 cm)。(见坑105)
 - "读到某个属性值,判断这个值是对的"这个结论本身也是需要交叉验证的断言,不能只满足于"这个值存在、看起来合理";要找另一组独立数据源(比如资产自身的 bounds)交叉核实这个值是不是真的算对了。(见坑56)
 
 ### ⑥ `read_graph_dsl` 反编译失真相关
@@ -120,7 +125,12 @@
 - **`create_node` 建 bool 变量的 Get/Set,type_id 要去掉 `b` 前缀**:变量真名是 `bFoo`,但 type_id 必须写 `Variables|Default|GetFoo`(UE 对 bool 显示名会剥掉 `b`)。别猜,先 `find_node_types` 确认。(见坑88)
 - **临时改 CDO 开关做验证,收尾必须同时检查关卡放置实例**——实例一旦被写过就不再跟随 CDO,只把 CDO 改回去等于没改干净(回归测试开关就这么漏过一次,会导致此后每次 Play 都自动跑测试)。改完两处都要复读确认,关卡也要 `save_assets`。(见坑89,坑35 同机制)
 - **给 `Development|PrintString` 加开关,不需要 Branch**:它的 `bPrintToScreen` 是 index 2 的**数据 pin**,直接把一个 bool 变量 Get 接进去就行——一个变量扇出到多个 print,零 exec 结构改动,`bPrintToLog` 保持 true 则日志仍在。比包 Branch 安全得多。
-- **MCP 连接是会话级的:端口通 ≠ 这个会话能用。** 如果会话启动时编辑器没开(MCP `ConnectionRefused`),那么**即使中途把编辑器开起来、8001 端口 `Test-NetConnection` 显示通了,本会话也永远连不上**——MCP 客户端只在会话启动时建连,不会中途重连,`ToolSearch` 依然找不到 `mcp__unreal-mcp__*`。**正确顺序是:先开 UE 编辑器,再开会话。** 顺序反了只能重启会话,不要在那儿反复试。(2026-09-01 实测,一整轮 UE 待办因此全部没做成)
+- **MCP 连接是会话级的,但 `/mcp` 能手动重连。** 会话启动时编辑器没开(`ConnectionRefused`)→ 开编辑器 → 让用户在会话里输入 **`/mcp`** → "Reconnected",`ToolSearch` 就能拿到 `mcp__unreal-mcp__*`。关编辑器重编 C++ 再开,已连上的会话**不用再重连**(每次调用都是独立 HTTP 请求)。~~"本会话永远连不上、只能重启会话"~~ 是 2026-09-01 没试 `/mcp` 得出的错误结论,2026-09-12 已订正。(见坑112)
+- **改有很多调用点的 Function 签名——输入参数也会让旧调用点 stale**(25 个 `SpawnUnit` 调用点一次全炸,"加输入参数安全"的旧说法不成立)。先 `find_nodes` 数调用点,多于一两个就用成员变量传参(调用前 Set、函数末尾清回默认值),`remove_function_param` 撤回后旧调用点自动恢复。(见坑109)
+- **新建的蓝图类在别的图里建 Cast/Getter 节点前,先 `AssetTools.load_asset` 加载它**,否则 `create_node`/DSL 一律 "does not exist";`find_node_types` 索引加载后也照样搜不到,别拿它当依据。(见坑110)
+- **PIE 里做 UI 端到端验证的可用手段**:`SlateInspectorToolset.PressKey` 触发 legacy 按键事件**稳定可用**;点 UMG 按钮要 **`Hover` 再 `Click`**,并读蓝图变量/`LogWorld: Bringing World` 确认生效;`ComboBoxString` 下拉**驱动不了**、ScrollBox 裁掉的控件点不到、`Escape` 会停 PIE。(见坑111)
+- **给现有变量喂数据前先 `get_node_type_pins` 看 pin 真实类型**:`BP_Unit` 7 个动画变量是 `AnimSequence`,不是 skill 文档说的 `AnimationAsset`;C++ 结构体/参数类型对不上,DSL 连线直接失败。`write_graph_dsl` 失败是整体不写入,不留半截。(见坑113)
+- **加角色 = `DT_Species` 加一行 + 放资产**(网格/7 动画/挂载变换/数值全在表里,`BP_Unit.ApplySpecies` 查表),不要再往 `SpawnUnit`/`BP_Unit` 里写任何"某某角色专用"分支。阵容改 `BP_GridManager.DefaultAllyRoster/EnemyRoster`(**放置实例有自己的值,改 CDO 不生效**)或 DBG 面板;出生格在 `AllySpawnTiles/EnemySpawnTiles`。(见 `UE蓝图状态.md` 2026-09-12 节)
 - 粘贴是纯增量的:新节点内部互相连线可靠生效,但新节点连到"已经存在于图里的旧节点"不会生效,这类连线必须让用户手动拖。(见'剪贴板粘贴技术的硬规则'第1条)
 - K2Node_VariableGet/Set 读取"不是 self 自己"的变量时,`MemberParent`/`SelfContextInfo=NotSelfContext`/self pin 的 `PinSubCategoryObject` 三件套必须齐全,漏一个轻则 pin 退化成泛型报错,重则编译器去错误的类里找变量。(见'剪贴板粘贴技术的硬规则'第2条)
 - 一次粘贴里偶尔会概率性丢 1 条 exec 连线(数据线基本不丢);生成较大节点块后第一件事永远是检查每个节点的 exec 输入/输出是否都非空。(见'剪贴板粘贴技术的硬规则'第4条)
@@ -156,5 +166,7 @@
 - 任何"读 live PIE 状态排查"之前,第一步先 `EditorAppToolset.IsPIERunning()` 确认真的在跑——`StartPIE` 调用成功过不代表这一刻 PIE 仍然活着(可能已经被停掉/因故结束),`find_actors` 返回的 `UEDPIE_0_...` 路径哪怕看着眼熟也可能是上一次残留的假象,后续 `ObjectTools`/`ActorTools` 对同一路径的调用会全部报"not valid Object"且报错信息本身不会提示"其实是 PIE 没在跑"。(见坑62)
 - `SkeletalMeshComponent.AnimationData` 这个属性只在组件初始化/序列化时有意义,不会随运行时 `PlayAnimation()` 调用同步更新;想确认"现在到底在播放哪个动作",读这个属性是死路,只能通过——功能是否触发看蓝图变量(如自建的 `CurrentLocoAnim`)、视觉效果是否正确只能靠截图或人工肉眼确认。(见坑63)
 - 一个挂了 `CapsuleComponent`(`ACharacter`)的角色,如果玩家反馈"移动时头朝向不对/像在倒退着走(moonwalk)",且换动画资产(swap 两个 AnimationAsset 变量)没有效果,第一时间应该怀疑 `SkeletalMeshComponent.RelativeRotation`(挂载在胶囊体下的静态朝向补偿值)差了 180 度,而不是"选错了哪个动作";这类角度补偿值如果通过"肉眼看渲染截图猜前后"校准出来的,本身有 50% 概率猜反,前后各差 180 度都可能被误判成"看起来还行"——最终判定必须回到真实玩家的直接描述(比如"背对着移动方向走"),不要靠继续截图硬猜。(见坑64)
+- **PIE 期间 `CaptureViewport` 渲染的是编辑器世界**,runtime `SpawnActor` 出来的单位一个都拍不到(拍回来是空场景);要"游戏实景图"用 `EditorAppToolset.CaptureEditorImage`(返回 base64 图像,不返回本地路径——历史上"拿不到图"的记录是误判)。要可控机位的对照图就停 PIE,在编辑器静态场景里用 `AnimationData{animToPlay, savedPosition, bSavedPlaying:false}` 摆姿势再 `CaptureViewport`。(见坑106)
+- **`CaptureViewport` 单张返回约 280 万字符**,当 MCP 工具调用等于白烧一次上下文。MCP server 就是普通 HTTP JSON-RPC(`127.0.0.1:8001/mcp`),自己 `curl`(initialize 拿 `Mcp-Session-Id` → `notifications/initialized` → `tools/call` 调 `call_tool`)把响应 `-o` 落盘再解码,**零上下文成本**,还能脚本化批量跑几十张。`urllib` 直连实测拿不到响应体,用 `subprocess` 调 curl。(见坑107)
 
 ---

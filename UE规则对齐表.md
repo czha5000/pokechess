@@ -106,6 +106,7 @@
 | **MISS 也会被反击** | web 的"你打空了对方还是能反击"设计意图,UE 行为一致 |
 | **AOE 命中范围** | 主目标 + 正交相邻(曼哈顿距离 = 1)的敌方单位,与 `combat.js`/`rules.js` 的取列表逻辑一致 |
 | **最低伤害兜底** | 两边都是 `max(..., 1)` |
+| **单位基础数值按角色查表**(2026-09-12) | UE 读 `DT_Species`(HP/Atk/Def/Spd/MoveRange/AtkRange/AtkType),对应 web `js/data/creatures.js` 的 POOL/WILD 每种一行。伊布 26/12/8/7/5/1 直接抄 web;**超梦 22/14/5/8/5/2、暴鲤龙 32/15/9/5/4/1 是 UE 侧初稿,web 没有这两只**,调平衡走 `balance/SKILL.md` 改表。web 的 `skl/lck`(暴击/命中相关)UE 没有列,和"暴击未接线"同一条简化 |
 
 ---
 

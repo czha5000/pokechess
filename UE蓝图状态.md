@@ -1,5 +1,116 @@
 # UE 蓝图状态快照(harness 核心文档)
 
+### 2026-09-12 DBG 阵容配置(✅ 全部完成、已验证):角色数据化 + 双方阵容可配 + 重载关卡
+
+**计划文件**:`C:/Users/AI_Work/.claude/plans/dbg-vast-snail.md`(已获用户批准,接手先读它)。目标:角色数据化(`DT_Species`)+ DBG 面板配双方阵容(每方 5 槽下拉)+ 重载关卡按阵容生成。
+
+**本轮已完成(不需要 MCP 的部分)**:
+- 新 C++ `Source/MyProject/UnitSpecies.h/.cpp`:`FSpeciesRow`(DisplayName / MaxHP / Atk / Def / Spd / MoveRange / AtkRange / AtkType / Mesh / 7 个 AnimationAsset 硬引用 / MeshRelativeLocation / MeshRelativeRotation / MeshRelativeScale)+ `UUnitSpecies` 静态库(`GetEmptySlotLabel`="(空)"、`GetSpeciesDisplayNames`、`SpeciesDisplayNameToId`、`ParseSpeciesCsv`、`SpeciesIdToDisplayName`)。`Build.bat MyProjectEditor` **已编译通过**(13 s),编辑器已重开。
+- `Config/DefaultEngine.ini` 加了 `GameInstanceClass=/Game/Maps/BP_TacticsGameInstance.BP_TacticsGameInstance_C`——**这个蓝图资产还没建**,建之前引擎启动会回退到默认 GameInstance(日志可能有一条找不到类的警告,属预期)。
+- `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列,和 DT_Skills.csv 同款)已写好 3 行(mewtwo/eevee/gyarados),并复制到 UE 工程 `Saved/Import/DT_Species.csv` 供 `import_file` 用。对象列写的是 `/Game/.../X.X` 全路径。
+- 备份:`Content/Maps/BP_Unit|BP_GridManager|BP_TurnManager.uasset.bak_20260912_pre_roster`、`Content/UI/WBP_DebugLoadout.uasset.bak_20260912_pre_roster`。
+
+**同日 MCP 部分(`/mcp` 重连成功后继续,硬规则 ⑧"本会话永远连不上"已订正)**:
+- ✅ `/Game/Data/DT_Species` 已用 `DataTableTools.import_file`(schema `/Script/MyProject.SpeciesRow`)从 `Saved/Import/DT_Species.csv` 导入,`get_rows` 读回 3 行:网格/7 动画全部解析成真实 `AnimSequence`/`SkeletalMesh` 引用(CSV 里对象列写 `/Game/.../X.X` 全路径即可),数值/变换和 CSV 一致。已 `save_assets`。
+- ✅ `/Game/Maps/BP_TacticsGameInstance`(`BlueprintTools.create(asset_type=/Script/Engine.GameInstance)`)已建,6 个变量:`AllyRoster`/`EnemyRoster`/`SavedSkillSlots`/`SavedRelicIds`(Name 数组,`add_variable(type_name="name", container_type="ARRAY")`)、`bHasRoster`/`bHasLoadout`(Bool)。编译通过、CDO 读回默认空数组/false,已 `save_assets`。ini 里 `GameInstanceClass` 指向它,编辑器是改 ini 之后重启的,PIE 里应已生效(待 `SpawnRoster` 做完在 PIE 里 Cast 验证)。
+
+- ✅ **`BP_Unit.ApplySpecies(SpeciesId: Name)`** 已建(全新空函数 `write_graph_dsl` 整体生成,28 节点,`get_connected_subgraph` 逐 exec 核实全程连通):`SetSpeciesId` → `GetDataTableRow(DTSpecies, SpeciesId)` → `then`:`(bind (19 个字段) (Utilities|Struct|BreakSpeciesRow row))` 多输出绑定 → `SetMaxHP/SetHP(=MaxHP)/SetAtk/SetDef/SetSpd/SetMoveRange/SetAtkRange/SetAtkType` → `SetSkeletalMeshAsset(Mesh, row.Mesh)` → `SetIdleAnimAsset/WalkForwardAnim/WalkBackwardAnim/ReactionAnim(=HurtAnim)/DyingAnim(=DeathAnim)/PunchAttackAnim(=AttackAnim)/MagicAttackAnim(=MagicAnim)` → `SetRelativeTransform(Mesh, MakeTransform(Loc,Rot,Scale))` → `UpdateLocomotionAnim()`;`RowNotFound` → `PrintString("ApplySpecies: row not found: "+Id)`。新变量 `SpeciesId`(Name)、`DTSpecies`(DataTable,Instance Editable,CDO 默认 `/Game/Data/DT_Species`)。**踩坑**:①`IdleAnimAsset` 等 7 个动画变量真实类型是 **AnimSequence**(不是 skill 文档说的 AnimationAsset),`FSpeciesRow` 的 7 个字段因此改成 `TObjectPtr<UAnimSequence>` 重编了一次(表数据不受影响,引用照常解析);②DSL 里 Name→String 是 `Utilities|String|ToString(Name)`(带括号照样能建),字符串拼接是 `Utilities|String|Append`(`Concat_StrStr` 不存在);③`write_graph_dsl` 失败时是**整体不写入**(`find_nodes` 只剩 FunctionEntry),不会留半截。BP_Unit CDO 实测 `MoveRange=5`(快照表里写的"默认 4"过时)。`ApplyGyaradosAppearance` 暂未删(等 `SpawnUnit` 里的调用点先删)。
+- ✅ **`BP_GridManager` 阵容生成**(已编译、PIE 实测、`save_assets`):
+  - 新变量(全部 Instance Editable,CDO 已设):`DefaultAllyRoster=[mewtwo,eevee]`、`DefaultEnemyRoster=[gyarados,mewtwo]`、`AllySpawnTiles=[30,41,19,37,13]`、`EnemySpawnTiles=[52,63,66,77,70]`(Int 数组)、`DTSpecies`(=`/Game/Data/DT_Species`);内部用:`PendingSpeciesId`(Name)、`RosterAllyTmp`/`RosterEnemyTmp`(Name 数组)。CDO 实测 `Columns=11, Rows=8`。
+  - **`SpawnUnit` 签名没变**(仍是 `(TileIndex, bAlly)`),物种走成员变量 `PendingSpeciesId`:`SpawnActor` 后 `Branch(PendingSpeciesId != None)` → `Unit.ApplySpecies(PendingSpeciesId)` → `Setup` → `SetCol/SetRow` → **`SetPendingSpeciesId(None)`**(新插在 Return 前,防止残留污染下一次调用)→ Return。旧的 `TileIndex==52 → ApplyGyaradosAppearance` 分支(Branch/Equal/AND/调用共 5 节点)已删。**踩坑**:先试了 `add_function_param` 加输入参数 `SpeciesId`,结果 **25 个既有调用点全部报 "Could not find a pin for the parameter SpeciesId"**——"加输入参数对旧调用点安全"的旧结论不成立(见坑109),已 `remove_function_param` 撤回。
+  - 新函数 **`ResolveRoster()`**:`RosterAllyTmp/EnemyTmp = Default 数组` → `CastToBP_TacticsGameInstance(GetGameInstance)` → `then`:`bHasRoster` 为真就用 GameInstance 的 `AllyRoster/EnemyRoster` 覆盖;`CastFailed` → PrintString。**新蓝图类的 cast/getter 节点(`Utilities|Casting|CastToBP_TacticsGameInstance`、`Class|BPTacticsGameInstance|GetAllyRoster`/`GetHasRoster`)必须先 `AssetTools.load_asset` 把那个蓝图加载进内存才建得出来**,`find_node_types` 索引一直搜不到但 `create_node`/DSL 能建(坑110)。
+  - 新函数 **`SpawnRoster()`**:`ResolveRoster()` → `for i in 0..Len(RosterAllyTmp)-1`:`i < Len(AllySpawnTiles)` 才 `SetPendingSpeciesId(RosterAllyTmp[i])` + `SpawnUnit(AllySpawnTiles[i], true)`;敌方同构。多出来的名字(超过 5 个格子)直接丢弃。
+  - `EventGraph.EventBeginPlay`:建图 ForLoop 的 `Completed` → **`SpawnRoster()`**(新 `CallFunction|SpawnRoster` 节点)→ 原来的 `Branch(bRunRegressionTestsOnBeginPlay)`;4 个硬编码 `SpawnUnit(30/41/52/63)` 节点已 `delete_node`。
+  - **PIE 实测(TestMap)**:4 个 `BP_Unit`:`mewtwo`(4,7,我方,HP22 Atk16 Def7 = 表 14/5 + 遗物 2/2)、`eevee`(6,2,我方,HP26 Atk14 Def10,Idle=`EeveeV6_Anim`)、`gyarados`(7,5,敌方,HP32 Atk15 Def9 AtkType2)、`mewtwo`(8,8,敌方,Atk14 Def5)。`ResolveRoster` 没打 CastFailed → `GameInstanceClass` 生效。
+- ✅ **`BP_TurnManager`**(已编译、`save_assets`):
+  - 新函数 **`RestoreSavedLoadout()`**(DSL 整体生成,15 节点,`get_node_infos` 核实只有 1 个 Cast 节点——`read_graph_dsl` 把它显示成两次 Cast 是反编译失真,别信):`CastToBP_TacticsGameInstance(GetGameInstance)` → `bHasLoadout` 为真 → `Grid.SkillSlots = SavedSkillSlots`;`Len(SavedRelicIds)>0` 才 `Grid.EquippedRelicIds = SavedRelicIds` + `Grid.bRelicFallbackToSlice=false`(空则保持 fallback,和 `ApplyDebugLoadout` 的"0 件不清顶栏"一致)。
+  - `EventGraph.EventBeginPlay`:`SetGrid`(`K2Node_VariableSet_3`)→ **`RestoreSavedLoadout`**(新 `K2Node_CallFunction_15`)→ 原 `ApplyStartingRelics`(`K2Node_CallFunction_73`),增量 break/connect 插入。
+  - 新函数 **`ApplyRosterAndRestart(AllyCsv: String, EnemyCsv: String)`**(DSL 整体生成,17 节点):`Species|ParseSpeciesCsv(Grid.DTSpecies, AllyCsv)`、同 EnemyCsv(各**恰好 1 个**节点,bind 成独立语句没被复制)→ Cast GameInstance → `then`:`SetAllyRoster/SetEnemyRoster/SetbHasRoster(true)/SetSavedSkillSlots(Grid.SkillSlots)/SetSavedRelicIds(Grid.EquippedRelicIds)/SetbHasLoadout(true)` → `Game|OpenLevel(byName) "/Game/Maps/TestMap"`;`CastFailed` → PrintString。跨蓝图 setter pin 顺序是 **值在前、self 在后**(和坑14 一致)。C++ 静态库节点 id 是 `Species|ParseSpeciesCsv`(按 UFUNCTION Category)。
+  - **伊布朝向 A/B 已做**(编辑器摆临时 `SkeletalMeshActor`(EeveeV6, Rot 0, Scale 0.75)于 (10000,10000,0),`CaptureViewport` +X 机位 yaw180 看到脸、-X 机位 yaw0 看到背/尾巴)→ **`MeshRelativeRotation=(0,0,0)` 正确,脸朝 +X**。临时 Actor 已删。接地(Z=-88.173)沿用 9-11 报告值,动画期间是否穿地待人工 Play。
+- ✅ **`WBP_DebugLoadout` 阵容区**(`UMGToolSet.AddWidget` 逐个建,`CompileWidgetBlueprint` 通过,持有它的 `BP_TurnManager` 已按坑9 重新编译):`PanelBox` 里紧跟 `Txt_Hint` 之后(childIndex 2/3/4)是 `Txt_RosterLabel`("阵容(我方 / 敌方 各 5 槽,(空)=不上场;应用后重开战斗)")→ `Row_Roster`(HorizontalBox)→ `Col_Ally`/`Col_Enemy`(VerticalBox:`Txt_AllyLabel`/`Txt_EnemyLabel` + `Combo_A0..4` / `Combo_E0..4`,ComboBoxString,`bIsVariable`,设计时 `DefaultOptions=["(空)","超梦","伊布","暴鲤龙"]`)→ `Btn_ApplyRoster`("应用阵容并重开战斗",`bIsVariable`)。**最初放在面板底部,小视口下被 ScrollBox 裁掉点不到,已挪到顶部**(代价:预设/自定义配装按钮在小视口下要滚动才看得到)。新变量 `DTSpecies`(DataTable,默认 `DT_Species`)。
+  - 新函数 **`FillRosterCombo(Combo: ComboBoxString, Selected: String)`**(`create_node`+`connect_pins` 手搭,`ComboBox|ClearOptions/AddOption/SetSelectedOption` 三种节点全部 `declaring_class=/Script/UMG.ComboBoxString`,坑33):`ClearOptions` → `AddOption(Species|GetEmptySlotLabel)` → `Species|GetSpeciesDisplayNames(DTSpecies)` → `ForEachLoop` `AddOption(元素)` → `SetSelectedOption(Selected)`。**下拉选项来自表,加角色不用改这里**。
+  - 新函数 **`FillRosterCombos(AllyRoster: Name[], EnemyRoster: Name[])`**(python 生成 DSL,105 节点,10 段 `if (i < Len) FillRosterCombo(Combo_Xi, SpeciesIdToDisplayName(dt, arr[i])) else FillRosterCombo(Combo_Xi, "(空)")`,`get_node_infos` 走 exec 链确认 20 个调用全部可达、Combo/Selected pin 全部有线)。**不在 `EventConstruct` 里调**(那时 GameInstance/Grid 都没就绪),而是由 `BP_TurnManager.ToggleDebugPanel` 打开面板时调。
+  - 新函数 **`DoApplyRoster()`**:10 个 `GetComboOption`(各 1 个节点)逗号拼成两串 → `GetAllActorsOfClass(BP_TurnManager)[0].ApplyRosterAndRestart(allyCsv, enemyCsv)`。
+  - `EventGraph` 新增 `OnClicked(Btn_ApplyRoster)`(`UMGToolSet.BindToEventProperty(eventName=OnClicked, propertyName=Btn_ApplyRoster, propertyClass=/Script/UMG.Button)`——`BlueprintTools.add_component_bound_event` 对 Widget 报 "not valid ActorComponent",别用)→ `CallFunction|DoApplyRoster`。
+- ✅ **`BP_TurnManager.ToggleDebugPanel`** 打开分支末尾(`SetbShowMouseCursor(true)` 之后)追加 `DebugWidget.FillRosterCombos(Grid.RosterAllyTmp, Grid.RosterEnemyTmp)`(5 个新节点,`Class|WBPDebugLoadout|FillRosterCombos` 带 `declaring_class`),打开面板时下拉回填**本局实际生成用的阵容**。
+- ✅ **验证(全部 MCP 实测,PIE)**:
+  - §C 默认阵容:4 单位 mewtwo(4,7)/eevee(6,2) 我方、gyarados(7,5)/mewtwo(8,8) 敌方,数值=表值(+我方遗物)。
+  - §D 重载链路:Slate `Hover`+`Click`「应用阵容并重开战斗」→ `LogWorld: BeginTearingDown` → `Bringing World up`,单位按存档重生。**减少单位**:放置实例临时改 `[gyarados]/[eevee]` → 新开 PIE 生成 2 单位(暴鲤龙 (4,7) 我方 / 伊布敌方,且已自动打了一回合:伊布 Spd7 先手移到 (4,6) 攻击,HP 32→28 / 26→18,反击正常)。**GameInstance 覆盖**:面板应用后把实例默认改回 4 人再重开 → 仍是 2 单位 ⇒ 走的是 `AllyRoster/EnemyRoster` 存档。实例/CDO 已复原并 `get_properties` 复读。
+  - §E 配装保留:临时把 `SkillSlots`/`EquippedRelicIds` 设 Instance Editable(**测完已改回 false**)直接赋 `[heavy,cleave,aqua,basic,vine]`/`[iron_hide,elem_core]`、fallback=false → 重开后三者原样保留,顶栏"铁甲皮 | 元素核心",技能栏"重击/横扫斩/水枪/普通攻击/藤鞭"。
+  - §F 回归:`bRunRegressionTestsOnBeginPlay=true` 跑一轮 **27 条全 PASS**(含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位 false 后才 `save_assets`。
+  - 面板打开后下拉正确显示当前阵容(`超梦/伊布/(空)×3` vs `暴鲤龙/超梦/(空)×3`)。
+  - **没能程序化验证**:①UMG `ComboBoxString` 的下拉弹窗用 Slate 注入打不开(`SelectOption`/点内部按钮都返回 true 但选项不变),所以"在面板里换角色再重开"这一步只验证了数据链(`ParseSpeciesCsv` C++ 单测级别 + 组合框回填),**换角色的人机操作待人工 Play**;②伊布/暴鲤龙的攻击/受击/死亡动画视觉。见 `UE测试用例.md` 2026-09-12 节。
+- **待做**:/`SpawnUnit` 加 `SpeciesId`/`SpawnRoster`/替换 BeginPlay 4 个调用 → `BP_TurnManager.ApplyRosterAndRestart` + BeginPlay 配装回填 → `WBP_DebugLoadout` 阵容区 → 文档。
+
+⚠ 下面 2026-09-11 20:00 那节里"`SpawnUnit` 里 `if TileIndex==52 → ApplyGyaradosAppearance`"是**即将被替换**的现状;"9 列棋盘:5*9+7=52"是误记,棋盘是 **11×8、`TileIndex=(Col-1)*8+(Row-1)`**(30/41/52/63 ↔ (4,7)/(6,2)/(7,5)/(8,8) 全部对得上)。
+
+### 2026-09-11（20:00）暴鲤龙 v3.4 单点接入：现状快照 + 朝向 bug 已修
+
+**这一节是当前真相。** 上面/下面两条 2026-09-11 的旧记录都已部分失效,见各自的「已作废」标注。
+
+**接线(MCP 实读,不是照抄报告)**:
+- ~~`BP_GridManager.SpawnUnit(TileIndex, bAlly)` 里,`SpawnActor BP_Unit` 之后插了一句
+  `(if (and (== TileIndex 52) (Equal bAlly false)) (Class|BPUnit|ApplyGyaradosAppearance _returnvalue))`~~ **← 2026-09-12 已作废**:该分支和 `ApplyGyaradosAppearance` 都已删除,改为 `PendingSpeciesId` + `BP_Unit.ApplySpecies` 查 `DT_Species`(见上一节)。下面的接线描述只作历史。
+  再执行原有的 `Setup`/`SetCol`/`SetRow`。**SpawnActor 的类仍是 `/Game/Maps/BP_Unit.BP_Unit_C`,没有做任何全局换类**。
+- `BP_Unit.ApplyGyaradosAppearance()`(无参数,13 个节点)依次做:
+  `SetSkeletalMeshAsset(Mesh, SK_Gyarados_v3_4_Revision_CM)` → 7 个动画变量 Set → `SetRelativeTransform(Mesh, MakeTransform("0,0,-93.54", "0,270,0", "0.15,0.15,0.15"))` → `UpdateLocomotionAnim()`。
+- 动画变量映射:`IdleAnimAsset`=Idle、`WalkForwardAnim`=Swim、`WalkBackwardAnim`=SwimBackward、
+  `ReactionAnim`=Hurt、`DyingAnim`=Death、`PunchAttackAnim`=Attack、`MagicAttackAnim`=Magic
+  (全部 `/Game/Gyarados/v3_4_Revision/Animations/A_Gyarados_v3_4_*_Revision_CM_Anim`)。
+
+**朝向 bug 及修复(本轮实测)**:原值 `Yaw=90` → 模型脸朝 **-X**,和胶囊前方(+X,Arrow gizmo)**反了 180°**,
+即坑64 那类 moonwalk。编辑器静态 A/B 对照(同一 Idle 帧,+X 机位各拍一张)判定:**`Yaw=270` 才面朝 +X**。
+已改 `MakeTransform` 的 Rotation pin 为 `"0,270,0"`,编译 + `save_assets` 通过,PIE 复读 `RelativeRotation.yaw=270` 生效。
+顺带确认:**Rotator 字面量 `"0,270,0"` 的顺序是 (Pitch, Yaw, Roll)**。
+
+**实测数值(全部现场量,别再抄旧报告)**:
+- `SkeletalMeshTools.get_bounds` 资产局部:`boxExtent=(314.09, 191.84, 323.95)`、`origin.z=359.74`
+  → **资产原尺寸 628×384×648 cm 是缩放前的数字**;乘 `Scale=0.15` 后**游戏内实际约 94×58×97 cm**。
+  网格最低点在局部 `z=35.8`,乘 0.15 = 5.37,配 `RelativeLocation.z=-93.54` 与胶囊半高 88 →
+  模型底面落在胶囊底面下方 0.17 cm,**参考姿势下接地正确**(动画期间是否穿地未验)。
+- 长轴在局部 **X**(314 > 192),符合坑96 那套"导出前绕 Z -90°"的管线。
+- 材质槽 14 个,**槽 0 是 `Warm_white_•_four_canines`(犬齿)**。
+
+**PIE 实测(2026-09-11 19:5x,四单位 + GridManager 正常起)**:
+| 实例 | col,row | side | mesh | scale | mesh yaw | CurrentLocoAnim |
+|---|---|---|---|---|---|---|
+| BP_Unit_C_1 | 4,7 | 我方 | Mewtwo_TPose | 54.294 | 270 | Idle_import_Anim |
+| BP_Unit_C_2 | 6,2 | 我方 | Mewtwo_TPose | 54.294 | 270 | Idle_import_Anim |
+| **BP_Unit_C_3** | **7,5** | 敌方 | **SK_Gyarados_v3_4_Revision_CM** | **0.150** | **270** | **A_Gyarados_v3_4_Idle_Revision_CM_Anim** |
+| BP_Unit_C_4 | 8,8 | 敌方 | Mewtwo_TPose | 54.294 | 270 | Idle_import_Anim |
+
+⚠️ **订正**:`gameplay-integration-report.md` 写的"PIE 槽位 (col=5,row=2)"是错的,实测是 **(col=7, row=5)**
+(9 列棋盘:`5*9+7=52`)。
+
+**已知未解决**:
+1. `Setup` 对敌方只把**材质槽 0** 换成 `M_Enemy` —— 超梦是单材质所以整体变红,暴鲤龙 14 个槽只有**犬齿**变红,
+   敌我区分在暴鲤龙身上基本不可见。要么改成遍历所有槽,要么给暴鲤龙单独做敌方配色。
+2. 七个动作只验到"变量引用正确 + Idle 在 PIE 里真的被 Play",**Swim/Attack/Magic/Hurt/Death 的实战触发尚未逐条跑过**;
+   静态姿势渲染见 `art-pipeline/output/gyarados/v3_4/animation_revision/ue_pose_check/`。
+3. `BP_Gyarados`(`/Game/Gyarados/v3_4_Revision/BP_Gyarados`)和 `BP_GridManager_BrokenGyaradosAttempt`、
+   `LS_Gyarados_DynamicDiag` 都是上一轮失败尝试的遗留物,**没有被 SpawnUnit 引用**,待确认后清理。
+
+### 2026-09-11 暴鲤龙接入失败后的恢复（18:16）（部分已作废）
+
+> ⚠️ 本节的结论"暴鲤龙玩法接入未完成"**只对 18:16 那个时刻成立**。18:16 恢复之后又做了一次干净接入并落盘
+> (BP_Unit/BP_GridManager 18:44 保存),现状以上面 20:00 那节为准。恢复过程本身的记录仍然有效。
+
+
+- 暴鲤龙玩法接入未完成。GridManager 原路径已从 PreGyaradosBackup 恢复；BP_Unit 在用户确认 11:01 后无修改后，从当天 11:01 自动存档恢复，恢复前副本保留于 UE 项目 Saved/GyaradosRecovery。
+- 独立 UE 编译检查：BP_GridManager、BP_Unit、BP_Tile、BP_TurnManager 均为 BS_UP_TO_DATE；恢复后尚未 PIE 验证。命令行仍因 GameFeatureData Asset Manager 配置报错返回 1，不代表全项目验证通过。
+- 具体证据与后续限制见 `art-pipeline/output/gyarados/v3_4/animation_revision/recovery-status.md`。禁止将现存 BP_Gyarados 或动画资产视为已完成玩法接入。
+
+### 2026-09-11 伊布 v6 接入（❌ 已作废，被同日 18:02 的 BP_Unit 回滚抹掉）
+
+> ⚠️ **2026-09-11 20:00 实测否决**:`Default__BP_Unit_C.CharacterMesh0.SkeletalMeshAsset` 现在是
+> `/Game/Meshes/Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`,`RelativeRotation.yaw=270`、`Scale=54.294`、`Z=-80`,
+> 七个动画变量也全部指回超梦。**BP_Unit 的默认外观是超梦,不是伊布 v6**——下面这段描述的状态已经不存在了,
+> 是被 18:02 从 11:01 自动存档恢复 BP_Unit 时一起回滚掉的。保留原文只为追溯,不要当现状用。
+- BP_Unit 已编译：CharacterMesh0 使用 `/Game/Meshes/EeveeV6/EeveeV6`，局部旋转 0，缩放 0.75，Z=-88.173；胶囊仍为半高88、半径34 cm。
+- 七个动画变量已切换到 EeveeV6 同骨架动画：Idle、Walk、WalkBackward、Attack、Magic、Hurt、Death。Idle 位于根目录 `EeveeV6_Anim`，其余位于 `Animations/EeveeV6_<动作>_Anim`。
+- Setup 敌方沿用槽0红色阵营材质；原有技能、移动、死亡回调逻辑保留。已保存且 PIE 确认四个实例引用新网格、Idle/Walk和上述组件变换。参考姿势缩放后约91.13×55.40×94.51 cm。最终朝向、动作视觉和接地待验收；完整记录见 `通用3D管线流程.md`，不可标记全流程 PASS。
+- 修改前 BP_Unit 保存于 `art-pipeline/output/repair_v6/ue/backups/BP_Unit.before.uasset`。
+
 > 用途:我不用每次靠翻聊天记录/整图回传来确认现状——直接读这份文档就知道每个蓝图有什么变量、什么函数、大致怎么连的。**每次改动后必须同步更新这里**,否则下次就是瞎猜。
 
 ## 📖 怎么读这份文档(253KB,不要通读)
@@ -47,9 +158,12 @@
 | AtkRange | Integer | 未知 | Class Defaults = 2,**已接入 `TryAttack` 的距离判断**(此前"还没接入判断"的记录已过时,见已知问题2) |
 | HealthBarComponent | WidgetComponent | (2026-08-15 新增) | 头顶血条的 WidgetComponent,`UserConstructionScript` 里动态创建 |
 | HealthBarWidget | WBP_HealthBar (Object) | (2026-08-15 新增) | 血条 Widget 实例,`UserConstructionScript` 里 `ConstructObjectfromClass` 生成后经 `SetWidget` 挂到 `HealthBarComponent` 上,同时存一份引用在这个变量方便其他函数直接调用 |
+| SpeciesId | Name | (2026-09-12 新增) | 本单位在 `DT_Species` 的行名(mewtwo/eevee/gyarados),`ApplySpecies` 写入;没走物种的单位(回归测试 SpawnUnit)保持 None |
+| DTSpecies | DataTable | (2026-09-12 新增,Instance Editable,CDO=`/Game/Data/DT_Species`) | `ApplySpecies` 查的表 |
 | bHasMoved | Boolean | (2026-08-16 新增,默认 false) | 本回合是否已经移动过。`BP_TurnManager.StartTurn` 轮到该单位时重置为 false;`BP_Tile.ActorOnClicked` 里真正挪动位置后置为 true;`ActorOnClicked` 里再点自己会检查这个标记,已移动就不再弹出移动/攻击高亮。用途:修复"一回合能无限移动"的 bug,见下方 `ActorOnClicked`/已知问题3。 |
 
 ### 函数
+- **ApplySpecies(SpeciesId: Name)**(2026-09-12 新增,替代已删除的 `ApplyGyaradosAppearance`):`SetSpeciesId` → `GetDataTableRow(DTSpecies, SpeciesId)` → 命中:`BreakSpeciesRow` 多输出绑定 → 写 `MaxHP/HP(=MaxHP)/Atk/Def/Spd/MoveRange/AtkRange/AtkType` → `SetSkeletalMeshAsset(Mesh, Row.Mesh)` → 7 个动画变量(`IdleAnimAsset←IdleAnim`、`WalkForwardAnim`、`WalkBackwardAnim`、`ReactionAnim←HurtAnim`、`DyingAnim←DeathAnim`、`PunchAttackAnim←AttackAnim`、`MagicAttackAnim←MagicAnim`)→ `SetRelativeTransform(Mesh, MakeTransform(Row.MeshRelativeLocation/Rotation/Scale))` → `UpdateLocomotionAnim()`;`RowNotFound` → `PrintString("ApplySpecies: row not found: <id>")`。**必须在 `Setup` 之前调**(Setup 快照 BaseAtk/BaseDef、换敌方材质、刷血条),`BP_GridManager.SpawnUnit` 就是这么排的。CDO 的网格/动画默认值仍是超梦,但正常对局里每个单位都会被 `ApplySpecies` 覆盖。
 - **Setup(bAlly: Bool)**:`Set Side = bAlly` → Branch(Side) → False 分支 `Mesh.SetMaterial(0, M_Enemy)` → **`UpdateHealthBar()`(2026-08-15 新增,初始化血条为满血)**
 - **UpdateHealthBar()**(2026-08-15 新增):`HealthBarWidget.SetHealthPercent(ToFloat(HP) / ToFloat(Max(MaxHP, 1)))`。由 `Setup` 和 `GridManager.TryAttack`(伤害结算后)两处调用,保证血条随 HP 变化实时更新。**⚠ 已踩坑修复:HP/MaxHP 都是 Integer,`/` 直接相除会做整数除法截断成 0**(比如 15/20 算出来是 0 不是 0.75),表现为"随便掉一点血,血条就瞬间全红"——真人 Play 测出来的,回归测试当时只断言了"< 1.0"没测出来。已改成显式 `ToFloat` 转换再相除,并把回归测试的 `T6b` 断言加强成"百分比不能是 0"来防止同类回归。
 
@@ -119,6 +233,11 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | SelectedUnit | BP_Unit | D935E037425A56EF9140B3AD499B0189 |
 | bRunRegressionTestsOnBeginPlay | Boolean | (2026-08-15 新增,默认 false,Instance Editable) | 回归测试开关,见本文件末尾"自动回归测试"一节 |
 | bGameOver | Boolean | (2026-08-15 新增,默认 false) | 胜负是否已判定过,防止一方全灭后每多杀一个单位就重复弹一次胜负窗 |
+| DefaultAllyRoster / DefaultEnemyRoster | Array\<Name\> | (2026-09-12 新增,Instance Editable) | 没有 GameInstance 存档时的开局阵容。CDO 和 TestMap 放置实例 **都是** `[mewtwo,eevee]` / `[gyarados,mewtwo]`(放置实例持有自己的值,改 CDO 不生效,坑35 同款) |
+| AllySpawnTiles / EnemySpawnTiles | Array\<Integer\> | (2026-09-12 新增,Instance Editable) | 每方 5 个出生格 `[30,41,19,37,13]` / `[52,63,66,77,70]`(`TileIndex=(Col-1)*8+(Row-1)`,11×8 棋盘);阵容第 i 个名字落在第 i 个格,超过 5 个丢弃 |
+| DTSpecies | DataTable | (2026-09-12 新增,Instance Editable,=`DT_Species`) | `ApplyRosterAndRestart` 解析 CSV 用 |
+| PendingSpeciesId | Name | (2026-09-12 新增) | `SpawnUnit` 的"隐式参数":调用前 Set,函数末尾自动清回 None。加真参数会让 25 个调用点 stale(坑109),所以走这条老路 |
+| RosterAllyTmp / RosterEnemyTmp | Array\<Name\> | (2026-09-12 新增) | `ResolveRoster` 算出的本局实际阵容,`SpawnRoster` 和 DBG 面板回填都读它 |
 | bAllyAliveTmp / bEnemyAliveTmp | Boolean | (2026-08-15 新增,`CheckVictoryCondition` 的局部变量) | 循环累加用的临时标记,不代表长期状态,不用关心它们平时的值 |
 
 ### 函数
@@ -132,7 +251,9 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 - **ShowAttackRangeCurrent()**(2026-08-16 新增,无参数,移动完成后调用):不同于 `ShowAttackRange(Unit)` 那种"移动前预览最远能打哪"的语义(半径 `MoveRange+AtkRange`),这个函数是"移动已经落地,现在站在新位置,纯粹的 `AtkRange` 内环形高亮"——`For Each Tiles` → 以 `SelectedUnit` 当前(移动后)Col/Row 为圆心,曼哈顿距离 `1..AtkRange` → `SetAttackHighlight(True)`。故意不接收 `Unit` 参数(`add_function_param` 不支持 Object 类型,见坑17),直接读 `SelectedUnit`——调用时机上这个变量必然还指向刚移动完的单位(见下方"行动菜单系统"一节对 `SetSelectedUnit` 清空时机的修复)。由 `BP_Tile.ActorOnClicked` 移动收尾时调用,对应用户反馈"移动后仍要显示攻击范围"。**踩坑记录见 `UE节点备忘录.md` 坑20**:`write_graph_dsl` 里对局部 `bind` 出来的变量,第二次取撞名属性(`Row`)时不能抄 `Class|GridSlot|GetRow`(`read_graph_dsl` 的显示名怪癖),必须写 `Class|BPUnit|GetRow`。
 - **ShowRange(Unit: BP_Unit)**(GUID `365A39F74D91FB2F1BEFE78294302FF7`):ClearHighlights → `Set SelectedUnit=Unit` → For Each Tiles → 曼哈顿距离 ≤ `Unit.MoveRange` 且 ≠0 **且 `NOT IsTileOccupied(Tile.Col, Tile.Row)`**(2026-08-15 新增,见下方 `IsTileOccupied`)→ `SetHighlight(True)`(⚠不是BFS,已知简化;占位检查已补,BFS 仍未做)
 - **IsTileOccupied(Col: Int, Row: Int) → Bool**(2026-08-15 新增,MCP 直接图编辑,`create_node`/`connect_pins` 逐节点搭建,未走 DSL 整函数重写):`GetAllActorsOfClass(BP_Unit)` → For Each → 若某单位的 `Col`/`Row` 同时等于参数 → `return true`;循环结束 `return false`。用途:阻止 `ShowRange` 把已被任意单位(我方或敌方)占用的格子标记为可移动目标,修复"单位能移动到和敌人重叠的格子"的 bug。
-- **SpawnUnit(TileIndex: Int, bAlly: Bool) → SpawnedUnit: BP_Unit**(2026-08-15 加了返回值,原来是 void):`Tiles[TileIndex]` → 取该 Tile 的世界坐标 `+ (0,0,50)` → `SpawnActorFromClass(BP_Unit)` → `Setup(bAlly)` → **`Set Col`/`Set Row`(读 `Tiles[TileIndex]` 自己的 Col/Row 写回新单位)** → `return` 新生成的单位引用。修复前只摆了世界坐标,没写逻辑坐标,导致新单位 Col/Row 恒为默认值0;新增返回值是为了让 `RunRegressionTests` 能直接拿到spawn出来的单位引用,不用另外写"按坐标反查单位"的辅助函数。**⚠ 加返回值后,`EventGraph.EventBeginPlay` 里原有的 4 个 SpawnUnit 调用节点因为签名变了变成 stale(编译报 "Could not find a pin for the parameter SpawnedUnit"),用 delete_node+create_node 逐个重建才修复,详见 `UE节点备忘录.md`。**
+- **SpawnUnit(TileIndex: Int, bAlly: Bool) → SpawnedUnit: BP_Unit**(2026-08-15 加了返回值,原来是 void;**2026-09-12 改**:`SpawnActor` 之后先 `Branch(PendingSpeciesId != None)` → 真则 `Unit.ApplySpecies(PendingSpeciesId)`,再 `Setup`;`SetRow` 之后、Return 之前 `SetPendingSpeciesId(None)`。原 `TileIndex==52 → ApplyGyaradosAppearance` 分支已删):`Tiles[TileIndex]` → 取该 Tile 的世界坐标 `+ (0,0,93)` → `SpawnActorFromClass(BP_Unit)` → [ApplySpecies] → `Setup(bAlly)` → **`Set Col`/`Set Row`(读 `Tiles[TileIndex]` 自己的 Col/Row 写回新单位)** → `return` 新生成的单位引用。修复前只摆了世界坐标,没写逻辑坐标,导致新单位 Col/Row 恒为默认值0;新增返回值是为了让 `RunRegressionTests` 能直接拿到spawn出来的单位引用,不用另外写"按坐标反查单位"的辅助函数。**⚠ 加返回值后,`EventGraph.EventBeginPlay` 里原有的 4 个 SpawnUnit 调用节点因为签名变了变成 stale(编译报 "Could not find a pin for the parameter SpawnedUnit"),用 delete_node+create_node 逐个重建才修复,详见 `UE节点备忘录.md`。**
+- **ResolveRoster()**(2026-09-12 新增):`RosterAllyTmp/EnemyTmp = DefaultAllyRoster/EnemyRoster` → `CastToBP_TacticsGameInstance(GetGameInstance)` 成功且 `bHasRoster` → 改用 GameInstance 的 `AllyRoster/EnemyRoster`;CastFailed → PrintString(不会发生,ini 已指定 GameInstanceClass)。
+- **SpawnRoster()**(2026-09-12 新增,替代 BeginPlay 里 4 个硬编码 `SpawnUnit`):`ResolveRoster()` → `for i in 0..Len(RosterAllyTmp)-1`,`i < Len(AllySpawnTiles)` 才 `SetPendingSpeciesId(RosterAllyTmp[i])` + `SpawnUnit(AllySpawnTiles[i], true)`;敌方同构 `bAlly=false`。
 - **RunRegressionTests()**(2026-08-15 新增)/**Assert(Condition: Bool, TestName: String)**(2026-08-15 新增,内部用):自动回归测试入口,见本文件末尾专门一节。
 - **ManhattanDistance(ColA, RowA, ColB, RowB) → Int**(2026-08-15 新增):`|ColA-ColB| + |RowA-RowB|`。把此前散落在 `TryAttack`/`FindNearestUnit0`/`MoveUnitTowardTarget`/`RunRegressionTests` 里重复了 4 次的曼哈顿距离算式抽成一个真正的 Function——**不是单纯图省事的重构,是绕开 `write_graph_dsl` 一个真实 bug 的必要修复**:两处"结构相同、输入不同"的内联算式可能被编译器错误地别名成同一个节点,包成 Function 调用(天然带 exec pin,不会被去重)才能保证每次都独立求值。详见 `UE节点备忘录.md`。
 - **FindNearestUnit0(FromUnit: BP_Unit, bWantAlly: Bool) → BP_Unit**(2026-08-15 新增,注意函数名末尾没有下划线,是 `remove_function_graph`+`add_function_graph` 重建时自动改的名字):遍历全场 `BP_Unit`,按 `Side==bWantAlly` 过滤,返回曼哈顿距离最近的一个。用**大哨兵初始距离(9999)+ 逐个比较更新**的写法,不用 `IsValid` 判断"是否是第一个候选"(`IsValid` 在 `write_graph_dsl` 里不可靠,详见节点备忘录)。
@@ -441,6 +562,9 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 | `RefreshRelicBar()` | 函数 | `RelicBarWidget.SetBarText(Grid.RelicBarText)` |
 | `ToggleDebugPanel()` / `HideDebugPanel()` | 函数 | DBG 开关 / CLOSE。**2026-08-30 起 `ToggleDebugPanel()` 同时切输入模式**:打开面板→`SetInputModeGameAndUI`+`SetShowMouseCursor(true)`;关闭→`SetInputModeGameOnly`+`SetShowMouseCursor(false)`,原因和改动细节见下方"2026-08-30"节。`HideDebugPanel()` 本轮未同步改(仍只收起面板、不切输入模式),后续如果发现"用 HideDebugPanel 关闭时鼠标还留着"的问题,要在那边补同样的两行。 |
 | `ApplyDebugLoadout()` | 函数 | 读隐藏输入框(DoApply 可能先把非空下拉抄进去)。遗物 CSV → `RelicCsvToIds` → Parse。**解析件数 > 0** 才 `SetEquippedRelicIds` 并关 fallback;**件数为 0** 把 `bRelicFallbackToSlice` 设回 true,让 `ApplyStartingRelics` 再走切片 5 件,禁止空读把顶栏清掉。技能 Parse 件数 > 0 才 `SetSkillSlots`。然后回血、刷新顶栏和菜单。 |
+| `ApplyRosterAndRestart(AllyCsv, EnemyCsv: String)` | 函数(2026-09-12) | `Species|ParseSpeciesCsv(Grid.DTSpecies, csv)` 两次(中文名/行名都认,「(空)」和未知名跳过)→ 写 GameInstance `AllyRoster/EnemyRoster/bHasRoster=true`,顺手存 `Grid.SkillSlots→SavedSkillSlots`、`Grid.EquippedRelicIds→SavedRelicIds`、`bHasLoadout=true` → `OpenLevel("/Game/Maps/TestMap")`。由 `WBP_DebugLoadout.DoApplyRoster` 调 |
+| `RestoreSavedLoadout()` | 函数(2026-09-12) | `EventBeginPlay` 里 `SetGrid` 之后、`ApplyStartingRelics` 之前调:GameInstance `bHasLoadout` 为真 → `Grid.SkillSlots=SavedSkillSlots`;`SavedRelicIds` 非空才 `Grid.EquippedRelicIds=SavedRelicIds` + `bRelicFallbackToSlice=false`。让"重开战斗"不丢 DBG 配装 |
+| `ToggleDebugPanel()` 追加 | (2026-09-12) | 打开分支末尾追加 `DebugWidget.FillRosterCombos(Grid.RosterAllyTmp, Grid.RosterEnemyTmp)`,面板打开时阵容下拉回填本局实际阵容 |
 | `ApplyPresetSlice/Heavy/Elem()` | 函数 | 一键配装。直接 `ParseCommaSeparatedNames` 写死英文 id → Set 数组 → 关 fallback → 遗物/回血/刷新。不读输入框。 |
 | `RefreshSkillMenuLabels()` | 函数 | `GetSkillSlotName` → `SkillIdToChinese` → `WBP_ActionMenu.SetSkillButtonLabels`。`ShowActionMenu` 每次打开也会调。 |
 | `SkillIdToChinese` | 函数 | 技能行名 → 中文。31 条 `EqualExactly` + `if`/`return`,不再调会被 prune 的 B。认不出则原样返回。 |
@@ -451,7 +575,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 **WBP_RelicBar**(`/Game/UI/WBP_RelicBar`):RootCanvas(`SelfHitTestInvisible`)→ 顶贴边 `BarBorder` → `Txt_Bar` + `Btn_Debug`。`SetBarText(Msg)` 用 `Widget|SetText(Text)`,不要用 `Class|Factory|SetText`(会接到 Bool `bText`)。
 
-**WBP_DebugLoadout**:居中 SizeBox → 中文标题 → 5 个遗物 `ComboBoxString` + 5 个技能下拉 → 切片/重击流/元素流/应用自定义/关闭。旧输入框 Collapsed。`EventConstruct`:`FillRelicCombo`/`FillSkillCombo` + `SetText` 隐藏框默认中文 CSV。`GetComboOption` 必须 `declaring_class=ComboBoxString` 的 `ComboBox|GetSelectedOption`,且 **FunctionEntry.then 必须接到 Return.execute**,否则返回值永远是空串。DoApply:下拉空串**不覆盖**隐藏框;拼出来是 `,,,,` 也不改遗物 CSV。然后才 `ApplyDebugLoadout`。
+**WBP_DebugLoadout**:居中 SizeBox → 中文标题 → **(2026-09-12 新增,紧跟提示文字)阵容区:`Txt_RosterLabel` → `Row_Roster`(`Col_Ally`: `Txt_AllyLabel`+`Combo_A0..4`;`Col_Enemy`: `Txt_EnemyLabel`+`Combo_E0..4`)→ `Btn_ApplyRoster`「应用阵容并重开战斗」** → 5 个遗物 `ComboBoxString` + 5 个技能下拉 → 切片/重击流/元素流/应用自定义/关闭。阵容相关函数:`FillRosterCombo(Combo, Selected)`(手搭,选项=「(空)」+`Species|GetSpeciesDisplayNames(DTSpecies)`)、`FillRosterCombos(AllyRoster[], EnemyRoster[])`(由 `TurnManager.ToggleDebugPanel` 打开面板时调,不在 EventConstruct)、`DoApplyRoster()`(10 个下拉拼 CSV → `TurnManager.ApplyRosterAndRestart`)。变量 `DTSpecies`。旧输入框 Collapsed。`EventConstruct`:`FillRelicCombo`/`FillSkillCombo` + `SetText` 隐藏框默认中文 CSV。`GetComboOption` 必须 `declaring_class=ComboBoxString` 的 `ComboBox|GetSelectedOption`,且 **FunctionEntry.then 必须接到 Return.execute**,否则返回值永远是空串。DoApply:下拉空串**不覆盖**隐藏框;拼出来是 `,,,,` 也不改遗物 CSV。然后才 `ApplyDebugLoadout`。
 
 **WBP_ActionMenu**:`Txt_Attack`/`Txt_Skill2..5` 已 `bIsVariable`。`SetSkillButtonLabels(S0..S4)` 改五个按钮上的字。设计时和运行时都显示中文 DisplayName(普通攻击/重击/火花…)。
 
@@ -540,7 +664,7 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 ### 怎么跑
 
 1. 确认 MCP 已连接、PIE 没在跑。
-2. 把关卡里 `BP_GridManager` 实例(`TestMap` 里目前叫 `BP_GridManager_C_1`)的 `bRunRegressionTestsOnBeginPlay` 设成 `true`:
+2. 把关卡里 `BP_GridManager` 实例(`TestMap` 里目前叫 **`BP_GridManager_C_0`**,2026-09-12 `find_actors` 实读;旧文写 `_C_1`)的 `bRunRegressionTestsOnBeginPlay` 设成 `true`:
    `ObjectTools.set_properties(instance=GridManager实例, values='{"bRunRegressionTestsOnBeginPlay": true}')`
 3. `EditorAppToolset.StartPIE`(warmupSeconds 给 2~3 秒,够 BeginPlay 里的建图逻辑和测试都跑完)。
 4. `LogsToolset.GetLogEntries(pattern="PASS:|FAIL:|REGRESSION_TESTS_DONE")` 读结果。
@@ -574,9 +698,37 @@ ConstructObjectfromClass(Class=WBP_HealthBar_C, self)  → widget 实例
 
 测试自带清理:结束前会 `ClearHighlights` + `DestroyActor` 掉两个临时生成的测试单位,不会污染同一 PIE 会话里后续的人工测试。
 
+## DT_Species(`/Game/Data/DT_Species`,2026-09-12 新增)
+
+行结构 `FSpeciesRow`(`Source/MyProject/UnitSpecies.h`):`DisplayName`(Text)、`MaxHP/Atk/Def/Spd/MoveRange/AtkRange/AtkType`(Int)、`Mesh`(SkeletalMesh 硬引用)、`IdleAnim/WalkForwardAnim/WalkBackwardAnim/AttackAnim/MagicAnim/HurtAnim/DeathAnim`(**AnimSequence** 硬引用,和 `BP_Unit` 的 7 个动画变量同类型)、`MeshRelativeLocation`(Vector)/`MeshRelativeRotation`(Rotator)/`MeshRelativeScale`(Vector)。
+
+| 行名 | 名 | HP | Atk | Def | Spd | Mov | Rng | Type | 网格 / 变换 |
+|---|---|---|---|---|---|---|---|---|---|
+| `mewtwo` | 超梦 | 22 | 14 | 5 | 8 | 5 | 2 | 0 | `Mewtwo_Skeletal/SkeletalMeshes/Mewtwo_TPose`,Loc(0,0,-80) Rot(0,270,0) Scale 54.294;`*_import_Anim` |
+| `eevee` | 伊布 | 26 | 12 | 8 | 7 | 5 | 1 | 0 | `EeveeV6/EeveeV6`,Loc(0,0,-88.173) Rot(0,0,0) Scale 0.75;`EeveeV6_Anim` + `Animations/EeveeV6_*_Anim`。**朝向 A/B 已验证脸朝 +X** |
+| `gyarados` | 暴鲤龙 | 32 | 15 | 9 | 5 | 4 | 1 | 2(Water) | `Gyarados/v3_4_Revision/SK_Gyarados_v3_4_Revision_CM`,Loc(0,0,-93.54) Rot(0,270,0) Scale 0.15;`A_Gyarados_v3_4_*_Revision_CM_Anim` |
+
+- 伊布数值 = web `js/data/creatures.js`;超梦/暴鲤龙 web 没有,是初稿。属性克制默认关,`AtkType` 暂时只是数据。
+- **加新角色 = 表里加一行 + 放资产,不改蓝图**(DBG 下拉、生成、外观全部查表)。CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列,对象列写 `/Game/.../X.X` 全路径),`DataTableTools.import_file(schema=/Script/MyProject.SpeciesRow)` 导入;和 DT_Skills 一样**资产才是真相**,改表记得同步 CSV。
+- C++ 辅助 `UUnitSpecies`(蓝图节点前缀 `Species|`):`GetEmptySlotLabel()="(空)"`、`GetSpeciesDisplayNames(DT)`、`SpeciesDisplayNameToId(DT, 中文名或行名)`、`ParseSpeciesCsv(DT, csv)`、`SpeciesIdToDisplayName(DT, id)`。
+
+## BP_TacticsGameInstance(`/Game/Maps/BP_TacticsGameInstance`,2026-09-12 新增)
+
+父类 `GameInstance`,`Config/DefaultEngine.ini` `[/Script/EngineSettings.GameMapsSettings] GameInstanceClass` 指向它。没有逻辑,只是跨 `OpenLevel` 存活的"存档":
+
+| 变量 | 类型 | 谁写 / 谁读 |
+|---|---|---|
+| `AllyRoster` / `EnemyRoster` | Name[] | `BP_TurnManager.ApplyRosterAndRestart` 写;`BP_GridManager.ResolveRoster` 读 |
+| `bHasRoster` | Bool | 同上;false 时 GridManager 用 `DefaultAllyRoster/EnemyRoster` |
+| `SavedSkillSlots` / `SavedRelicIds` | Name[] | `ApplyRosterAndRestart` 写;`BP_TurnManager.RestoreSavedLoadout` 读 |
+| `bHasLoadout` | Bool | 同上 |
+
+生命周期 = 一次 PIE / 一次游戏进程;停 PIE 再开就是全新的(阵容回默认)。
+
 ## 数据层 C++（2026-08-16）
 
 - 模块:`Source/MyProject/`（`FSkillRow` / `FRelicRow` / `FTypeChartRow` 在 `CombatTables.h`；公式在 `CombatFormula.h/.cpp`）
+- **2026-09-12 新增** `UnitSpecies.h/.cpp`:`FSpeciesRow`(角色表 `DT_Species` 行结构,含网格/7 动画硬引用/挂载变换/基础数值)+ `UUnitSpecies` 静态库(DBG 阵容下拉的显示名⇄行名转换、`ParseSpeciesCsv`)。`DT_Species` 资产待导入(CSV 备档 `js/data/ue_import/DT_Species.csv`)。
 - 资产:`/Game/Data/DT_Skills`（31 行）、`/Game/Data/DT_Relics`（24 行），已保存
 - CSV 源:`Saved/Import/DT_Skills.csv`、`DT_Relics.csv`（`js/data/export_ue_csv.js`）；克制草稿 `js/data/ue_import/DT_TypeChart.csv`
 - 切片启用行（`bEnabledInSlice=true`）:技能 `basic/ember/aqua/vine`（另有 `heavy` 可选手选）；遗物 `power_band/steel_will/hunter_lens/iron_hide/elem_core`

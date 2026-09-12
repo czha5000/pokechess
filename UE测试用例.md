@@ -1,5 +1,63 @@
 # UE 切片测试用例(验收清单)
 
+## 2026-09-12 DBG 阵容配置 + 角色数据化(DT_Species)验收
+
+**已 PASS(程序化可证,MCP 实测)**
+- [x] `DT_Species` 3 行(mewtwo/eevee/gyarados)导入后网格/7 动画引用全部解析成真实资产,数值/变换与 `js/data/ue_import/DT_Species.csv` 一致。
+- [x] 默认阵容:PIE 生成 4 个 `BP_Unit`——`mewtwo`(4,7) 我方、`eevee`(6,2) 我方、`gyarados`(7,5) 敌方、`mewtwo`(8,8) 敌方;每个单位的 `SpeciesId/MaxHP/Atk/Def/Spd/MoveRange/AtkRange/AtkType/IdleAnimAsset/CurrentLocoAnim` 与表一致,我方 Atk/Def 在表值上再叠遗物 +2。
+- [x] `GameInstanceClass` 生效:`ResolveRoster` 没有打印 CastFailed。
+- [x] 伊布朝向:编辑器摆 `EeveeV6` 临时 Actor(Rot 0),+X 机位看到脸、-X 机位看到背/尾巴 ⇒ `MeshRelativeRotation=(0,0,0)` 正确(脸朝 +X)。
+- [x] 减少单位:放置实例临时改默认阵容 `[gyarados]`/`[eevee]` → 新开 PIE 只生成 2 个单位(暴鲤龙我方 (4,7)、伊布敌方 (7,5) 出生),回合自动推进、伊布移动到 (4,6) 攻击、暴鲤龙反击,HP 32→28 / 26→18。
+- [x] 重开链路:DBG 面板「应用阵容并重开战斗」→ `LogWorld: BeginTearingDown` → `Bringing World ... up for play`,单位按存档重生。
+- [x] GameInstance 覆盖默认:面板应用过一次后,把放置实例默认阵容改回 4 人再点重开 → 仍生成 2 单位(走 `AllyRoster/EnemyRoster` 存档)。
+- [x] 配装保留:重开前 `SkillSlots=[heavy,cleave,aqua,basic,vine]`、`EquippedRelicIds=[iron_hide,elem_core]`、fallback=false → 重开后三者不变,顶栏"铁甲皮 | 元素核心",技能栏"重击/横扫斩/水枪/普通攻击/藤鞭"。
+- [x] 面板打开时阵容下拉回填当前阵容(`超梦/伊布/(空)×3` vs `暴鲤龙/超梦/(空)×3`),选项列表 = 「(空)」+ 表里全部 DisplayName。
+- [x] 回归测试 `bRunRegressionTestsOnBeginPlay=true`:**27 条全部 PASS**(T1–T12,含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位。
+- [x] 临时改动全部复原并复读:CDO/实例默认阵容、`SkillSlots`/`EquippedRelicIds` 的 Instance Editable 标记、临时 SkeletalMeshActor。
+
+**还需要人工 Play 验收(MCP 做不到)**
+- [ ] 左 Ctrl 打开 DBG,**在下拉里换角色**(例如我方第 3 槽选「暴鲤龙」、敌方第 1 槽选「(空)」)再点「应用阵容并重开战斗」——Slate 注入打不开 `ComboBoxString` 下拉,这一步的人机操作没测过;数据链(`ParseSpeciesCsv` 认中文名/跳过「(空)」)已在 C++ 和回填里验证。
+- [ ] 重开后鼠标/输入模式正常(`StartTurn` 重新 Possess,面板应处于关闭状态),没有残留的 UI。
+- [ ] 伊布 / 暴鲤龙作为我方被操控时 WASD 移动、E 攻击、受击、死亡动画肉眼正确;伊布接地(Z=-88.173)在动画期间是否穿地。
+- [ ] 小视口(编辑器 PIE 窗口)下 DBG 面板要滚动才看得到预设/自定义配装按钮——独立游戏窗口 720 高度内应能全显示,确认一下观感。
+- [ ] 阵容槽位 3–5 的出生格 (3,4)/(5,6)/(2,6) 与 (9,3)/(10,6)/(9,7) 站位是否合理(只按"不撞回归测试格子"选的)。
+
+## 2026-09-11（20:00）暴鲤龙 v3.4 单点接入验收
+
+**已 PASS(程序化可证,本轮实测)**
+- [x] `BP_Unit` / `BP_GridManager` `compile_blueprint` 干净,`save_assets` 落盘。
+- [x] `SpawnUnit` 的 `TileIndex==52 && !bAlly` 分支走通:PIE 里 `BP_Unit_C_3`(**col=7,row=5**)
+      mesh = `SK_Gyarados_v3_4_Revision_CM`、`RelativeScale3D=0.15`、`RelativeRotation.yaw=270`。
+- [x] 其余 3 个单位保持超梦(`Mewtwo_TPose`,scale 54.294),没有被误伤。
+- [x] `CurrentLocoAnim` = `A_Gyarados_v3_4_Idle_Revision_CM_Anim` —— **Idle 确实被 Play 了**,不是只挂了个变量引用。
+- [x] 七个动画变量引用逐个核对正确(Idle/Swim/SwimBackward/Hurt/Death/Attack/Magic ↔ Idle/WalkForward/WalkBackward/Reaction/Dying/PunchAttack/MagicAttack)。
+- [x] 朝向:原 `Yaw=90` 脸朝 -X(moonwalk),已修为 `Yaw=270` 面朝 +X,编辑器 A/B 对照图为证(见坑105)。
+- [x] 参考姿势接地:模型底面 = 胶囊底面 -0.17 cm(算式见 `UE蓝图状态.md` 本日 20:00 节)。
+
+**FAIL / 已知缺陷**
+- [ ] **敌我配色基本不可见**:`Setup` 只把材质槽 0 换成 `M_Enemy`,暴鲤龙 14 个槽里槽 0 是犬齿,
+      所以敌方暴鲤龙只有"牙是红的"。超梦是单材质才整体变红。需要决定修法(遍历所有槽 / 单独做敌方配色)。
+
+**还需要人工 Play 验收(视觉,程序化证不了)**
+- [ ] 七个动作在实战里逐条播放正确:Idle(静止)、Swim(前进)、SwimBackward(后退)、
+      Attack(普通攻击)、Magic(元素技能)、Hurt(挨打)、Death(死亡销毁)。
+      静态姿势对照图见 `art-pipeline/output/gyarados/v3_4/animation_revision/ue_pose_check/`,
+      可以先用它确认"每个 clip 本身对不对",实战再看"什么时候播哪个"。
+- [ ] 动画播放期间是否穿地(参考姿势接地是对的,但 bounds **不包含动画位移**,见硬规则)。
+- [ ] 移动时朝向是否跟着移动方向转(`bOrientRotationToMovement`),有没有残留的斜着走/倒着走。
+- [ ] 头顶血条相对新体型(约 97 cm 高,比超梦矮)的高度是否合适。
+- [ ] `SwimBackward` 在当前 AI/操作下**可能根本触发不到**(后退只在玩家 TPS 输入里用),
+      如果确认触发不到,要么接受"这个 clip 暂时用不上",要么给它找个用途。
+
+## 2026-09-11 伊布 v6 接入验收
+
+- PASS：BP_Unit 编译保存；TestMap PIE 生成4个新网格实例；Idle/Walk变量引用为同套EeveeV6资产。
+- PASS（数值配置）：实例Mesh旋转0、scale0.75、Z=-88.173；导入参考bounds缩放后91.13×55.40×94.51 cm，胶囊半高88/半径34 cm。
+- 待验证：四方向鼻尖与Actor/移动/攻击一致、前后步态、七动作UE蒙皮、地面接触、敌方材质和新高度血条、动作结束恢复与死亡销毁、性能。
+- 已观察：控制单位中心Z≈95.15，未控制单位Z=93。不能把胶囊底面对齐直接当成所有运行状态脚底贴地。
+- CaptureViewport本次返回编辑器世界，未显示PIE单位；不作为视觉PASS证据。本轮未重跑26项玩法逻辑回归。
+- 通用复跑标准见 [通用3D管线流程](通用3D管线流程.md)。
+
 > 每次改动后,把相关用例跑一遍,汇报 PASS/FAIL(一行就行,不用截图除非 FAIL)。全绿才能把对应任务标完成。
 >
 > **2026-08-15 起,这份清单只覆盖"需要人工点鼠标看视觉/交互表现"的用例。纯逻辑断言(比如某个 Function 在给定输入下算出的值对不对)优先写进 `BP_GridManager.RunRegressionTests`,跑法和当前覆盖的断言列表见 `UE蓝图状态.md` 末尾"自动回归测试"一节。** 两者互补:自动回归测试几秒内出结果、适合每次改动后马上跑;这份清单适合验证"看起来对不对""点起来顺不顺手"这类自动测试测不出来的东西。
