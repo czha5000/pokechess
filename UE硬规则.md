@@ -130,6 +130,7 @@
 - **新建的蓝图类在别的图里建 Cast/Getter 节点前,先 `AssetTools.load_asset` 加载它**,否则 `create_node`/DSL 一律 "does not exist";`find_node_types` 索引加载后也照样搜不到,别拿它当依据。(见坑110)
 - **PIE 里做 UI 端到端验证的可用手段**:`SlateInspectorToolset.PressKey` 触发 legacy 按键事件**稳定可用**;点 UMG 按钮要 **`Hover` 再 `Click`**,并读蓝图变量/`LogWorld: Bringing World` 确认生效;`ComboBoxString` 下拉**驱动不了**、ScrollBox 裁掉的控件点不到、`Escape` 会停 PIE。(见坑111)
 - **给现有变量喂数据前先 `get_node_type_pins` 看 pin 真实类型**:`BP_Unit` 7 个动画变量是 `AnimSequence`,不是 skill 文档说的 `AnimationAsset`;C++ 结构体/参数类型对不上,DSL 连线直接失败。`write_graph_dsl` 失败是整体不写入,不留半截。(见坑113)
+- **敌我区分靠 `BP_Unit.TeamRingComponent` 脚下圆盘(`Setup` 按阵营换 `M_TeamAlly/M_TeamEnemy`),不要再给角色网格换材质染色**——多材质角色只能染一个槽,而且毁美术。用 `AddStaticMeshComponent` 加的组件记得 `SetCollisionEnabled(NoCollision)`,否则会挡 `AttemptSkillAttack` 的射线和移动。(2026-09-12)
 - **Blender 导出前查贴片部件的法线朝向**(眼睛/腮红/花纹这类薄片整片朝内很常见):Blender 双面渲染看不出,UE 单面剔除后整片消失。不要在 UE 改材质 Two Sided 糊过去。(见坑115)
 - **角色资产只认 `/Game/Characters/<Species>/SK_<Species>` + `Animations/A_<Species>_{Idle,Walk,WalkBackward,Attack,Magic,Hurt,Death}`**(2026-09-12 起,4 只都已搬迁改名),加角色走 `UE角色资产规范.md` 的 SOP + `ue/tools/add_species.py`;`AssetTools.move` 自动修引用不留重定向器,但 **PIE 期间所有资产操作静默返回 false**、**删骨架前先删动画**。(见坑114)
 - **加角色 = `DT_Species` 加一行 + 放资产**(网格/7 动画/挂载变换/数值全在表里,`BP_Unit.ApplySpecies` 查表),不要再往 `SpawnUnit`/`BP_Unit` 里写任何"某某角色专用"分支。阵容改 `BP_GridManager.DefaultAllyRoster/EnemyRoster`(**放置实例有自己的值,改 CDO 不生效**)或 DBG 面板;出生格在 `AllySpawnTiles/EnemySpawnTiles`。(见 `UE蓝图状态.md` 2026-09-12 节)

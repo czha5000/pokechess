@@ -15,6 +15,12 @@
 - [x] 回归测试 `bRunRegressionTestsOnBeginPlay=true`:**27 条全部 PASS**(T1–T12,含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位。
 - [x] 临时改动全部复原并复读:CDO/实例默认阵容、`SkillSlots`/`EquippedRelicIds` 的 Instance Editable 标记、临时 SkeletalMeshActor。
 
+**2026-09-12 晚:敌我可辨 → 脚下阵营光环(MCP 实测)**
+- [x] PIE 4 单位:`TeamRingComponent.OverrideMaterials` 我方 `M_TeamAlly` / 敌方 `M_TeamEnemy`,`RelativeLocation.z=-87`、Scale 0.9/0.9/0.02、`StaticMesh=Cylinder`;敌方 `CharacterMesh0.OverrideMaterials=[]`(不再染红)。
+- [x] 编辑器摆临时 `BP_Unit` 拍照:圆盘贴地、直径略大于胶囊,居中。材质缩略图红/蓝正确。
+- [x] 回归 FAIL 0。
+- [ ] 人工 Play:TPS 视角下光环是否显眼(圆盘是 2 cm 厚的实心盘,不是描边环;嫌粗可以把 Scale 改小或换成环形网格);敌方超梦不再整只红后,是否还能一眼分清。
+
 **2026-09-12 晚:属性克制表接入(MCP 实测)**
 - [x] `DT_TypeChart` 120 行导入,`Atk1_Def3=2 / Atk4_Def2=2 / Atk0_Def5=0 / Atk4_Def11=0` 复读正确。
 - [x] 回归 `T13a–j` 全 PASS(火→草 2、水→火 2、电→水 2、电→地免疫、普→幽免疫、普→普 1、超→斗 2、开关关 1、name→id、18 种),`LogTemp` 无 "DT_TypeChart 加载失败" 警告。

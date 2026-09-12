@@ -69,5 +69,5 @@ CSV 备档 `js/data/ue_import/DT_Species.csv`(BOM + `---` 首列)。**资产才�
 |---|---|---|---|---|---|---|
 | mewtwo | 超梦 | `SK_Mewtwo`(Mixamo 灰模,局部尺寸 ≈2 cm) | 270 | 54.294 | -80 | 唯一还在用 Mixamo 命名来源的;单材质 |
 | eevee | 伊布 | `SK_Eevee`(EeveeV6) | 0 | 0.75 | -88.173 | 8 材质 + 1 贴图 |
-| gyarados | 暴鲤龙 | `SK_Gyarados`(v3_4_Revision_CM) | 270 | 0.15 | -93.54 | 14 材质;`Setup` 只染槽 0(犬齿),敌方配色几乎不可见 |
+| gyarados | 暴鲤龙 | `SK_Gyarados`(v3_4_Revision_CM) | 270 | 0.15 | -93.54 | 14 材质(敌我靠脚下光环,不再染材质) |
 | pikachu | 皮卡丘(电,AtkType 4) | `SK_Pikachu`(V1,法线修复版) | 0 | 1 | -88 | 90 cm;Magic = 放电版 81 帧。导出源 `art-pipeline/output/pikachu/v1/animation/magic_discharge/pikachu_v1_magic_discharge.blend`,脚本 `scripts/pikachu_export_v2.py` |

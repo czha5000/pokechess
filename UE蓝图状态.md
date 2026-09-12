@@ -40,6 +40,7 @@
   - §F 回归:`bRunRegressionTestsOnBeginPlay=true` 跑一轮 **27 条全 PASS**(含此前长期 FAIL 的 T6a/T7b/T7c),开关在实例+CDO 两处复位 false 后才 `save_assets`。
   - 面板打开后下拉正确显示当前阵容(`超梦/伊布/(空)×3` vs `暴鲤龙/超梦/(空)×3`)。
   - **没能程序化验证**:①UMG `ComboBoxString` 的下拉弹窗用 Slate 注入打不开(`SelectOption`/点内部按钮都返回 true 但选项不变),所以"在面板里换角色再重开"这一步只验证了数据链(`ParseSpeciesCsv` C++ 单测级别 + 组合框回填),**换角色的人机操作待人工 Play**;②伊布/暴鲤龙的攻击/受击/死亡动画视觉。见 `UE测试用例.md` 2026-09-12 节。
+- ✅ **2026-09-12 晚:敌我可辨改成脚下阵营光环**(`BP_Unit.TeamRingComponent` + `M_TeamAlly/M_TeamEnemy`,`Setup` 重建、去掉 `M_Enemy` 染色;PIE 读 4 个单位的圆盘材质我方蓝/敌方红、`CharacterMesh0.OverrideMaterials` 为空;编辑器摆临时单位拍到圆盘在脚下。`M_Enemy` 资产留着没删,已无引用)。回归 FAIL 0。
 - ✅ **2026-09-12 下午:资产整理**——4 只角色搬到 `/Game/Characters/<S>/` 统一命名、废弃资产已删,见 `## DT_Species` 节和 `UE角色资产规范.md`;皮卡丘已进表(第 4 只)。`NewMap`(World Partition 模板关卡,150 个外部 Actor)没删,MCP 删不干净,留着无害。
 - **后续可选**:`Setup` 只染材质槽 0 的敌我配色问题(血条已有 ☠);DBG 面板在小视口下需要滚动;角色数值初稿按 `balance/SKILL.md` 再调;皮卡丘 Magic 新版(放电)待重导。
 
@@ -159,13 +160,14 @@
 | AtkRange | Integer | 未知 | Class Defaults = 2,**已接入 `TryAttack` 的距离判断**(此前"还没接入判断"的记录已过时,见已知问题2) |
 | HealthBarComponent | WidgetComponent | (2026-08-15 新增) | 头顶血条的 WidgetComponent,`UserConstructionScript` 里动态创建 |
 | HealthBarWidget | WBP_HealthBar (Object) | (2026-08-15 新增) | 血条 Widget 实例,`UserConstructionScript` 里 `ConstructObjectfromClass` 生成后经 `SetWidget` 挂到 `HealthBarComponent` 上,同时存一份引用在这个变量方便其他函数直接调用 |
+| TeamRingComponent | StaticMeshComponent | (2026-09-12 晚新增) | 脚下阵营圆盘:`UserConstructionScript` 末尾 `AddStaticMeshComponent`(`/Engine/BasicShapes/Cylinder`,RelativeLocation (0,0,-87)=胶囊底面上 1 cm,Scale (0.9,0.9,0.02) → 直径 90 cm 厚 2 cm,`SetCollisionEnabled(NoCollision)`,不然会挡射线/移动)。材质由 `Setup` 按阵营设:`/Game/Maps/M_TeamAlly`(蓝 0.15,0.55,1)/ `M_TeamEnemy`(红 1,0.15,0.12),两者都是 Unlit 自发光、TwoSided 的常量色材质(`MaterialTools.create_material` + `Constant3Vector` → `MP_EmissiveColor`)。运行时组件路径 `<Unit>.NODE_AddStaticMeshComponent-0` |
 | SpeciesId | Name | (2026-09-12 新增) | 本单位在 `DT_Species` 的行名(mewtwo/eevee/gyarados),`ApplySpecies` 写入;没走物种的单位(回归测试 SpawnUnit)保持 None |
 | DTSpecies | DataTable | (2026-09-12 新增,Instance Editable,CDO=`/Game/Data/DT_Species`) | `ApplySpecies` 查的表 |
 | bHasMoved | Boolean | (2026-08-16 新增,默认 false) | 本回合是否已经移动过。`BP_TurnManager.StartTurn` 轮到该单位时重置为 false;`BP_Tile.ActorOnClicked` 里真正挪动位置后置为 true;`ActorOnClicked` 里再点自己会检查这个标记,已移动就不再弹出移动/攻击高亮。用途:修复"一回合能无限移动"的 bug,见下方 `ActorOnClicked`/已知问题3。 |
 
 ### 函数
 - **ApplySpecies(SpeciesId: Name)**(2026-09-12 新增,替代已删除的 `ApplyGyaradosAppearance`):`SetSpeciesId` → `GetDataTableRow(DTSpecies, SpeciesId)` → 命中:`BreakSpeciesRow` 多输出绑定 → 写 `MaxHP/HP(=MaxHP)/Atk/Def/Spd/MoveRange/AtkRange/AtkType` → `SetSkeletalMeshAsset(Mesh, Row.Mesh)` → 7 个动画变量(`IdleAnimAsset←IdleAnim`、`WalkForwardAnim`、`WalkBackwardAnim`、`ReactionAnim←HurtAnim`、`DyingAnim←DeathAnim`、`PunchAttackAnim←AttackAnim`、`MagicAttackAnim←MagicAnim`)→ `SetRelativeTransform(Mesh, MakeTransform(Row.MeshRelativeLocation/Rotation/Scale))` → `UpdateLocomotionAnim()`;`RowNotFound` → `PrintString("ApplySpecies: row not found: <id>")`。**必须在 `Setup` 之前调**(Setup 快照 BaseAtk/BaseDef、换敌方材质、刷血条),`BP_GridManager.SpawnUnit` 就是这么排的。CDO 的网格/动画默认值仍是超梦,但正常对局里每个单位都会被 `ApplySpecies` 覆盖。
-- **Setup(bAlly: Bool)**:`Set Side = bAlly` → Branch(Side) → False 分支 `Mesh.SetMaterial(0, M_Enemy)` → **`UpdateHealthBar()`(2026-08-15 新增,初始化血条为满血)**
+- **Setup(bAlly: Bool)**(**2026-09-12 晚整函数重建**,清掉了 3 层叠加的死代码,现在 19 节点):`Set Side` → `BaseAtk/BaseDef` 快照 → `UnitName` → **`TeamRingComponent.SetMaterial(0, bAlly ? M_TeamAlly : M_TeamEnemy)`**(脚下阵营圆盘,我方蓝/敌方红)→ `HealthBarWidget.SetIsEnemy(!bAlly)` → `UpdateHealthBar()`。**不再给角色网格换 `M_Enemy`**——多材质角色只染槽 0 看不出来,改成脚下光环后角色保持原色。
 - **UpdateHealthBar()**(2026-08-15 新增):`HealthBarWidget.SetHealthPercent(ToFloat(HP) / ToFloat(Max(MaxHP, 1)))`。由 `Setup` 和 `GridManager.TryAttack`(伤害结算后)两处调用,保证血条随 HP 变化实时更新。**⚠ 已踩坑修复:HP/MaxHP 都是 Integer,`/` 直接相除会做整数除法截断成 0**(比如 15/20 算出来是 0 不是 0.75),表现为"随便掉一点血,血条就瞬间全红"——真人 Play 测出来的,回归测试当时只断言了"< 1.0"没测出来。已改成显式 `ToFloat` 转换再相除,并把回归测试的 `T6b` 断言加强成"百分比不能是 0"来防止同类回归。
 
 ### UserConstructionScript(2026-08-15 新增血条搭建逻辑)
