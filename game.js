@@ -58,6 +58,12 @@ const ENEMIES = {
  raider:{name:'刺牙',kind:'raider',hp:100,atk:8,range:33,speed:45,capturable:true},
  brute:{name:'裂角',kind:'brute',hp:195,atk:10,range:42,speed:34,capturable:true},
  archer:{name:'咒焰',kind:'archer',hp:95,atk:8,range:150,speed:37,capturable:true},
+ rage:{name:'蓄怒兽',kind:'brute',trait:'rage',hp:170,atk:8,range:42,speed:34,capturable:true},
+ crystal:{name:'晶甲兽',kind:'brute',trait:'crystal',hp:155,atk:8,range:42,speed:30,capturable:true},
+ regen:{name:'回生苔兽',kind:'raider',trait:'regen',hp:140,atk:8,range:33,speed:38,capturable:true},
+ guard:{name:'护卫岩兽',kind:'brute',trait:'guard',hp:180,atk:8,range:42,speed:32,capturable:true},
+ priest:{name:'共鸣祭司',kind:'archer',trait:'priest',hp:105,atk:6,range:150,speed:35,capturable:true},
+ ambush:{name:'伏击影兽',kind:'raider',trait:'ambush',hp:115,atk:7,range:33,speed:48,capturable:true},
  boss:{name:'裂隙守卫',kind:'boss',hp:340,atk:12,range:50,speed:30,capturable:false}
 };
 class Game {
@@ -120,14 +126,14 @@ class Game {
   for(const i of slots)this.hand[i]=this.deck.shift();
   this.deck.push(...removed);this.shuffle(this.deck);this.mulliganUsed=true;
   this.phase='battle';this.paused=false;
-  const waves=this.wave===0?[[0,'raider',0],[1,'raider',1],[8,'brute',0],[12,'archer',1],[22,'brute',1],[25,'raider',0],[30,'archer',0]]:
-   this.wave===1?[[0,'brute',0],[0,'archer',0],[5,'raider',0],[10,'brute',0],[16,'archer',0],[20,'boss',0],[25,'brute',1],[34,'archer',0],[44,'brute',0],[55,'archer',0],[68,'brute',0],[80,'archer',0]]:
-   [[0,'boss',1],[0,'archer',0],[12,'brute',1],[23,'archer',1],[35,'raider',0],[45,'brute',1],[60,'archer',1]];
+  const waves=this.wave===0?[[0,'raider',0],[1,'raider',1],[8,'rage',0],[12,'archer',1],[22,'crystal',1],[25,'raider',0],[30,'archer',0]]:
+   this.wave===1?[[0,'regen',0],[0,'archer',0],[5,'raider',0],[10,'guard',0],[16,'archer',0],[20,'boss',0],[25,'brute',1],[34,'priest',0],[44,'brute',0],[55,'archer',0],[68,'brute',0],[80,'archer',0]]:
+   [[0,'boss',1],[0,'archer',0],[12,'ambush',1],[23,'archer',1],[35,'raider',0],[45,'brute',1],[60,'archer',1]];
   this.schedule=waves.map(([t,k,l])=>({t:t*(this.activeHeroes.length===2?1.2:1),k,l}));
   if(this.wave===2){this.seal=this.unit({kind:'seal',name:'裂隙封印',hp:this.activeHeroes.length===2?400:530,atk:0,range:0,speed:0},this.mission.x,this.mission.y,1);this.units.push(this.seal);}
   this.message=this.mission.goal+'。上场主力全倒下立即失败。';return true;
  }
- spawn(k,l){const spec={...ENEMIES[k]};if(this.activeHeroes.length===2){spec.hp=Math.round(spec.hp*.8);spec.atk*=.85;}const u=this.unit(spec,900,LANES[l],1);this.units.push(u);return u;}
+ spawn(k,l){const spec={...ENEMIES[k]};if(this.activeHeroes.length===2){spec.hp=Math.round(spec.hp*.8);spec.atk*=.85;}const u=this.unit(spec,900,LANES[l],1);u.lastHurt=this.time;this.units.push(u);return u;}
  refill(){
   for(let i=0;i<4;i++)if(!this.hand[i]){
    if(!this.deck.length&&this.discard.length)this.deck=this.shuffle(this.discard.splice(0));
@@ -279,7 +285,7 @@ class Game {
    this.cooperate('接力追击',u,[mark.helperId,mark.sourceId,p.casterId],mark.token+':follow:'+u.id);
    base+=extra;
   }
-  this.hit(u,base,source);
+  this.hit(u,base,{...source,direct:true,hitToken:p.id});
  }
  coopPreview(c,caster,point,potency){
   const targets=this.units.filter(u=>u.side&&u.hp>0&&distance(u,point)<=c.r),links=[];
@@ -307,7 +313,7 @@ class Game {
   }
   if(c.spread){
    const burning=targets.filter(u=>this.active(u.burn)&&u.burn.sourceId!==caster.id);
-   highlighted=burning;notes.push(burning.length?'可借 '+name(burning[0].burn.sourceId)+'的火势扩散；按箭头检查击退方向':'逐风可扩散同伴灼烧；先点燃，或将敌人推回火区');
+   highlighted=[...burning];notes.push(burning.length?'可借 '+name(burning[0].burn.sourceId)+'的火势扩散；按箭头检查击退方向':'逐风可扩散同伴灼烧；先点燃，或将敌人推回火区');
    for(const u of targets)links.push({from:u,to:this.shiftPoint(u,caster,c.push*potency)});
    const receivers=new Set();
    for(const origin of burning){const landing=this.shiftPoint(origin,caster,c.push*potency);for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==origin.id)){
@@ -320,8 +326,28 @@ class Game {
   if(!notes.length&&c.damage)notes.push('命中同伴制造的破绽可追加追击；仍受自身射程限制');
   return {text:notes.join('；'),targets:[...new Set(highlighted.map(u=>u.id))],links:links.filter(l=>l.from&&l.to)};
  }
+ guardFor(target){return this.units.find(e=>e.hp>0&&e.side===target.side&&e.trait==='guard'&&e.guardTarget===target.id&&e.guardBank>0&&distance(e,target)<=150);}
+ tickTrait(u,dt){
+  if(u.trait==='rage'){u.rageClock=(u.rageClock||0)+dt;if(u.rageClock>=8){u.rageClock-=8;u.rage=Math.min(3,(u.rage||0)+1);}}
+  if(u.trait==='crystal'&&this.time>(u.comboUntil||0)){u.crystalHits=0;u.crystalTokens=new Set();}
+  if(u.trait==='regen'&&this.time-(u.lastHurt??this.time)<4)u.regenerating=false;
+  else if(u.trait==='regen'){u.regenerating=u.hp<u.max;u.hp=Math.min(u.max,u.hp+6*dt);}
+  if(u.trait==='guard'){
+   const target=this.units.find(t=>t.id===u.guardTarget&&t.hp>0&&distance(u,t)<=150);
+   if(!target){u.guardTarget=null;u.guardBank=0;}
+   if(this.time>=(u.guardAt||0)){const t=this.units.filter(t=>t.side===u.side&&t.hp>0&&t.id!==u.id&&t.kind!=='seal'&&distance(u,t)<=150).sort((a,b)=>distance(u,a)-distance(u,b))[0];if(t){u.guardTarget=t.id;u.guardBank=35;u.guardAt=this.time+8;}}
+  }
+ }
  hit(u,n,source){
   if(this.phase!=='battle'||u.hp<=0)return;
+  if(u.side&&n>0){
+   u.lastHurt=this.time;
+   if(u.trait==='crystal'){
+    const weak=(u.vulnerableUntil||0)>this.time;n*=weak?1.4:.65;
+    if(!weak&&source?.direct){if(this.time>(u.comboUntil||0)){u.crystalHits=0;u.crystalTokens=new Set();}const token=source.hitToken;u.crystalTokens??=new Set();if(!u.crystalTokens.has(token)){if(!u.crystalHits)u.comboUntil=this.time+4;u.crystalTokens.add(token);u.crystalHits=(u.crystalHits||0)+1;if(u.crystalHits>=4){u.vulnerableUntil=this.time+5;u.crystalHits=0;u.crystalTokens.clear();this.effects.push({kind:'text',text:'晶甲破裂 · 虚弱5秒',x:u.x,y:u.y,life:1.3,max:1.3});}}}
+   }
+   const guard=this.guardFor(u);if(guard){const blocked=Math.min(n,guard.guardBank);guard.guardBank-=blocked;n-=blocked;}
+  }
   const absorbed=Math.min(u.shield||0,n);u.shield=Math.max(0,(u.shield||0)-absorbed);n-=absorbed;
   const done=Math.min(u.hp,n);u.hp=Math.max(0,u.hp-n);u.flash=.13;
   if(u.side===1&&source?.side===0)this.stats.damage+=done;
@@ -394,13 +420,16 @@ class Game {
   this.effects.push({kind:p.card,x:p.x,y:p.y,r:c.r,life:.45,max:.45});
  }
  enemySpecial(u,t){
-  if(!u.side||!['brute','archer','boss'].includes(u.kind)||!t||t.objective||t.hp<=0)return false;
+  if(!u.side||(!['brute','archer','boss'].includes(u.kind)&&u.trait!=='ambush')||!t||t.objective||t.hp<=0)return false;
   if(this.time<(this.nextThreatAt||0)||this.units.some(e=>e.hp>0&&e.special))return false;
-  const kind=u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
-  const spec={charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:10}}[kind];
+  if(u.trait==='ambush'){const back=this.mains.filter(h=>h.hp>0&&this.valid(h.x,h.y)&&distance(u,h)<=260).sort((a,b)=>b.range-a.range)[0];if(back)t=back;}
+  const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
+  const spec={chant:{name:'共鸣吟唱',wind:2.2,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:1.5,range:260,r:48,damage:34,cooldown:9},charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:10}}[kind];
   if(distance(u,t)>spec.range)return false;
-  const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},x:kind==='slam'?u.x:t.x,y:kind==='slam'?u.y:t.y,wait:spec.wind};
+  const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},x:['slam','chant'].includes(kind)?u.x:t.x,y:['slam','chant'].includes(kind)?u.y:t.y,wait:spec.wind};
+  if(kind==='ambush'&&!this.valid(p.x,p.y))return false;
   if(kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(p.x-u.x)*i/20,u.y+(p.y-u.y)*i/20))return false;
+  p.rage=u.rage||0;p.damage*=1+p.rage*.2;if(kind!=='chant'&&(u.empoweredUntil||0)>this.time){p.damage*=1.25;u.empoweredUntil=0;}
   u.special=p;u.specialCooldown=spec.cooldown;this.nextThreatAt=this.time+spec.wind+1.4;return true;
  }
  specialContains(p,t){
@@ -411,11 +440,12 @@ class Game {
  }
  tickSpecial(u,dt){
   const p=u.special;if(!p)return false;
-  if(u.stun>0){u.special=null;u.recovery=.8;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
+  if(u.stun>0){u.special=null;if(u.trait==='rage'){u.rage=0;u.rageClock=0;}u.recovery=.8;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
   p.wait-=dt;if(p.wait>0)return true;
-  u.special=null;
-  for(const t of [...this.units,this.core])if(t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
-  if(p.kind==='charge'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
+  u.special=null;if(u.trait==='rage'){u.rage=0;u.rageClock=0;}
+  if(p.kind==='chant'){for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==u.id&&distance(t,u)<=180))t.empoweredUntil=this.time+10;this.effects.push({kind:'text',text:'共鸣 · 下次大招强化',x:u.x,y:u.y,life:1.2,max:1.2});}
+  for(const t of [...this.units,this.core])if(p.damage>0&&t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
+  if(p.kind==='charge'||p.kind==='ambush'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
   u.recovery=p.kind==='slam'?1.4:1;u.attack=1.25;
   this.effects.push({kind:'enemy-impact',x:p.x,y:p.y,r:p.r,text:p.name,life:.45,max:.45});return true;
  }
@@ -512,14 +542,14 @@ class Game {
    u.flash=Math.max(0,u.flash-dt);u.shieldTime-=dt;if(u.shieldTime<=0)u.shield=0;
    u.hold=Math.max(0,u.hold-dt);
    if(u.life!==undefined){u.life-=dt;if(u.life<=0){u.hp=0;continue;}}
-   if(u.side){u.specialCooldown=Math.max(0,(u.specialCooldown??2)-dt);if(this.tickSpecial(u,dt))continue;if(u.recovery>0){u.recovery=Math.max(0,u.recovery-dt);continue;}}
+   if(u.side){this.tickTrait(u,dt);u.specialCooldown=Math.max(0,(u.specialCooldown??2)-dt);if(this.tickSpecial(u,dt))continue;if(u.recovery>0){u.recovery=Math.max(0,u.recovery-dt);continue;}}
    if(u.stun>0){u.stun=Math.max(0,u.stun-dt);continue;}
    if(u.busy||!u.atk)continue;
    u.attack-=dt;const t=this.target(u);if(!t)continue;
    if(u.side&&u.specialCooldown<=0&&this.enemySpecial(u,t))continue;
    if(t.objective){if(!u.hold&&distance(u,t)>35)this.move(u,t,dt);continue;}
    if(distance(u,t)>u.range+12){if(!u.hold)this.move(u,t,dt);}
-   else if(u.attack<=0){u.attack=u.kind==='boss'?1.6:1.25;this.hit(t,u.atk,u);}
+   else if(u.attack<=0){u.attack=u.kind==='boss'?1.6:1.25;this.hit(t,u.atk,{...u,direct:true,hitToken:'a'+(++this.serial)});}
   }
   this.units=this.units.filter(u=>u.hp>0);
   if(this.phase!=='battle')return;

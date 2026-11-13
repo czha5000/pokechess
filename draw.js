@@ -33,6 +33,7 @@ if(game.wave===1){
  text('风眼 '+(game.control||0).toFixed(1)+' / 14s',m.x,m.y+m.r+22,15,'#f9e4a7');
 }
 if(game.wave===2&&!game.seal){circle(825,345,42,'#e6a08b');text('封印目标',825,410,14,'#f1c1a5');}
+for(const u of game.units.filter(u=>u.hp>0&&u.trait==='guard')){const t=game.units.find(t=>t.id===u.guardTarget&&t.hp>0);if(t&&game.guardFor(t)===u){line(u.x,u.y,t.x,t.y,'#9ad9ff',3);text('护链 '+Math.ceil(u.guardBank),(u.x+t.x)/2,(u.y+t.y)/2-15,12,'#bdeaff');}}
 for(const f of game.fields){
  const heal=f.kind==='healfield';circle(f.x,f.y,f.r,heal?'#a5e7af25':'#f6a06b33',true);circle(f.x,f.y,f.r,heal?'#a9dfa77a':'#f6b3778a');
  text(heal?'✣':'♨',f.x,f.y,24,heal?'#c6edb5':'#ffd298');text(Math.ceil(f.life)+'s',f.x,f.y+28,12);
@@ -45,9 +46,9 @@ for(const u of game.units){
  if(p.kind==='charge'){
   ctx.lineCap='round';line(p.from.x,p.from.y,p.x,p.y,'#fa624854',p.r*2);
   ctx.setLineDash([8,5]);line(p.from.x,p.from.y,p.x,p.y,'#ffb49b',3);ctx.setLineDash([]);
- }else{circle(p.x,p.y,p.r,'#fa624854',true);circle(p.x,p.y,p.r,'#ffb49b');}
+ }else{circle(p.x,p.y,p.r,p.kind==='chant'?'#c18ded44':'#fa624854',true);circle(p.x,p.y,p.r,'#ffb49b');}
  ctx.strokeStyle='#fff0cf';ctx.lineWidth=4;ctx.beginPath();ctx.arc(p.x,p.y,p.r,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();
- if(u.kind!=='boss')text(p.name+' '+Math.max(0,p.wait).toFixed(1)+'s',p.x,Math.max(22,p.y-p.r-12),16,'#ffe1ce');
+ if(u.kind!=='boss')text(p.name+(p.rage?' 怒'+p.rage:'')+' '+Math.max(0,p.wait).toFixed(1)+'s',p.x,Math.max(22,p.y-p.r-12),16,'#ffe1ce');
  text('锁定 · 可打断',u.x,u.y+(u.kind==='boss'?80:55),11,'#ffc0a6');if(u.kind==='boss'){ctx.fillStyle='#362421';ctx.fillRect(u.x-44,u.y+88,88,8);ctx.fillStyle='#ffb088';ctx.fillRect(u.x-44,u.y+88,88*progress,8);text(p.wait<=.5?'即将砸地！':'Boss 蓄力 '+p.wait.toFixed(1)+'s · 躲开红圈',500,62,18,'#ffe0b4');}ctx.restore();
 }
 function route(path){if(!path)return;ctx.save();ctx.setLineDash([6,5]);for(let i=1;i<path.length;i++)line(path[i-1].x,path[i-1].y,path[i].x,path[i].y,'#a8e5ef',3);ctx.restore();const end=path[path.length-1];circle(end.x,end.y,18,'#a8e5ef');text('施法位置',end.x,end.y-23,12,'#c5f4ff');}
@@ -78,8 +79,20 @@ if(game.phase==='setup'){
    if(u.hold>0)text('驻留',u.x,u.y+58,10,'#dfd19c');
   }
   if(u.side){
-   if(u.recovery>0)text('反击窗口 '+u.recovery.toFixed(1)+'s',u.x,u.y-68,13,'#c6f6ad');
+   if(u.recovery>0)text('反击窗口 '+u.recovery.toFixed(1)+'s',u.x,u.y+(u.trait?72:-68),13,'#c6f6ad');
    const statuses=[];
+   if(u.trait){
+    let trait='';
+    if(u.trait==='rage')trait='怒气 '+(u.rage||0)+'/3 · '+Math.ceil(8-(u.rageClock||0))+'s';
+    if(u.trait==='crystal')trait=(u.vulnerableUntil||0)>game.time?'虚弱 +40% · '+(u.vulnerableUntil-game.time).toFixed(1)+'s':'晶甲 '+(u.crystalHits||0)+'/4'+(u.crystalHits?' · '+Math.max(0,u.comboUntil-game.time).toFixed(1)+'s':' · 减伤35%');
+    if(u.trait==='regen')trait=u.regenerating?'回生 +6/s':'回生倒计时 '+Math.max(0,4-(game.time-u.lastHurt)).toFixed(1)+'s';
+    if(u.trait==='guard')trait='护卫 · 拉开150可断链';
+    if(u.trait==='priest')trait='祭司 · 吟唱可打断';
+    if(u.trait==='ambush')trait='伏击 · 锁定后排落点';
+    text(u.name,u.x,u.y-67,13,'#f5d99d');text(trait,u.x,u.y-84,11,'#f5d99d');
+    circle(u.x,u.y,29,u.trait==='crystal'?'#b9e8ff':u.trait==='regen'?'#b6df9d':u.trait==='rage'?'#efad8a':'#d0b0e7');
+   }
+   if((u.empoweredUntil||0)>game.time)statuses.push('强化大招 '+Math.ceil(u.empoweredUntil-game.time)+'s');
    if(game.active(u.controlTag))statuses.push('牵制 '+(u.controlTag.until-game.time).toFixed(1)+'s');
    if(game.active(u.burn))statuses.push('灼烧 '+(u.burn.until-game.time).toFixed(1)+'s');
    if(statuses.length)text(statuses.join(' / '),u.x,u.y+(u.kind==='boss'?62:34),11,'#ffd2a0');
