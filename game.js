@@ -55,10 +55,10 @@ const MISSIONS = [
  {id:'break',name:'摧毁裂隙',goal:'推进并摧毁右下方封印',limit:100,x:825,y:345}
 ];
 const ENEMIES = {
- raider:{name:'刺牙',kind:'raider',hp:100,atk:14,range:33,speed:45,capturable:true},
- brute:{name:'裂角',kind:'brute',hp:195,atk:21,range:42,speed:34,capturable:true},
- archer:{name:'咒焰',kind:'archer',hp:95,atk:16,range:150,speed:37,capturable:true},
- boss:{name:'裂隙守卫',kind:'boss',hp:340,atk:28,range:50,speed:30,capturable:false}
+ raider:{name:'刺牙',kind:'raider',hp:100,atk:8,range:33,speed:45,capturable:true},
+ brute:{name:'裂角',kind:'brute',hp:195,atk:10,range:42,speed:34,capturable:true},
+ archer:{name:'咒焰',kind:'archer',hp:95,atk:8,range:150,speed:37,capturable:true},
+ boss:{name:'裂隙守卫',kind:'boss',hp:340,atk:12,range:50,speed:30,capturable:false}
 };
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
@@ -111,7 +111,7 @@ class Game {
   this.units=[...this.mains];this.fields=[];this.effects=[];this.pending=[];this.orders=[];this.discard=[];this.coopEvents=[];this.coopSeen.clear();
   this.deck=this.shuffle(this.partyCards);this.hand=this.deck.splice(0,4);
   this.phase='opening';this.mulliganUsed=false;this.waveTime=0;this.energy=this.maxEnergy;this.control=0;
-  this.core.hp=this.core.max;this.captureCooldown=0;this.seal=null;
+  this.core.hp=this.core.max;this.captureCooldown=0;this.nextThreatAt=0;this.seal=null;
   this.message='最多选择两张换掉，或直接保留。确认后立刻开战。';return true;
  }
  openBattle(slots=[]){
@@ -395,12 +395,13 @@ class Game {
  }
  enemySpecial(u,t){
   if(!u.side||!['brute','archer','boss'].includes(u.kind)||!t||t.objective||t.hp<=0)return false;
+  if(this.time<(this.nextThreatAt||0)||this.units.some(e=>e.hp>0&&e.special))return false;
   const kind=u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
-  const spec={charge:{name:'蓄力冲撞',wind:1,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.5,range:240,r:58,damage:36,cooldown:10}}[kind];
+  const spec={charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:10}}[kind];
   if(distance(u,t)>spec.range)return false;
   const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},x:kind==='slam'?u.x:t.x,y:kind==='slam'?u.y:t.y,wait:spec.wind};
   if(kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(p.x-u.x)*i/20,u.y+(p.y-u.y)*i/20))return false;
-  u.special=p;u.specialCooldown=spec.cooldown;return true;
+  u.special=p;u.specialCooldown=spec.cooldown;this.nextThreatAt=this.time+spec.wind+1.4;return true;
  }
  specialContains(p,t){
   if(p.kind!=='charge')return distance(p,t)<=p.r;
@@ -410,12 +411,12 @@ class Game {
  }
  tickSpecial(u,dt){
   const p=u.special;if(!p)return false;
-  if(u.stun>0){u.special=null;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
+  if(u.stun>0){u.special=null;u.recovery=.8;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
   p.wait-=dt;if(p.wait>0)return true;
   u.special=null;
   for(const t of [...this.units,this.core])if(t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
   if(p.kind==='charge'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
-  u.recovery=p.kind==='slam'?1.1:.65;u.attack=1.25;
+  u.recovery=p.kind==='slam'?1.4:1;u.attack=1.25;
   this.effects.push({kind:'enemy-impact',x:p.x,y:p.y,r:p.r,text:p.name,life:.45,max:.45});return true;
  }
  target(u){

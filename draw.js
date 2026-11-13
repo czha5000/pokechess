@@ -78,7 +78,7 @@ if(game.phase==='setup'){
    if(u.hold>0)text('驻留',u.x,u.y+58,10,'#dfd19c');
   }
   if(u.side){
-   if(u.kind==='boss'&&u.recovery>0)text('收招硬直 '+u.recovery.toFixed(1)+'s',u.x,u.y-68,13,'#c6f6ad');
+   if(u.recovery>0)text('反击窗口 '+u.recovery.toFixed(1)+'s',u.x,u.y-68,13,'#c6f6ad');
    const statuses=[];
    if(game.active(u.controlTag))statuses.push('牵制 '+(u.controlTag.until-game.time).toFixed(1)+'s');
    if(game.active(u.burn))statuses.push('灼烧 '+(u.burn.until-game.time).toFixed(1)+'s');
