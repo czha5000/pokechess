@@ -13,7 +13,7 @@ function creature(u){ctx.save();ctx.translate(u.x,u.y);const tint=u.flash>0?'#ff
  else if(u.kind==='bird'){poly([[-5,0],[-39,-20],[-25,8],[0,17]],'#b3c6ab');poly([[0,-5],[14,-35],[20,-6],[10,14]],'#d4c57c');ellipse(4,3,15,18,tint||'#dfcf8b');ellipse(12,-15,12,12,'#e4ddb2');poly([[22,-16],[36,-12],[22,-8]],'#a47e45');ellipse(16,-19,2,3,'#2e493a');}
  else if(u.kind==='lure'){line(0,-24,0,24,'#a8784d',7);line(-22,-4,22,-4,'#a8784d',5);ellipse(0,-21,14,14,'#d6b371');poly([[-12,-5],[13,-5],[20,17],[-19,17]],'#c87757');text('×',0,-17,17,'#553c2e');}
  else if(u.kind==='archer'){poly([[-20,22],[-10,-18],[9,-23],[22,22]],tint||'#856b7e');ellipse(3,-21,12,11,'#b8b28b');poly([[-16,-24],[2,-45],[21,-24]],'#765b73');ellipse(8,-21,4,2,'#ffbc81');line(26,21,29,-29,'#d3b984',3);ellipse(29,-33,5,7,'#f3a071');}
- else {if(u.kind==='boss')ctx.scale(1.5,1.5);ellipse(0,0,23,18,tint||'#8a8c72');ellipse(19,-8,16,16,tint||'#b8ad89');poly([[9,-21],[13,-38],[20,-20]],'#e9d8ad');poly([[25,-19],[38,-31],[32,-4]],'#e9d8ad');ellipse(26,-10,3,2,'#f59c75');poly([[26,4],[29,15],[34,3]],'#f4e4bd');}
+ else {if(u.kind==='boss'){ctx.scale(1.5,1.5);if(u.special){const lift=1-Math.max(0,u.special.wait/u.special.wind);ctx.translate(0,-5-lift*5);line(-12,-10,-30,-38-lift*12,'#e9cfad',7);poly([[-45,-57-lift*12],[-18,-57-lift*12],[-18,-33-lift*12],[-45,-33-lift*12]],'#e6b18b');}else if(u.recovery>0)ctx.scale(1.1,.85);}ellipse(0,0,23,18,tint||'#8a8c72');ellipse(19,-8,16,16,tint||'#b8ad89');poly([[9,-21],[13,-38],[20,-20]],'#e9d8ad');poly([[25,-19],[38,-31],[32,-4]],'#e9d8ad');ellipse(26,-10,3,2,'#f59c75');poly([[26,4],[29,15],[34,3]],'#f4e4bd');}
  ctx.restore();if(u.max){const w=u.kind==='boss'?68:42;ctx.fillStyle='#182e2c';ctx.fillRect(u.x-w/2,u.y-46,w,5);ctx.fillStyle=u.side?'#f0a184':'#b8e0a7';ctx.fillRect(u.x-w/2,u.y-46,w*u.hp/u.max,5);}if(u.stun>0)text('✦',u.x,u.y-53,18,'#f8e795');if(u.kind==='boss')text(u.name,u.x,u.y+44,12,'#f8c5a0');}
 function background(){ctx.fillStyle='#35564b';ctx.fillRect(0,0,1000,500);ctx.fillStyle='#456653';ctx.fillRect(90,40,340,420);ctx.fillStyle='#51664f';ctx.fillRect(570,40,340,420);
  for(const y of LANES){ctx.fillStyle='#bcb78b29';ctx.fillRect(95,y-36,810,72);line(100,y,900,y,'#dce2ab16',1);}
@@ -48,7 +48,7 @@ for(const u of game.units){
  }else{circle(p.x,p.y,p.r,'#fa624854',true);circle(p.x,p.y,p.r,'#ffb49b');}
  ctx.strokeStyle='#fff0cf';ctx.lineWidth=4;ctx.beginPath();ctx.arc(p.x,p.y,p.r,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();
  text(p.name+' '+Math.max(0,p.wait).toFixed(1)+'s',p.x,Math.max(22,p.y-p.r-12),16,'#ffe1ce');
- text('锁定 · 可打断',u.x,u.y+55,11,'#ffc0a6');ctx.restore();
+ text('锁定 · 可打断',u.x,u.y+55,11,'#ffc0a6');if(u.kind==='boss'){ctx.fillStyle='#362421';ctx.fillRect(u.x-44,u.y-85,88,8);ctx.fillStyle='#ffb088';ctx.fillRect(u.x-44,u.y-85,88*progress,8);text(p.wait<=.5?'即将砸地！':'Boss 蓄力 · 躲开红圈',500,62,18,'#ffe0b4');}ctx.restore();
 }
 function route(path){if(!path)return;ctx.save();ctx.setLineDash([6,5]);for(let i=1;i<path.length;i++)line(path[i-1].x,path[i-1].y,path[i].x,path[i].y,'#a8e5ef',3);ctx.restore();const end=path[path.length-1];circle(end.x,end.y,18,'#a8e5ef');text('施法位置',end.x,end.y-23,12,'#c5f4ff');}
 for(const o of game.orders){route(o.path);const u=game.mains.find(u=>u.id===o.casterId);if(u)text('靠近 · '+CARDS[o.card].name,u.x,u.y-62,13,'#c5f4ff');}
@@ -78,6 +78,7 @@ if(game.phase==='setup'){
    if(u.hold>0)text('驻留',u.x,u.y+58,10,'#dfd19c');
   }
   if(u.side){
+   if(u.kind==='boss'&&u.recovery>0)text('收招硬直 '+u.recovery.toFixed(1)+'s',u.x,u.y-68,13,'#c6f6ad');
    const statuses=[];
    if(game.active(u.controlTag))statuses.push('牵制 '+(u.controlTag.until-game.time).toFixed(1)+'s');
    if(game.active(u.burn))statuses.push('灼烧 '+(u.burn.until-game.time).toFixed(1)+'s');
@@ -90,6 +91,7 @@ for(const f of game.effects){
  ctx.globalAlpha=Math.max(0,f.life/f.max);
  if(f.kind==='text')text(f.text,f.x,f.y-35-(1-f.life/f.max)*20,15,'#ffe6bb');
  else if(f.kind==='line')line(f.x,f.y,f.tx,f.ty,f.side?'#ffbc9e':'#e1edac',2);
+ else if(f.kind==='enemy-impact'){circle(f.x,f.y,f.r,'#ffb088');circle(f.x,f.y,f.r*(1-f.life/f.max),'#ff765b');text(f.text,f.x,f.y-45,18,'#ffe0b4');}
  else if(f.kind==='coop'){circle(f.x,f.y,f.r+12*(1-f.life/f.max),'#ffe49b');}
  else{circle(f.x,f.y,f.r*(1.1-f.life/f.max*.3),f.kind==='meteor'?'#f4b172':'#d5eab7');if(f.text)text(f.text,f.x,f.y-45,19,'#fff1b5');}
  ctx.globalAlpha=1;

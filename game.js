@@ -396,7 +396,7 @@ class Game {
  enemySpecial(u,t){
   if(!u.side||!['brute','archer','boss'].includes(u.kind)||!t||t.objective||t.hp<=0)return false;
   const kind=u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
-  const spec={charge:{name:'蓄力冲撞',wind:1,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.2,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.5,range:240,r:58,damage:36,cooldown:10}}[kind];
+  const spec={charge:{name:'蓄力冲撞',wind:1,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.5,range:240,r:58,damage:36,cooldown:10}}[kind];
   if(distance(u,t)>spec.range)return false;
   const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},x:kind==='slam'?u.x:t.x,y:kind==='slam'?u.y:t.y,wait:spec.wind};
   if(kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(p.x-u.x)*i/20,u.y+(p.y-u.y)*i/20))return false;
@@ -415,7 +415,7 @@ class Game {
   u.special=null;
   for(const t of [...this.units,this.core])if(t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
   if(p.kind==='charge'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
-  u.recovery=.65;u.attack=1.25;
+  u.recovery=p.kind==='slam'?1.1:.65;u.attack=1.25;
   this.effects.push({kind:'enemy-impact',x:p.x,y:p.y,r:p.r,text:p.name,life:.45,max:.45});return true;
  }
  target(u){
