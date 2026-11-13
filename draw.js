@@ -47,8 +47,8 @@ for(const u of game.units){
   ctx.setLineDash([8,5]);line(p.from.x,p.from.y,p.x,p.y,'#ffb49b',3);ctx.setLineDash([]);
  }else{circle(p.x,p.y,p.r,'#fa624854',true);circle(p.x,p.y,p.r,'#ffb49b');}
  ctx.strokeStyle='#fff0cf';ctx.lineWidth=4;ctx.beginPath();ctx.arc(p.x,p.y,p.r,-Math.PI/2,-Math.PI/2+Math.PI*2*progress);ctx.stroke();
- text(p.name+' '+Math.max(0,p.wait).toFixed(1)+'s',p.x,Math.max(22,p.y-p.r-12),16,'#ffe1ce');
- text('锁定 · 可打断',u.x,u.y+55,11,'#ffc0a6');if(u.kind==='boss'){ctx.fillStyle='#362421';ctx.fillRect(u.x-44,u.y-85,88,8);ctx.fillStyle='#ffb088';ctx.fillRect(u.x-44,u.y-85,88*progress,8);text(p.wait<=.5?'即将砸地！':'Boss 蓄力 · 躲开红圈',500,62,18,'#ffe0b4');}ctx.restore();
+ if(u.kind!=='boss')text(p.name+' '+Math.max(0,p.wait).toFixed(1)+'s',p.x,Math.max(22,p.y-p.r-12),16,'#ffe1ce');
+ text('锁定 · 可打断',u.x,u.y+(u.kind==='boss'?80:55),11,'#ffc0a6');if(u.kind==='boss'){ctx.fillStyle='#362421';ctx.fillRect(u.x-44,u.y+88,88,8);ctx.fillStyle='#ffb088';ctx.fillRect(u.x-44,u.y+88,88*progress,8);text(p.wait<=.5?'即将砸地！':'Boss 蓄力 '+p.wait.toFixed(1)+'s · 躲开红圈',500,62,18,'#ffe0b4');}ctx.restore();
 }
 function route(path){if(!path)return;ctx.save();ctx.setLineDash([6,5]);for(let i=1;i<path.length;i++)line(path[i-1].x,path[i-1].y,path[i].x,path[i].y,'#a8e5ef',3);ctx.restore();const end=path[path.length-1];circle(end.x,end.y,18,'#a8e5ef');text('施法位置',end.x,end.y-23,12,'#c5f4ff');}
 for(const o of game.orders){route(o.path);const u=game.mains.find(u=>u.id===o.casterId);if(u)text('靠近 · '+CARDS[o.card].name,u.x,u.y-62,13,'#c5f4ff');}
