@@ -4,17 +4,17 @@ const LANES = [155, 345];
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const CARDS = {
  spark:   {owner:1,name:'火种',icon:'·',cost:1,range:300,r:35,wind:.15,type:'blast',damage:12,burn:3,coop:'低费点燃，为同伴逐风准备火势',desc:'伤害 12 · 灼烧每秒 3，持续 4 秒'},
- prepare: {owner:0,name:'整备',icon:'↻',cost:1,range:230,r:55,wind:.15,type:'cycle',amount:10,cycle:1,coop:'拖动时滑过要换掉的手牌，再拖向战场；最多换 1 张',desc:'区域护盾 10 · 额外弃 1 补 1（可不换）'},
- plan:    {owner:2,name:'协同谋划',icon:'⇄',cost:2,range:250,r:65,wind:.25,type:'cycle',amount:14,cycle:2,coop:'拖动时选择最多 2 张其他手牌，再拖向战场',desc:'区域护盾 14 · 额外弃至多 2 张并补回'},
+ prepare: {owner:0,name:'整备',icon:'↻',cost:1,range:230,r:55,wind:.15,type:'cycle',amount:10,cycle:1,coop:'自动换掉最右侧 1 张其他可用牌',desc:'区域护盾 10 · 自动换右侧 1 张'},
+ plan:    {owner:2,name:'协同谋划',icon:'⇄',cost:2,range:250,r:65,wind:.25,type:'cycle',amount:14,cycle:2,coop:'自动换掉最右侧 2 张其他可用牌',desc:'区域护盾 14 · 自动换右侧至多 2 张'},
  step:    {owner:2,name:'短跃',icon:'↗',cost:1,range:85,r:40,wind:.1,type:'dash',shield:8,desc:'短距离跃迁 · 护盾 8；通用动作；装备者可躲避敌人大招'},
- tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,cycle:1,cycleOnHit:true,desc:'自身突进 · 落点伤害 32 · 命中后额外弃 1 补 1（可不换）'},
+ tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,cycle:1,cycleOnHit:true,desc:'自身突进 · 落点伤害 32 · 命中后自动换右侧 1 张'},
  tide:    {owner:0,name:'回潮牵引',icon:'≈',cost:2,range:240,r:100,wind:.35,type:'blast',damage:34,pull:65,control:3,coop:'牵制 3 秒；同伴火区对其伤害 +35%',desc:'伤害 34 · 向落点聚拢 65 · 牵制减速 35%'},
  shell:   {owner:0,name:'潮汐护甲',icon:'◈',cost:2,range:240,r:95,wind:.1,type:'shield',amount:45,coop:'授予同伴援盾；同伴突进可消耗至多 20 盾制造破绽',desc:'区域友军获得 45 护盾 · 6 秒'},
  spring:  {owner:0,name:'生命图腾',icon:'✣',cost:4,range:260,r:95,wind:.4,type:'healfield',amount:10,life:7,desc:'范围每秒治疗 10 · 7 秒'},
  rush:    {owner:0,name:'踏浪',icon:'↗',cost:2,range:235,r:65,wind:.15,type:'dash',damage:25,shield:25,desc:'自身跃迁 · 落点伤害 25 / 护盾 25'},
  lure:    {owner:0,name:'诱饵木偶',icon:'◎',cost:1,range:265,r:175,wind:.3,type:'lure',hp:45,life:5,desc:'45 生命诱饵 · 吸引近敌 5 秒'},
  fire:    {owner:1,name:'焰弹',icon:'焰',cost:2,range:320,r:55,wind:.3,type:'blast',damage:50,burn:3,coop:'附加灼烧 4 秒；同伴逐风可扩散',desc:'目标区域伤害 50 · 灼烧每秒 3'},
- meteor:  {owner:1,name:'陨火',icon:'☄',cost:5,range:360,r:100,wind:.9,type:'blast',damage:112,desc:'范围伤害 112 · 长前摇 · 重投入'},
+ meteor:  {owner:1,name:'陨火',icon:'☄',cost:5,range:360,r:100,wind:.9,type:'blast',damage:56,centerDamage:160,centerRadius:35,desc:'中心最近单体 160 · 其余范围溅射 56 · 前摇 0.9 秒'},
  ember:   {owner:1,name:'余烬地带',icon:'♨',cost:3,range:300,r:90,wind:.4,type:'firefield',amount:12,burn:3,life:6,coop:'附加灼烧；同伴牵制中的敌人承受火区伤害 +35%',desc:'范围每秒伤害 12 · 灼烧每秒 3 · 6 秒'},
  retreat: {owner:1,name:'狐步',icon:'↶',cost:2,range:235,r:30,wind:.1,type:'dash',heal:24,desc:'自身跃迁 · 回复 24 生命'},
  snare:   {owner:1,name:'缚焰',icon:'⌁',cost:2,range:300,r:85,wind:.3,type:'blast',damage:26,stun:.9,desc:'范围伤害 26 · 定身 0.9 秒'},
@@ -39,7 +39,7 @@ Object.entries(CARDS).forEach(([id,c])=>c.requires=requirements[id]||null);
 function canLearn(hero,id){return !!HEROES[hero]&&!!CARDS[id]&&HEROES[hero].skills.includes(id)&&(!CARDS[id].requires||HEROES[hero].traits.includes(CARDS[id].requires));}
 // Presets only change legal loadouts and placement. They never arrange the hand.
 const TACTICS = {
- tempo:{name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；4–5 费重点技能兑现。过牌先选换掉的牌，再拖放。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
+ tempo:{name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；3–5 费重点技能兑现。过牌自动换右侧其他可用牌，无需额外选择。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
  shared:{name:'公共撞击',roles:['撞击 / 授盾','撞击 / 追击','撞击 / 接力'],guide:'三只都带撞击：牌库有三张，任一张均可选择存活装备者。拖过头像再拖到目标。',loadouts:[['tackle','shell','tide','spring'],['tackle','fire','ember','retreat'],['tackle','bolt','gale','mend']]},
  wildfire:{name:'聚敌焚场',roles:['聚敌 / 保护','铺火 / 点燃','推回火区 / 扩散'],guide:'回潮聚敌 → 炎狐铺火 → 雷隼从合适角度逐风。两只就能配合，第三只扩散火势。',loadouts:[['tide','shell','spring','lure'],['fire','ember','snare','retreat'],['gale','flight','bolt','mend']]},
  escort:{name:'护送突袭',roles:['授盾 / 接应','接力追击','带盾突进 / 破甲'],guide:'潮龟给同伴援盾 → 雷隼掠空突进制造破绽 → 炎狐直接伤害技追击。注意三者射程。',loadouts:[['shell','tide','spring','rush'],['fire','meteor','snare','retreat'],['flight','bolt','gale','mend']]}
@@ -147,6 +147,8 @@ class Game {
  }
  get reservedEnergy(){return (this.orders||[]).reduce((n,o)=>n+CARDS[o.card].cost,0);}
  get availableEnergy(){return this.energy-this.reservedEnergy;}
+ autoCycleSlots(slot){return [3,2,1,0].filter(i=>i!==slot&&this.hand[i]&&!this.orderForSlot(i)&&!this.cycleLocked(i)).slice(0,CARDS[this.hand[slot]]?.cycle||0);}
+ meteorTarget(c,point){return this.units.filter(u=>u.side&&u.hp>0&&distance(u,point)<=c.centerRadius).sort((a,b)=>distance(a,point)-distance(b,point)||a.id.localeCompare(b.id))[0];}
  cycleLocked(slot){return this.pending.some(p=>!p.done&&p.cycleSlots?.includes(slot));}
  orderForSlot(slot){return this.orders.find(o=>o.slot===slot||o.cycleSlots.includes(slot));}
  approachPath(caster,point,range){
@@ -164,7 +166,7 @@ class Game {
   const path=this.approachPath(p.caster,{x,y},p.range);
   return {...p,valid:!!path,reason:path?'靠近后施放；点击待施放牌取消':'没有可达的施法位置',approach:!!path,path};
  }
- commandCast(slot,x,y,casterId,cycleSlots=[]){
+ commandCast(slot,x,y,casterId,cycleSlots=this.autoCycleSlots(slot)){
   if(this.paused)return this.fail('已暂停，继续后再出牌。');
   const p=this.commandPreview(slot,x,y,casterId);
   if(!p.valid)return this.fail(p.reason);
@@ -220,7 +222,7 @@ class Game {
   const coop=caster?this.coopPreview(c,caster,point,echo?.45:1):{text:'',targets:[],links:[]};
   return {valid:!reason,reason,outOfRange,casterId:caster?.id,caster,echo,range,card:id,x,y,coop};
  }
- cast(slot,x,y,expectedCasterId,cycleSlots=[]){
+ cast(slot,x,y,expectedCasterId,cycleSlots=this.autoCycleSlots(slot)){
   if(this.paused)return this.fail('已暂停，继续战斗后再出牌。');
   const p=this.preview(slot,x,y,expectedCasterId);
   if(expectedCasterId&&p.casterId!==expectedCasterId)return this.fail('施法者已变化，请看新的高亮后再次确认。');
@@ -292,6 +294,7 @@ class Game {
  coopPreview(c,caster,point,potency){
   const targets=this.units.filter(u=>u.side&&u.hp>0&&distance(u,point)<=c.r),links=[];
   let highlighted=[],notes=[];
+  if(c.centerRadius){const center=this.meteorTarget(c,point);if(center)highlighted.push(center);notes.push(center?'中心重击 '+center.name+' '+Math.round(c.centerDamage*potency*this.power)+'；其他目标溅射 '+Math.round(c.damage*potency*this.power):'中心35范围内无目标，仅造成外围溅射；命中时重判');}
   const name=id=>this.mains.find(u=>u.id===id)?.name||'同伴';
   if(c.type==='shield'){
    const friends=this.mains.filter(u=>u.hp>0&&u.id!==caster.id&&distance(u,point)<=c.r);
@@ -373,11 +376,11 @@ class Game {
  resolve(p){
   const c=CARDS[p.card],s=p.potency,source={...p.from,side:0};
   const allies=this.units.filter(u=>u.hp>0&&!u.side&&distance(u,p)<=c.r);
-  const burning=[];
+  const burning=[],center=c.centerRadius?this.meteorTarget(c,p):null;
   if(c.type==='blast')for(const u of this.units.filter(u=>u.hp>0&&u.side&&distance(u,p)<=c.r)){
    const burn=this.active(u.burn)&&u.burn.sourceId!==p.casterId?{...u.burn}:null;
    const extra=c.detonate&&burn?c.detonate*s*this.power:0;
-   this.skillHit(u,c.damage*s*this.power+extra,p,source);
+   this.skillHit(u,(u===center?c.centerDamage:c.damage)*s*this.power+extra,p,source);
    if(extra){this.cooperate('接力爆燃',u,[burn.sourceId,p.casterId],p.id+':detonate:'+u.id);this.effects.push({kind:'text',text:'接力爆燃 +'+Math.round(extra),x:u.x,y:u.y-30,life:1.2,max:1.2});}
    if(c.stun)u.stun=Math.max(u.stun,c.stun*s);if(c.push)this.push(u,source,c.push*s);
    if(c.pull){this.push(u,p,-c.pull*s);if(u.kind!=='seal')u.controlTag={sourceId:p.casterId,token:p.id,until:this.time+c.control*s};}

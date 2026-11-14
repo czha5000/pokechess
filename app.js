@@ -5,7 +5,6 @@ const $=id=>document.getElementById(id),canvas=$('board'),ctx=canvas.getContext(
 let game=new Game(),selected=-1,aim={x:370,y:155},hover=false,mode='card',preview=null;
 game.setTactic('tempo');game.setParty([1,2]);
 window.wenshouCanUpdate=()=>game.phase!=='battle';
-let cycleSlots=new Set();
 let replacements=new Set(),shown='',last=0,acc=0,uiTime=0,toastUntil=0,toastText='',dragging=false;
 let touchMode=matchMedia('(pointer: coarse)').matches||navigator.maxTouchPoints>0,touchTargeted=false;
 let lockedCaster=null,cardDrag=null,ignoreCardClick=0,replaceSkill=null;
@@ -14,20 +13,20 @@ function hidePicker(){picker.hidden=true;}
 function showPicker(slot,rect){
  const choices=game.casters(game.hand[slot]).units,c=CARDS[game.hand[slot]];
  picker.innerHTML='<small>滑过头像选择施法者，再拖向战场</small><div>'+choices.map(u=>'<button data-caster="'+u.id+'">'+HEROES[u.hero].icon+' '+u.name+(u.busy?' · 蓄力':u.stun>0?' · 控制':'')+'</button>').join('')+'</div>';
- if(c.cycle)picker.innerHTML+='<small>'+(c.cycleOnHit?'命中才换；':'')+'滑过要换的牌（最多 '+c.cycle+' 张，可不换）</small><div>'+game.hand.map((id,i)=>i===slot||!id?'':'<button data-cycle-slot="'+i+'">'+CARDS[id].name+'</button>').join('')+'</div>';
- picker.style.left=Math.max(8,Math.min(innerWidth-248,rect.left))+'px';picker.style.top=Math.max(8,rect.top-83)+'px';picker.hidden=choices.length<2&&!c.cycle;picker.style.top=Math.max(8,rect.top-picker.offsetHeight-8)+'px';
+ picker.style.left=Math.max(8,Math.min(innerWidth-248,rect.left))+'px';picker.style.top=Math.max(8,rect.top-83)+'px';picker.hidden=choices.length<2;picker.style.top=Math.max(8,rect.top-picker.offsetHeight-8)+'px';
 }
 document.documentElement.classList.toggle('touch-ui',touchMode);
 function notice(s){toastText=s;toastUntil=performance.now()+2600;}
 function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
+ if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
  if(c.type==='blast')return '范围伤害 '+damage+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.detonate?' · 接同伴火势 +'+n(c.detonate*game.power):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
- if(c.type==='cycle')return '护盾 '+n(c.amount)+' · 额外换至多 '+c.cycle+' 张';
+ if(c.type==='cycle')return '护盾 '+n(c.amount)+' · 自动换右侧至多 '+c.cycle+' 张';
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
  if(c.type==='heal')return '区域治疗 '+n(c.amount);
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒';
  if(c.type==='firefield')return '火区 '+n(c.amount*game.power)+'/s · 灼烧 '+n(c.burn*game.power)+'/s · '+c.life+' 秒';
- if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.cycleOnHit?' · 命中换 1 张':'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
+ if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.cycleOnHit?' · 命中自动换右侧 1 张':'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
  if(c.type==='lure')return n(c.hp)+' 生命诱饵 · '+c.life+' 秒';
  if(c.type==='pack')return '两只风狼 · '+n(75)+' 生命 / '+n(13)+' 攻击 · 10 秒';
  return c.desc;
@@ -35,7 +34,7 @@ function cardDescription(c,echo=false){
 function coopDescription(c){return c.coop||(c.type==='dash'?'携同伴援盾突进至少 45，可使落点敌人暴露破绽 5 秒':c.damage?'可接力追击同伴的破绽，追加一次伤害':'为队友创造持续作战的窗口');}
 function reset(wave=0){
  lockedCaster=null;cardDrag=null;replaceSkill=null;hidePicker();
- game=new Game();game.setTactic('tempo');game.setParty([1,2]);cycleSlots.clear();game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
+ game=new Game();game.setTactic('tempo');game.setParty([1,2]);game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
  $('overlay').hidden=true;$('inspect').close();$('mission-select').value=String(wave);ui();
 }
 function select(i){
@@ -46,8 +45,8 @@ function select(i){
   else if(replacements.size<2)replacements.add(i);
   else notice('起手最多换两张；先取消一张。');
  }else if(game.phase==='setup'||game.phase==='battle'){
-  cycleSlots.clear();selected=selected===i&&mode==='card'?-1:i;mode='card';preview=null;hover=true;touchTargeted=false;lockedCaster=null;hidePicker();
-  if(game.phase==='battle'&&selected>=0){const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;if(choices.length>1||CARDS[game.hand[selected]]?.cycle){const b=document.querySelector('[data-slot="'+selected+'"]');if(b)showPicker(selected,b.getBoundingClientRect());}}
+  selected=selected===i&&mode==='card'?-1:i;mode='card';preview=null;hover=true;touchTargeted=false;lockedCaster=null;hidePicker();
+  if(game.phase==='battle'&&selected>=0){const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;if(choices.length>1){const b=document.querySelector('[data-slot="'+selected+'"]');if(b)showPicker(selected,b.getBoundingClientRect());}}
   if(game.phase==='battle'&&selected>=0){const c=CARDS[game.hand[selected]],u=game.mains.find(u=>u.hero===c?.owner);if(u?.hp>0)aim={x:Math.min(900,u.x+(['heal','shield','healfield'].includes(c.type)?0:120)),y:u.y};}
  }
  ui();
@@ -70,7 +69,7 @@ function place(){
    const result=game.capture(preview?.target?.id);notice(game.message);if(result){mode='card';selected=-1;preview=null;}
   }else if(selected>=0){
    if(game.casters(game.hand[selected]).units.length>1&&!lockedCaster){notice('先滑过或点选一个纹兽头像。');return;}
-   if(game.commandCast(selected,aim.x,aim.y,preview?.casterId,[...cycleSlots])){notice(game.message);selected=-1;preview=null;touchTargeted=false;}
+   if(game.commandCast(selected,aim.x,aim.y,preview?.casterId)){notice(game.message);selected=-1;preview=null;touchTargeted=false;}
    else {notice(game.message);updatePreview();}
   }
  }
@@ -127,6 +126,8 @@ function ui(){
   $('deck-info').textContent='抽 '+game.deck.length+' / 弃 '+game.discard.length+' / 施 '+game.pending.length;
   $('capture').disabled=!battle;$('capture').classList.toggle('selected',mode==='capture');$('capture').setAttribute('aria-pressed',String(mode==='capture'));
   $('capture').textContent=game.captureCooldown>0?'捕获冷却 '+game.captureCooldown.toFixed(1)+'s':'捕获 · 3 灵能'+(touchMode?'':' [C]');
+  const autoSlots=battle&&selected>=0?game.autoCycleSlots(selected):[];
+  for(const b of $('hand').querySelectorAll('[data-slot]')){b.classList.toggle('auto-cycle',autoSlots.includes(+b.dataset.slot));}
   const hints=game.hand.map((_,i)=>battle?game.comboHint(i):null);
   const handKey=game.orders.map(o=>o.id).join()+'|'+hints.map(h=>h?.text||'').join()+'|'+game.hand.join()+'|'+selected+'|'+Math.floor(game.energy)+'|'+game.phase+'|'+[...replacements].join()+'|'+game.mains.map(u=>u.hp<=0?'dead':u.busy?'busy':'ready').join();
   if(!cardDrag&&$('hand').dataset.key!==handKey){
@@ -135,7 +136,7 @@ function ui(){
     const echo=game.casters(id).echo,replace=replacements.has(i),isSelected=i===selected&&mode==='card';
     const queued=game.orderForSlot(i),locked=game.cycleLocked(i),hint=hints[i];
     const names=game.activeHeroes.filter(j=>game.loadouts[j].includes(id)).map(j=>HEROES[j].name).join(' / ');
-    return '<button data-slot="'+i+'" '+(locked||!battle&&!opening?'disabled':'')+' aria-pressed="'+(opening?replace:isSelected)+'" class="card '+(hint?'combo-ready ':'')+(queued?'queued ':'')+(isSelected?'selected ':'')+(echo?'echo ':'')+(replace?'replace ':'')+(game.availableEnergy<c.cost?'poor':'')+'"><span class="owner">'+(locked?'等待撞击命中':queued?'待施放 · 点此取消':hint?hint.text+' · '+names:names)+(echo?' · 残响':'')+(opening&&replace?' · 换掉':'')+'</span><span class="cost">'+c.cost+'</span><b>'+c.icon+' '+c.name+'</b><small>'+cardDescription(c,echo)+'</small><span class="key">'+(i+1)+' · 射程 '+Math.round(c.range*(echo?.7:1))+' · 前摇 '+c.wind+'s</span></button>';
+    return '<button data-slot="'+i+'" '+(locked||!battle&&!opening?'disabled':'')+' aria-pressed="'+(opening?replace:isSelected)+'" class="card '+(autoSlots.includes(i)?'auto-cycle ':'')+(hint?'combo-ready ':'')+(queued?'queued ':'')+(isSelected?'selected ':'')+(echo?'echo ':'')+(replace?'replace ':'')+(game.availableEnergy<c.cost?'poor':'')+'"><span class="owner">'+(locked?'等待撞击命中':queued?'待施放 · 点此取消':hint?hint.text+' · '+names:names)+(echo?' · 残响':'')+(opening&&replace?' · 换掉':'')+'</span><span class="cost">'+c.cost+'</span><b>'+c.icon+' '+c.name+'</b><small>'+cardDescription(c,echo)+'</small><span class="key">'+(i+1)+' · 射程 '+Math.round(c.range*(echo?.7:1))+' · 前摇 '+c.wind+'s</span></button>';
    }).join('');
   }
  }
@@ -178,7 +179,7 @@ function point(e){const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000
 $('hand').addEventListener('pointerdown',e=>{
  const b=e.target.closest('[data-slot]');if(!b||game.phase!=='battle'||e.button!==0)return;
  if(game.cancelOrder(+b.dataset.slot)){e.preventDefault();ignoreCardClick=performance.now()+400;notice(game.message);selected=-1;hidePicker();ui();return;}
- e.preventDefault();cycleSlots.clear();selected=+b.dataset.slot;mode='card';preview=null;hover=true;
+ e.preventDefault();selected=+b.dataset.slot;mode='card';preview=null;hover=true;
  const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;
  showPicker(selected,b.getBoundingClientRect());cardDrag={pointer:e.pointerId,slot:selected,card:game.hand[selected],x:e.clientX,y:e.clientY,moved:false};
  $('hand').setPointerCapture(e.pointerId);ui();
@@ -187,7 +188,6 @@ $('hand').addEventListener('pointermove',e=>{
  if(!cardDrag||e.pointerId!==cardDrag.pointer)return;
  cardDrag.moved ||= Math.hypot(e.clientX-cardDrag.x,e.clientY-cardDrag.y)>8;
  if(!lockedCaster&&!picker.hidden)for(const b of picker.querySelectorAll('[data-caster]')){const r=b.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){lockedCaster=b.dataset.caster;b.classList.add('selected');break;}}
- if(!picker.hidden)for(const b of picker.querySelectorAll('[data-cycle-slot]')){const r=b.getBoundingClientRect(),i=+b.dataset.cycleSlot;if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom&&cycleSlots.size<(CARDS[game.hand[selected]]?.cycle||0)){cycleSlots.add(i);b.classList.add('selected');}}
  aim=point(e);hover=true;updatePreview();
 });
 function finishDrag(e,cancel=false){
@@ -222,8 +222,7 @@ document.addEventListener('click',e=>{
  if(b.dataset.hero!==undefined)select(+b.dataset.hero);
  if(b.dataset.tactic&&game.setTactic(b.dataset.tactic)){selected=-1;notice('已选 '+TACTICS[b.dataset.tactic].name+' · 可以调整站位，起手仍随机');ui();}
  if(b.dataset.slot!==undefined&&performance.now()>ignoreCardClick)select(+b.dataset.slot);
- if(b.dataset.caster){lockedCaster=b.dataset.caster;if(!CARDS[game.hand[selected]]?.cycle)hidePicker();picker.querySelectorAll('[data-caster]').forEach(el=>el.classList.toggle('selected',el===b));updatePreview();ui();}
- if(b.dataset.cycleSlot!==undefined){const i=+b.dataset.cycleSlot;if(cycleSlots.has(i))cycleSlots.delete(i);else if(cycleSlots.size<(CARDS[game.hand[selected]]?.cycle||0))cycleSlots.add(i);b.classList.toggle('selected',cycleSlots.has(i));}
+ if(b.dataset.caster){lockedCaster=b.dataset.caster;hidePicker();picker.querySelectorAll('[data-caster]').forEach(el=>el.classList.toggle('selected',el===b));updatePreview();ui();}
  if(b.dataset.heal!==undefined){game.healWound(+b.dataset.heal);ui();}
  if(b.dataset.relic&&game.choose(b.dataset.relic)){shown='';$('overlay').hidden=true;selected=-1;ui();}
  if(b.dataset.retry)reset();

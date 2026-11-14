@@ -133,6 +133,7 @@ if(mode==='capture'){
    }
   }
   circle(aim.x,aim.y,c?.r||32,valid?'#efdc9d18':'#e7987c22',true);
+  if(c?.centerRadius){circle(aim.x,aim.y,c.centerRadius,'#ffae75');}
   ctx.setLineDash([6,4]);circle(aim.x,aim.y,c?.r||32,col);ctx.setLineDash([]);
   line(aim.x-8,aim.y,aim.x+8,aim.y,col);line(aim.x,aim.y-8,aim.x,aim.y+8,col);
   text(setup?HEROES[selected].name:valid?c.name:'不可施放',aim.x,Math.max(25,aim.y-(c?.r||32)-10),14,col);

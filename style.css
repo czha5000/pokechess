@@ -24,3 +24,6 @@
 #party-picker{padding:8px 0;display:flex;gap:8px;flex-wrap:wrap}#party-picker[hidden]{display:none}#party-picker small{width:100%;color:#bfccb9}#party-picker select{min-height:36px}
 
 .card.combo-ready{border-color:#b7ed93;box-shadow:inset 0 3px #b7ed93}.card.combo-ready .owner{color:#c6f6ad}.card.queued{border-color:#8cd5e4;background:#25424a}.card.queued .owner{color:#bdeefa}
+
+.card.auto-cycle{outline:3px solid #e6a86b;outline-offset:-4px;background:#51432e;}
+.card.auto-cycle::after{content:"将自动换掉";display:block;color:#ffe1ad;font-size:12px;}
