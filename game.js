@@ -66,6 +66,12 @@ const ENEMIES = {
  ambush:{name:'伏击影兽',kind:'raider',trait:'ambush',hp:115,atk:7,range:33,speed:48,capturable:true},
  boss:{name:'裂隙守卫',kind:'boss',hp:340,atk:12,range:50,speed:30,capturable:false}
 };
+const WAVE_PLANS=[[[0,'raider',0],[1,'raider',1],[8,'rage',0],[12,'archer',1],[22,'crystal',1],[25,'raider',0],[30,'archer',0]],
+   [[0,'regen',0],[0,'archer',0],[5,'raider',0],[10,'guard',0],[16,'archer',0],[20,'boss',0],[25,'brute',1],[34,'priest',0],[44,'brute',0],[55,'archer',0],[68,'brute',0],[80,'archer',0]],
+   [[0,'boss',1],[0,'archer',0],[12,'ambush',1],[23,'archer',1],[35,'raider',0],[45,'brute',1],[60,'archer',1]]];
+const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：低费点燃保持伤害。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或缚焰打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：短跃躲避，陨火反击。'};
+Object.values(CARDS).forEach(c=>{c.tags=[];if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage)c.tags.push('范围压制');if(c.type==='shield'||c.type==='cycle'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.cycle)c.tags.push('自动过牌');if(c.spread||c.pull)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
+function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&b.loadouts.length===3&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)));}
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
   this.seed=seed; this.randomState=seed; this.phase='setup'; this.paused=false; this.wave=0;
@@ -79,6 +85,9 @@ class Game {
   this.stats={played:0,damage:0,healed:0,lured:0,captureAttempts:0,captures:0,cooperations:0,trios:0,coopDamage:0};
   this.message='三只主力，每只四招。先布阵，再看随机起手。';
  }
+ get enemyIntel(){return [...new Set(WAVE_PLANS[this.wave].map(w=>w[1]))].map(id=>({id,name:ENEMIES[id].name,advice:ENEMY_INFO[id]}));}
+ exportBuild(){return {version:1,activeHeroes:[...this.activeHeroes],loadouts:this.loadouts.map(a=>[...a])};}
+ applyBuild(b){if(this.phase!=='setup'||!validBuild(b))return false;this.activeHeroes=[...b.activeHeroes].sort();this.loadouts=b.loadouts.map(a=>[...a]);this.tactic=null;this.quick();return true;}
  get partyCards(){return this.activeHeroes.flatMap(i=>this.loadouts[i]);}
  setParty(ids){
   if(this.phase!=='setup'||!Array.isArray(ids)||![2,3].includes(ids.length)||new Set(ids).size!==ids.length||ids.some(i=>!Number.isInteger(i)||!HEROES[i]))return false;
@@ -126,9 +135,7 @@ class Game {
   for(const i of slots)this.hand[i]=this.deck.shift();
   this.deck.push(...removed);this.shuffle(this.deck);this.mulliganUsed=true;
   this.phase='battle';this.paused=false;
-  const waves=this.wave===0?[[0,'raider',0],[1,'raider',1],[8,'rage',0],[12,'archer',1],[22,'crystal',1],[25,'raider',0],[30,'archer',0]]:
-   this.wave===1?[[0,'regen',0],[0,'archer',0],[5,'raider',0],[10,'guard',0],[16,'archer',0],[20,'boss',0],[25,'brute',1],[34,'priest',0],[44,'brute',0],[55,'archer',0],[68,'brute',0],[80,'archer',0]]:
-   [[0,'boss',1],[0,'archer',0],[12,'ambush',1],[23,'archer',1],[35,'raider',0],[45,'brute',1],[60,'archer',1]];
+  const waves=WAVE_PLANS[this.wave];
   this.schedule=waves.map(([t,k,l])=>({t:t*(this.activeHeroes.length===2?1.2:1),k,l}));
   if(this.wave===2){this.seal=this.unit({kind:'seal',name:'裂隙封印',hp:this.activeHeroes.length===2?400:530,atk:0,range:0,speed:0},this.mission.x,this.mission.y,1);this.units.push(this.seal);}
   this.message=this.mission.goal+'。上场主力全倒下立即失败。';return true;
@@ -572,6 +579,6 @@ class Game {
   else if(this.wave===0&&!this.schedule.length&&!this.units.some(u=>u.side))this.finish(true,'溪口守住了。');
  }
 }
-const api={canLearn,Game,CARDS,HEROES,TACTICS,RELICS,MISSIONS,LANES,distance};
+const api={validBuild,canLearn,Game,CARDS,HEROES,TACTICS,RELICS,MISSIONS,LANES,distance};
 if(typeof module!=='undefined')module.exports=api;else window.DeployGame=api;
 })();

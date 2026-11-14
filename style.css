@@ -27,3 +27,5 @@
 
 .card.auto-cycle{outline:3px solid #e6a86b;outline-offset:-4px;background:#51432e;}
 .card.auto-cycle::after{content:"将自动换掉";display:block;color:#ffe1ad;font-size:12px;}
+
+.intel-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}.intel-list article,.build-panel{background:var(--panel);border:1px solid var(--line);padding:12px;border-radius:6px}.intel-list p,.build-panel p{color:var(--muted);margin:6px 0}.skill-tags{display:block;color:var(--gold);font-size:11px;margin-bottom:5px}.build-panel{margin-top:18px}.build-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin:8px 0}.build-row span{flex:1;min-width:150px}.instruction{flex-wrap:wrap}

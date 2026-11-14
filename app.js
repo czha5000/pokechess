@@ -1,6 +1,6 @@
 (() => {
 'use strict';
-const {Game,CARDS,HEROES,TACTICS,RELICS,distance}=window.DeployGame;
+const {Game,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
 const $=id=>document.getElementById(id),canvas=$('board'),ctx=canvas.getContext('2d');
 let game=new Game(),selected=-1,aim={x:370,y:155},hover=false,mode='card',preview=null;
 game.setTactic('tempo');game.setParty([1,2]);
@@ -93,7 +93,7 @@ function ui(){
  $('time').textContent=Math.ceil(game.mission.limit-game.waveTime)+'s';
  $('field-note').textContent=game.wave===1?game.mission.goal+' · '+(game.control||0).toFixed(1)+'/14s':game.mission.goal;
  $('formation').hidden=!setup;$('battle-controls').hidden=setup;
- $('quick').hidden=!setup;$('loadout').hidden=!setup;$('mission-picker').hidden=!setup;
+ $('intel').hidden=!setup;$('quick').hidden=!setup;$('loadout').hidden=!setup;$('mission-picker').hidden=!setup;
  $('tactics').hidden=!setup;$('party-picker').hidden=!setup;$('party-mode').value=String(game.activeHeroes.length);$('bench-select').disabled=game.activeHeroes.length!==2;$('bench-select').value=String([0,1,2].find(i=>!game.activeHeroes.includes(i))??0);
  document.querySelectorAll('[data-tactic]').forEach(b=>{const on=b.dataset.tactic===game.tactic;b.classList.toggle('selected',on);b.setAttribute('aria-pressed',String(on));});
  if(setup)$('mission-select').value=String(game.wave);
@@ -107,7 +107,7 @@ function ui(){
  $('toast').textContent=performance.now()<toastUntil?toastText:'';
  if(setup){
   $('hint').textContent=selected>=0?'摆放 '+HEROES[selected].name+' · 点击左侧陆地':'上场主力已就位 · 可以查看起手';
-  $('detail').textContent='上场 '+game.activeHeroes.length+' 只，每只 4 招，共享 '+game.partyCards.length+' 张牌库；四张随机手牌。';
+  $('detail').textContent='敌情：'+game.enemyIntel.map(e=>e.name).join('、')+'。上场 '+game.activeHeroes.length+' 只，每只 4 招，共享 '+game.partyCards.length+' 张牌库；四张随机手牌。';
   const key=JSON.stringify(game.placed)+'|'+selected+'|'+game.activeHeroes.join();
   if($('formation').dataset.key!==key){$('formation').dataset.key=key;$('formation').innerHTML=HEROES.map((h,i)=>!game.activeHeroes.includes(i)?'':'<button class="beast '+(selected===i?'selected':'')+'" data-hero="'+i+'" aria-pressed="'+(selected===i)+'"><span class="icon">'+h.icon+'</span><span><b>'+h.name+'</b><small>'+h.desc+' · '+(game.placed[i]?'已就位':'待摆放')+'</small></span></button>').join('');}
  }else{
@@ -164,16 +164,21 @@ function inspect(kind){
  if(game.phase==='battle')game.paused=true;
  $('inspect').dataset.kind=kind;drawInspect();if(!$('inspect').open)$('inspect').showModal();ui();
 }
+const buildKey='wenshou-deploy-builds-v1';
+function readBuilds(){try{const data=JSON.parse(localStorage.getItem(buildKey)||'[]');return Array.from({length:3},(_,i)=>Array.isArray(data)&&validBuild(data[i])?data[i]:null);}catch{return [null,null,null];}}
+function buildPanel(){return '<section class="build-panel"><b>我的配招 · 仅保存在当前浏览器</b><p>保存上场角色与三只角色的技能；载入使用推荐站位，不改变伤势或遗物。</p>'+readBuilds().map((b,i)=>'<div class="build-row"><span>槽 '+(i+1)+' · '+(b?b.activeHeroes.map(h=>HEROES[h].name).join('＋'):'空')+'</span><button data-build-save="'+i+'">'+(b?'覆盖保存':'保存当前')+'</button><button data-build-load="'+i+'" '+(!b?'disabled':'')+'>载入</button></div>').join('')+'<p id="build-status" role="status"></p></section>';}
 function drawInspect(){
+ if($('inspect').dataset.kind==='intel'){$('inspect-title').textContent='战前敌情 · '+game.mission.name;$('inspect-body').innerHTML='<p>'+game.mission.goal+'</p><p>本关敌人类型与应对方向；具体来袭时间不公开。</p><div class="intel-list">'+game.enemyIntel.map(e=>'<article><b>'+e.name+'</b><p>'+e.advice+'</p></article>').join('')+'</div><button id="intel-to-loadout">据此调整配招 →</button>';return;}
+
  const config=$('inspect').dataset.kind==='loadout'&&game.phase==='setup';
  $('inspect-title').textContent=config?'战前配招 · 每只携带 4 招':'共享牌库 · '+game.partyCards.length+' 张（含同名副本）';
 
  if(!config){$('inspect-body').innerHTML='<p>共享牌库：元素、身体特征或专属条件决定可学技能，装备后才能正常施放。同名牌可选任一存活装备者。</p><div class="skill-list">'+game.partyCards.map(id=>{const c=CARDS[id];return '<div class="deck-entry"><small>'+game.activeHeroes.filter(i=>game.loadouts[i].includes(id)).map(i=>HEROES[i].name).join(' / ')+'</small><b>'+c.name+' · '+c.cost+' 灵能</b><small>'+cardDescription(c)+' · 射程 '+c.range+'</small><small>配合：'+coopDescription(c)+'</small></div>';}).join('')+'</div>';return;}
  $('inspect-body').innerHTML='<p>'+(config?'先点要替换的携带技能，再点同一只的备用技能。同名技能可由多只携带；仅上场纹兽的配招进入公共牌库，入库后仅存活装备者正常施放；候补技能可预先调整。':'每份配招贡献一张牌；同名牌由存活装备者施放；标记全队通用的短跃可由任意存活主力使用。不显示隐藏牌序。')+'</p>'+HEROES.map((h,i)=>!config&&!game.activeHeroes.includes(i)?'':'<section class="skill-group"><h3>'+h.icon+' '+h.name+(!game.activeHeroes.includes(i)?' · 候补':'')+'</h3><div class="skill-list">'+(config?h.skills:game.loadouts[i]).map(id=>{
   const c=CARDS[id],equipped=game.loadouts[i].includes(id);
-  const label='<b>'+(c.requires?'限定技能 · ':'通用技能 · ')+c.name+' · '+c.cost+' 灵能</b><small>'+c.desc+' · 射程 '+c.range+' · 前摇 '+c.wind+'s</small><small class="coop-copy">配合：'+coopDescription(c)+'</small>';
+  const label='<span class="skill-tags">'+c.tags.join(' · ')+'</span><b>'+(c.requires?'限定技能 · ':'通用技能 · ')+c.name+' · '+c.cost+' 灵能</b><small>'+c.desc+' · 射程 '+c.range+' · 前摇 '+c.wind+'s</small><small class="coop-copy">配合：'+coopDescription(c)+'</small>';
   return config?'<button data-skill="'+id+'" data-skill-owner="'+i+'" aria-pressed="'+equipped+'" class="'+(equipped?'selected':'reserve')+'">'+(replaceSkill?.owner===i&&replaceSkill.id===id?'待替换 · ':equipped?'携带 · ':'备用 · ')+label+'</button>':'<div class="deck-entry">'+label+'</div>';
- }).join('')+'</div></section>').join('');
+ }).join('')+'</div></section>').join('')+(config?buildPanel():'');
 }
 function point(e){const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
 $('hand').addEventListener('pointerdown',e=>{
@@ -219,6 +224,9 @@ canvas.addEventListener('pointerleave',()=>{if(!dragging&&!touchMode)hover=false
 canvas.addEventListener('contextmenu',e=>{e.preventDefault();selected=-1;mode='card';preview=null;lockedCaster=null;hidePicker();ui();});
 document.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b||b.disabled)return;
+ if(b.id==='intel-to-loadout'){inspect('loadout');return;}
+ if(b.dataset.buildSave!==undefined&&game.phase==='setup'){const slots=readBuilds();slots[+b.dataset.buildSave]=game.exportBuild();try{localStorage.setItem(buildKey,JSON.stringify(slots));drawInspect();$('build-status').textContent='已保存到槽 '+(+b.dataset.buildSave+1);}catch{$('build-status').textContent='浏览器未允许保存；当前配招仍可继续使用。';}return;}
+ if(b.dataset.buildLoad!==undefined&&game.phase==='setup'){const saved=readBuilds()[+b.dataset.buildLoad];if(game.applyBuild(saved)){replaceSkill=null;selected=-1;drawInspect();$('build-status').textContent='已载入，可继续按敌情调整。';ui();}else{drawInspect();$('build-status').textContent='保存内容无效，请重新保存。';}return;}
  if(b.dataset.hero!==undefined)select(+b.dataset.hero);
  if(b.dataset.tactic&&game.setTactic(b.dataset.tactic)){selected=-1;notice('已选 '+TACTICS[b.dataset.tactic].name+' · 可以调整站位，起手仍随机');ui();}
  if(b.dataset.slot!==undefined&&performance.now()>ignoreCardClick)select(+b.dataset.slot);
@@ -240,7 +248,7 @@ $('mission-select').onchange=e=>reset(+e.target.value);
 $('capture').onclick=()=>{if(game.phase==='battle'){mode=mode==='capture'?'card':'capture';selected=-1;preview=null;hover=true;touchTargeted=false;updatePreview();ui();}};
 $('confirm-target').onclick=()=>{if(touchTargeted)place();};
 $('cancel-target').onclick=()=>{selected=-1;mode='card';preview=null;touchTargeted=false;ui();};
-$('loadout').onclick=()=>inspect('loadout');$('deck-info').onclick=()=>inspect('deck');$('close-inspect').onclick=()=>$('inspect').close();
+$('intel').onclick=()=>inspect('intel');$('loadout').onclick=()=>inspect('loadout');$('deck-info').onclick=()=>inspect('deck');$('close-inspect').onclick=()=>$('inspect').close();
 $('help-toggle').onclick=()=>{$('help').hidden=!$('help').hidden;$('help-toggle').setAttribute('aria-expanded',String(!$('help').hidden));};
 document.addEventListener('keydown',e=>{
  if(e.repeat||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||$('inspect').open)return;
