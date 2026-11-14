@@ -7,7 +7,7 @@ const CARDS = {
  prepare: {owner:0,name:'整备',icon:'↻',cost:1,range:230,r:55,wind:.15,type:'cycle',amount:10,cycle:1,coop:'拖动时滑过要换掉的手牌，再拖向战场；最多换 1 张',desc:'区域护盾 10 · 额外弃 1 补 1（可不换）'},
  plan:    {owner:2,name:'协同谋划',icon:'⇄',cost:2,range:250,r:65,wind:.25,type:'cycle',amount:14,cycle:2,coop:'拖动时选择最多 2 张其他手牌，再拖向战场',desc:'区域护盾 14 · 额外弃至多 2 张并补回'},
  step:    {owner:2,name:'短跃',icon:'↗',cost:1,range:85,r:40,wind:.1,type:'dash',shield:8,desc:'短距离跃迁 · 护盾 8；通用动作；装备者可躲避敌人大招'},
- tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,desc:'自身突进 · 落点伤害 32；存活装备者可施放'},
+ tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,cycle:1,cycleOnHit:true,desc:'自身突进 · 落点伤害 32 · 命中后额外弃 1 补 1（可不换）'},
  tide:    {owner:0,name:'回潮牵引',icon:'≈',cost:2,range:240,r:100,wind:.35,type:'blast',damage:34,pull:65,control:3,coop:'牵制 3 秒；同伴火区对其伤害 +35%',desc:'伤害 34 · 向落点聚拢 65 · 牵制减速 35%'},
  shell:   {owner:0,name:'潮汐护甲',icon:'◈',cost:2,range:240,r:95,wind:.1,type:'shield',amount:45,coop:'授予同伴援盾；同伴突进可消耗至多 20 盾制造破绽',desc:'区域友军获得 45 护盾 · 6 秒'},
  spring:  {owner:0,name:'生命图腾',icon:'✣',cost:4,range:260,r:95,wind:.4,type:'healfield',amount:10,life:7,desc:'范围每秒治疗 10 · 7 秒'},
@@ -18,8 +18,8 @@ const CARDS = {
  ember:   {owner:1,name:'余烬地带',icon:'♨',cost:3,range:300,r:90,wind:.4,type:'firefield',amount:12,burn:3,life:6,coop:'附加灼烧；同伴牵制中的敌人承受火区伤害 +35%',desc:'范围每秒伤害 12 · 灼烧每秒 3 · 6 秒'},
  retreat: {owner:1,name:'狐步',icon:'↶',cost:2,range:235,r:30,wind:.1,type:'dash',heal:24,desc:'自身跃迁 · 回复 24 生命'},
  snare:   {owner:1,name:'缚焰',icon:'⌁',cost:2,range:300,r:85,wind:.3,type:'blast',damage:26,stun:.9,desc:'范围伤害 26 · 定身 0.9 秒'},
- bolt:    {owner:2,name:'落雷',icon:'ϟ',cost:4,range:330,r:80,wind:.4,type:'blast',damage:62,stun:1,desc:'范围伤害 62 · 眩晕 1 秒'},
- gale:    {owner:2,name:'逐风',icon:'彡',cost:2,range:280,r:90,wind:.3,type:'blast',damage:24,push:75,spread:100,coop:'将同伴灼烧扩散到击退落点周围 100 范围，每目标一次',desc:'范围伤害 24 · 击退 75'},
+ bolt:    {owner:2,name:'落雷',icon:'ϟ',cost:3,range:330,r:80,wind:.4,type:'blast',damage:40,stun:1,desc:'范围伤害 40 · 眩晕 1 秒'},
+ gale:    {owner:2,name:'逐风',icon:'彡',cost:2,range:280,r:90,wind:.3,type:'blast',damage:24,push:75,spread:100,detonate:12,coop:'接同伴灼烧爆燃 +12，并扩散到击退落点周围 100 范围，每目标一次',desc:'范围伤害 24 · 击退 75'},
  flight:  {owner:2,name:'掠空',icon:'↟',cost:2,range:300,r:75,wind:.15,type:'dash',shield:25,desc:'自身跃迁 · 获得 25 护盾'},
  mend:    {owner:2,name:'羽息',icon:'✧',cost:2,range:260,r:85,wind:.1,type:'heal',amount:36,desc:'区域友军立刻回复 36 生命'},
  pack:    {owner:2,name:'风狼',icon:'双',cost:4,range:250,r:38,wind:.5,type:'pack',desc:'召唤两只风狼 · 10 秒 / 最多 4 只'}
@@ -39,7 +39,7 @@ Object.entries(CARDS).forEach(([id,c])=>c.requires=requirements[id]||null);
 function canLearn(hero,id){return !!HEROES[hero]&&!!CARDS[id]&&HEROES[hero].skills.includes(id)&&(!CARDS[id].requires||HEROES[hero].traits.includes(CARDS[id].requires));}
 // Presets only change legal loadouts and placement. They never arrange the hand.
 const TACTICS = {
- tempo:{name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；4–5 费重点技能兑现。过牌先选换掉的牌，再拖放。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','plan']]},
+ tempo:{name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；4–5 费重点技能兑现。过牌先选换掉的牌，再拖放。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
  shared:{name:'公共撞击',roles:['撞击 / 授盾','撞击 / 追击','撞击 / 接力'],guide:'三只都带撞击：牌库有三张，任一张均可选择存活装备者。拖过头像再拖到目标。',loadouts:[['tackle','shell','tide','spring'],['tackle','fire','ember','retreat'],['tackle','bolt','gale','mend']]},
  wildfire:{name:'聚敌焚场',roles:['聚敌 / 保护','铺火 / 点燃','推回火区 / 扩散'],guide:'回潮聚敌 → 炎狐铺火 → 雷隼从合适角度逐风。两只就能配合，第三只扩散火势。',loadouts:[['tide','shell','spring','lure'],['fire','ember','snare','retreat'],['gale','flight','bolt','mend']]},
  escort:{name:'护送突袭',roles:['授盾 / 接应','接力追击','带盾突进 / 破甲'],guide:'潮龟给同伴援盾 → 雷隼掠空突进制造破绽 → 炎狐直接伤害技追击。注意三者射程。',loadouts:[['shell','tide','spring','rush'],['fire','meteor','snare','retreat'],['flight','bolt','gale','mend']]}
@@ -147,6 +147,7 @@ class Game {
  }
  get reservedEnergy(){return (this.orders||[]).reduce((n,o)=>n+CARDS[o.card].cost,0);}
  get availableEnergy(){return this.energy-this.reservedEnergy;}
+ cycleLocked(slot){return this.pending.some(p=>!p.done&&p.cycleSlots?.includes(slot));}
  orderForSlot(slot){return this.orders.find(o=>o.slot===slot||o.cycleSlots.includes(slot));}
  approachPath(caster,point,range){
   if(!caster.speed)return null;
@@ -169,7 +170,7 @@ class Game {
   if(!p.valid)return this.fail(p.reason);
   if(!p.approach)return this.cast(slot,x,y,casterId,cycleSlots);
   const c=CARDS[this.hand[slot]];
-  if(!Array.isArray(cycleSlots)||cycleSlots.length>(c.cycle||0)||new Set(cycleSlots).size!==cycleSlots.length||cycleSlots.some(i=>!Number.isInteger(i)||i<0||i>3||i===slot||!this.hand[i]||this.orderForSlot(i)))return this.fail('换牌选择无效或已被待施放指令占用。');
+  if(!Array.isArray(cycleSlots)||cycleSlots.length>(c.cycle||0)||new Set(cycleSlots).size!==cycleSlots.length||cycleSlots.some(i=>!Number.isInteger(i)||i<0||i>3||i===slot||!this.hand[i]||this.orderForSlot(i)||this.cycleLocked(i)))return this.fail('换牌选择无效或已被待施放指令占用。');
   const o={id:'o'+(++this.serial),slot,card:this.hand[slot],casterId:p.casterId,x,y,cycleSlots:[...cycleSlots],path:p.path};
   this.orders.push(o);p.caster.busy=o.id;this.message=p.caster.name+'正在靠近 · '+c.name+'（点击该牌取消）';return true;
  }
@@ -206,6 +207,7 @@ class Game {
   const caster=preferredId?available.find(u=>u.id===preferredId):eligible.sort((a,b)=>distance(a,point)-distance(b,point))[0]||available[0];
   let reason='';
   if(this.phase!=='battle')reason='战斗开始后可施放。';
+  else if(this.cycleLocked(slot))reason='撞击命中结算前，此牌暂时预留换牌。';
   else if(this.orderForSlot(slot))reason='该手牌已预留，点击取消移动施法。';
   else if(!this.valid(x,y))reason='落点需要是陆地或石桥。';
   else if(!caster)reason='没有存活的主力可以施法。';
@@ -224,11 +226,11 @@ class Game {
   if(expectedCasterId&&p.casterId!==expectedCasterId)return this.fail('施法者已变化，请看新的高亮后再次确认。');
   if(!p.valid)return this.fail(p.reason);
   const id=this.hand[slot],c=CARDS[id],caster=p.caster;
-  if(!Array.isArray(cycleSlots)||cycleSlots.length>(c.cycle||0)||new Set(cycleSlots).size!==cycleSlots.length||cycleSlots.some(i=>!Number.isInteger(i)||i<0||i>3||i===slot||!this.hand[i]||this.orderForSlot(i)))return this.fail('过牌只能选择其他手牌，且不能超过可换数量。');
-  const exchanged=cycleSlots.map(i=>this.hand[i]);
-  cycleSlots.forEach(i=>this.hand[i]=null);
+  if(!Array.isArray(cycleSlots)||cycleSlots.length>(c.cycle||0)||new Set(cycleSlots).size!==cycleSlots.length||cycleSlots.some(i=>!Number.isInteger(i)||i<0||i>3||i===slot||!this.hand[i]||this.orderForSlot(i)||this.cycleLocked(i)))return this.fail('过牌只能选择其他手牌，且不能超过可换数量。');
+  const exchanged=c.cycleOnHit?[]:cycleSlots.map(i=>this.hand[i]);
+  if(!c.cycleOnHit)cycleSlots.forEach(i=>this.hand[i]=null);
   this.energy-=c.cost;this.hand[slot]=null;this.stats.played++;
-  const action={id:'s'+(++this.serial),card:id,casterId:caster.id,echo:p.echo,potency:p.echo?.45:1,x,y,r:c.r,stage:'windup',wait:c.wind,total:c.wind};
+  const action={id:'s'+(++this.serial),card:id,casterId:caster.id,echo:p.echo,potency:p.echo?.45:1,x,y,r:c.r,stage:'windup',wait:c.wind,total:c.wind,cycleSlots:c.cycleOnHit?[...cycleSlots]:[]};
   caster.busy=action.id;this.pending.push(action);this.refill();
   // Refill from existing piles first; returned cards only become eligible if those run out.
   this.discard.push(...exchanged);this.refill();
@@ -313,7 +315,7 @@ class Game {
   }
   if(c.spread){
    const burning=targets.filter(u=>this.active(u.burn)&&u.burn.sourceId!==caster.id);
-   highlighted=[...burning];notes.push(burning.length?'可借 '+name(burning[0].burn.sourceId)+'的火势扩散；按箭头检查击退方向':'逐风可扩散同伴灼烧；先点燃，或将敌人推回火区');
+   highlighted=[...burning];notes.push(burning.length?'可借 '+name(burning[0].burn.sourceId)+'的火势爆燃 +'+(c.detonate*potency*this.power).toFixed(0)+' 并扩散；按箭头检查击退方向':'逐风可扩散同伴灼烧；先点燃，或将敌人推回火区');
    for(const u of targets)links.push({from:u,to:this.shiftPoint(u,caster,c.push*potency)});
    const receivers=new Set();
    for(const origin of burning){const landing=this.shiftPoint(origin,caster,c.push*potency);for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==origin.id)){
@@ -374,7 +376,10 @@ class Game {
   const burning=[];
   if(c.type==='blast')for(const u of this.units.filter(u=>u.hp>0&&u.side&&distance(u,p)<=c.r)){
    const burn=this.active(u.burn)&&u.burn.sourceId!==p.casterId?{...u.burn}:null;
-   this.skillHit(u,c.damage*s*this.power,p,source);if(c.stun)u.stun=Math.max(u.stun,c.stun*s);if(c.push)this.push(u,source,c.push*s);
+   const extra=c.detonate&&burn?c.detonate*s*this.power:0;
+   this.skillHit(u,c.damage*s*this.power+extra,p,source);
+   if(extra){this.cooperate('接力爆燃',u,[burn.sourceId,p.casterId],p.id+':detonate:'+u.id);this.effects.push({kind:'text',text:'接力爆燃 +'+Math.round(extra),x:u.x,y:u.y-30,life:1.2,max:1.2});}
+   if(c.stun)u.stun=Math.max(u.stun,c.stun*s);if(c.push)this.push(u,source,c.push*s);
    if(c.pull){this.push(u,p,-c.pull*s);if(u.kind!=='seal')u.controlTag={sourceId:p.casterId,token:p.id,until:this.time+c.control*s};}
    if(c.burn)this.applyBurn(u,{sourceId:p.casterId,token:p.id,dps:c.burn*s*this.power});
    if(c.spread&&burn&&u.hp>0)burning.push({u,burn});
@@ -405,6 +410,7 @@ class Game {
    if(u?.hp>0){
     const victims=this.units.filter(t=>t.side&&t.hp>0&&distance(t,p)<=c.r),ward=this.wardInfo(u);
     const spent=ward&&distance(u,p)>=45&&victims.length?Math.min(20,u.shield):0;
+    if(c.cycleOnHit&&victims.length&&p.cycleSlots?.length){const returned=p.cycleSlots.map(i=>this.hand[i]);p.cycleSlots.forEach(i=>this.hand[i]=null);p.cycleSlots=[];this.refill();this.discard.push(...returned);this.refill();this.message='撞击命中 · 换牌成功';}
     if(spent)u.shield-=spent;
     this.displace(u,p.x,p.y);if(c.heal)this.heal(u,c.heal*s);
     if(c.shield)this.grantShield(u,c.shield*s,u.id);

@@ -14,20 +14,20 @@ function hidePicker(){picker.hidden=true;}
 function showPicker(slot,rect){
  const choices=game.casters(game.hand[slot]).units,c=CARDS[game.hand[slot]];
  picker.innerHTML='<small>滑过头像选择施法者，再拖向战场</small><div>'+choices.map(u=>'<button data-caster="'+u.id+'">'+HEROES[u.hero].icon+' '+u.name+(u.busy?' · 蓄力':u.stun>0?' · 控制':'')+'</button>').join('')+'</div>';
- if(c.cycle)picker.innerHTML+='<small>滑过要换的牌（最多 '+c.cycle+' 张，可不换）</small><div>'+game.hand.map((id,i)=>i===slot||!id?'':'<button data-cycle-slot="'+i+'">'+CARDS[id].name+'</button>').join('')+'</div>';
+ if(c.cycle)picker.innerHTML+='<small>'+(c.cycleOnHit?'命中才换；':'')+'滑过要换的牌（最多 '+c.cycle+' 张，可不换）</small><div>'+game.hand.map((id,i)=>i===slot||!id?'':'<button data-cycle-slot="'+i+'">'+CARDS[id].name+'</button>').join('')+'</div>';
  picker.style.left=Math.max(8,Math.min(innerWidth-248,rect.left))+'px';picker.style.top=Math.max(8,rect.top-83)+'px';picker.hidden=choices.length<2&&!c.cycle;picker.style.top=Math.max(8,rect.top-picker.offsetHeight-8)+'px';
 }
 document.documentElement.classList.toggle('touch-ui',touchMode);
 function notice(s){toastText=s;toastUntil=performance.now()+2600;}
 function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
- if(c.type==='blast')return '范围伤害 '+damage+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
+ if(c.type==='blast')return '范围伤害 '+damage+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.detonate?' · 接同伴火势 +'+n(c.detonate*game.power):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
  if(c.type==='cycle')return '护盾 '+n(c.amount)+' · 额外换至多 '+c.cycle+' 张';
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
  if(c.type==='heal')return '区域治疗 '+n(c.amount);
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒';
  if(c.type==='firefield')return '火区 '+n(c.amount*game.power)+'/s · 灼烧 '+n(c.burn*game.power)+'/s · '+c.life+' 秒';
- if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
+ if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.cycleOnHit?' · 命中换 1 张':'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
  if(c.type==='lure')return n(c.hp)+' 生命诱饵 · '+c.life+' 秒';
  if(c.type==='pack')return '两只风狼 · '+n(75)+' 生命 / '+n(13)+' 攻击 · 10 秒';
  return c.desc;
@@ -133,9 +133,9 @@ function ui(){
    $('hand').dataset.key=handKey;$('hand').innerHTML=game.hand.map((id,i)=>{
     const c=CARDS[id];if(!c)return '<button class="card" disabled>等待补牌</button>';
     const echo=game.casters(id).echo,replace=replacements.has(i),isSelected=i===selected&&mode==='card';
-    const queued=game.orderForSlot(i),hint=hints[i];
+    const queued=game.orderForSlot(i),locked=game.cycleLocked(i),hint=hints[i];
     const names=game.activeHeroes.filter(j=>game.loadouts[j].includes(id)).map(j=>HEROES[j].name).join(' / ');
-    return '<button data-slot="'+i+'" '+(!battle&&!opening?'disabled':'')+' aria-pressed="'+(opening?replace:isSelected)+'" class="card '+(hint?'combo-ready ':'')+(queued?'queued ':'')+(isSelected?'selected ':'')+(echo?'echo ':'')+(replace?'replace ':'')+(game.availableEnergy<c.cost?'poor':'')+'"><span class="owner">'+(queued?'待施放 · 点此取消':hint?hint.text+' · '+names:names)+(echo?' · 残响':'')+(opening&&replace?' · 换掉':'')+'</span><span class="cost">'+c.cost+'</span><b>'+c.icon+' '+c.name+'</b><small>'+cardDescription(c,echo)+'</small><span class="key">'+(i+1)+' · 射程 '+Math.round(c.range*(echo?.7:1))+' · 前摇 '+c.wind+'s</span></button>';
+    return '<button data-slot="'+i+'" '+(locked||!battle&&!opening?'disabled':'')+' aria-pressed="'+(opening?replace:isSelected)+'" class="card '+(hint?'combo-ready ':'')+(queued?'queued ':'')+(isSelected?'selected ':'')+(echo?'echo ':'')+(replace?'replace ':'')+(game.availableEnergy<c.cost?'poor':'')+'"><span class="owner">'+(locked?'等待撞击命中':queued?'待施放 · 点此取消':hint?hint.text+' · '+names:names)+(echo?' · 残响':'')+(opening&&replace?' · 换掉':'')+'</span><span class="cost">'+c.cost+'</span><b>'+c.icon+' '+c.name+'</b><small>'+cardDescription(c,echo)+'</small><span class="key">'+(i+1)+' · 射程 '+Math.round(c.range*(echo?.7:1))+' · 前摇 '+c.wind+'s</span></button>';
    }).join('');
   }
  }
