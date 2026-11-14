@@ -24,7 +24,7 @@ function cardDescription(c,echo=false){
  if(c.type==='cycle')return '护盾 '+n(c.amount)+' · 自动换右侧至多 '+c.cycle+' 张';
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
  if(c.type==='heal')return '区域治疗 '+n(c.amount)+(c.allyShield?' · 护盾 '+n(c.allyShield):'');
- if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒';
+ if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒 · 全队限1个';
  if(c.type==='firefield')return '火区 '+n(c.amount*game.power)+'/s · 灼烧 '+n(c.burn*game.power)+'/s · '+c.life+' 秒';
  if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.cycleOnHit?' · 命中自动换右侧 1 张':'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
  if(c.type==='lure')return n(c.hp)+' 生命诱饵 · '+c.life+' 秒';
@@ -93,6 +93,7 @@ function ui(){
  $('wave').textContent=(game.wave+1)+' / 3 · '+game.mission.name;
  $('time').textContent=Math.ceil(game.mission.limit-game.waveTime)+'s';
  $('field-note').textContent=game.wave===1?game.mission.goal+' · '+(game.control||0).toFixed(1)+'/14s':game.mission.goal;
+ if(battle)$('field-note').textContent+=' · 敌方剩余 '+game.units.filter(u=>u.side&&u.hp>0&&u.kind!=='seal').length+'/4';
  $('formation').hidden=!setup;$('battle-controls').hidden=setup;
  $('intel').hidden=!setup;$('quick').hidden=!setup;$('loadout').hidden=!setup;$('mission-picker').hidden=!setup;
  $('tactics').hidden=!setup;$('party-picker').hidden=!setup;$('party-mode').value=String(game.activeHeroes.length);for(let j=0;j<3;j++){const el=$('roster-'+j);el.parentElement.hidden=j>=game.activeHeroes.length;el.value=String(game.activeHeroes[j]??0);for(const option of el.options)option.disabled=game.activeHeroes.includes(+option.value)&&+option.value!==game.activeHeroes[j];}
@@ -169,7 +170,7 @@ const buildKey='wenshou-deploy-builds-v1';
 function readBuilds(){try{const data=JSON.parse(localStorage.getItem(buildKey)||'[]');return Array.from({length:3},(_,i)=>Array.isArray(data)&&validBuild(data[i])?data[i]:null);}catch{return [null,null,null];}}
 function buildPanel(){return '<section class="build-panel"><b>我的配招 · 仅保存在当前浏览器</b><p>保存上场角色与全部角色的技能；载入使用推荐站位，不改变伤势或遗物。</p>'+readBuilds().map((b,i)=>'<div class="build-row"><span>槽 '+(i+1)+' · '+(b?b.activeHeroes.map(h=>HEROES[h].name).join('＋'):'空')+'</span><button data-build-save="'+i+'">'+(b?'覆盖保存':'保存当前')+'</button><button data-build-load="'+i+'" '+(!b?'disabled':'')+'>载入</button></div>').join('')+'<p id="build-status" role="status"></p></section>';}
 function drawInspect(){
- if($('inspect').dataset.kind==='intel'){$('inspect-title').textContent='战前敌情 · '+game.mission.name;$('inspect-body').innerHTML='<p>'+game.mission.goal+'</p><p>本关敌人类型与应对方向；具体来袭时间不公开。</p><div class="intel-list">'+game.enemyIntel.map(e=>'<article><b>'+e.name+'</b><p>'+e.advice+'</p></article>').join('')+'</div><button id="intel-to-loadout">据此调整配招 →</button>';return;}
+ if($('inspect').dataset.kind==='intel'){$('inspect-title').textContent='战前敌情 · '+game.mission.name;$('inspect-body').innerHTML='<p>'+game.mission.goal+'</p><p>固定开场1名首领＋3名随从，无后续增援。击杀随从会永久降低本场压力。封印是任务目标，不计入敌人数。</p><div class="intel-list">'+game.enemyIntel.map(e=>'<article><b>'+e.name+'</b><p>'+e.advice+'</p></article>').join('')+'</div><button id="intel-to-loadout">据此调整配招 →</button>';return;}
 
  const config=$('inspect').dataset.kind==='loadout'&&game.phase==='setup';
  $('inspect-title').textContent=config?'战前配招 · 每只携带 4 招':'共享牌库 · '+game.partyCards.length+' 张（含同名副本）';

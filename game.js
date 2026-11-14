@@ -5,7 +5,7 @@ const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const CARDS = {
  venom:{owner:3,name:'孢针',icon:'芽',cost:1,range:290,r:45,wind:.2,type:'blast',single:true,damage:10,poison:1,desc:'单体10伤害 · 孢毒1层；最多3层，6秒，每层每秒2伤害',coop:'同伴直接伤害技能消耗1层孢毒，追加12伤害；普攻不消耗'},
  vine:{owner:3,name:'缠根',icon:'藤',cost:2,range:260,r:65,wind:.3,type:'blast',damage:26,pull:40,control:3,desc:'范围26伤害 · 聚拢40 · 牵制减速35%，3秒',coop:'牵制可接炎狐火区，或让同伴更容易命中'},
- blossom:{owner:3,name:'共生芽',icon:'✿',cost:3,range:250,r:70,wind:.25,type:'heal',amount:28,allyShield:20,desc:'区域治疗28 · 护盾20，6秒',coop:'为同伴续航并授盾，可接位移破绽或岩獾碎甲击'},
+ blossom:{owner:3,name:'共生芽',icon:'✿',cost:3,range:250,r:70,wind:.25,type:'heal',amount:12,allyShield:20,desc:'区域治疗12 · 护盾20，6秒',coop:'为同伴续航并授盾，可接位移破绽或岩獾碎甲击'},
  harvest:{owner:3,name:'毒果收割',icon:'果',cost:3,range:280,r:45,wind:.5,type:'blast',single:true,damage:45,harvest:true,desc:'单体45伤害 · 消耗全部孢毒，每层额外10伤害',coop:'自己兑现毒层，或把毒层留给同伴低费技能接力'},
  grit:{owner:4,name:'砾甲',icon:'岩',cost:1,range:220,r:55,wind:.15,type:'shield',amount:16,desc:'区域友军护盾16 · 6秒',coop:'同伴带盾位移可制造破绽；也可先给自己蓄盾'},
  rockrush:{owner:4,name:'滚岩突袭',icon:'滚',cost:2,range:200,r:55,wind:.25,type:'dash',damage:24,shield:12,desc:'自身突进 · 落点24伤害 · 自身护盾12',coop:'携同伴援盾突进至少45，可制造破绽让同伴追击'},
@@ -21,18 +21,18 @@ const CARDS = {
  tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,cycle:1,cycleOnHit:true,desc:'自身突进 · 落点伤害 32 · 命中后自动换右侧 1 张'},
  tide:    {owner:0,name:'回潮牵引',icon:'≈',cost:2,range:240,r:100,wind:.35,type:'blast',damage:34,pull:65,control:3,coop:'牵制 3 秒；同伴火区对其伤害 +35%',desc:'伤害 34 · 向落点聚拢 65 · 牵制减速 35%'},
  shell:   {owner:0,name:'潮汐护甲',icon:'◈',cost:2,range:240,r:95,wind:.1,type:'shield',amount:45,coop:'授予同伴援盾；同伴突进可消耗至多 20 盾制造破绽',desc:'区域友军获得 45 护盾 · 6 秒'},
- spring:  {owner:0,name:'生命图腾',icon:'✣',cost:4,range:260,r:95,wind:.4,type:'healfield',amount:10,life:7,desc:'范围每秒治疗 10 · 7 秒'},
+ spring:  {owner:0,name:'生命图腾',icon:'✣',cost:4,range:260,r:95,wind:.4,type:'healfield',amount:4,life:6,desc:'范围每秒治疗 4 · 6 秒 · 全队同时仅1个图腾'},
  rush:    {owner:0,name:'踏浪',icon:'↗',cost:2,range:235,r:65,wind:.15,type:'dash',damage:25,shield:25,desc:'自身跃迁 · 落点伤害 25 / 护盾 25'},
  lure:    {owner:0,name:'诱饵木偶',icon:'◎',cost:1,range:265,r:175,wind:.3,type:'lure',hp:45,life:5,desc:'45 生命诱饵 · 吸引近敌 5 秒'},
  fire:    {owner:1,name:'焰弹',icon:'焰',cost:2,range:320,r:55,wind:.3,type:'blast',damage:50,burn:3,coop:'附加灼烧 4 秒；同伴逐风可扩散',desc:'目标区域伤害 50 · 灼烧每秒 3'},
  meteor:  {owner:1,name:'陨火',icon:'☄',cost:5,range:360,r:100,wind:.9,type:'blast',damage:56,centerDamage:160,centerRadius:35,desc:'中心最近单体 160 · 其余范围溅射 56 · 前摇 0.9 秒'},
  ember:   {owner:1,name:'余烬地带',icon:'♨',cost:3,range:300,r:90,wind:.4,type:'firefield',amount:12,burn:3,life:6,coop:'附加灼烧；同伴牵制中的敌人承受火区伤害 +35%',desc:'范围每秒伤害 12 · 灼烧每秒 3 · 6 秒'},
- retreat: {owner:1,name:'狐步',icon:'↶',cost:2,range:235,r:30,wind:.1,type:'dash',heal:24,desc:'自身跃迁 · 回复 24 生命'},
+ retreat: {owner:1,name:'狐步',icon:'↶',cost:2,range:235,r:30,wind:.1,type:'dash',heal:10,desc:'自身跃迁 · 回复 10 生命'},
  snare:   {owner:1,name:'缚焰',icon:'⌁',cost:2,range:300,r:85,wind:.3,type:'blast',damage:26,stun:.9,desc:'范围伤害 26 · 定身 0.9 秒'},
  bolt:    {owner:2,name:'落雷',icon:'ϟ',cost:3,range:330,r:80,wind:.4,type:'blast',damage:40,stun:1,desc:'范围伤害 40 · 眩晕 1 秒'},
  gale:    {owner:2,name:'逐风',icon:'彡',cost:2,range:280,r:90,wind:.3,type:'blast',damage:24,push:75,spread:100,detonate:12,coop:'接同伴灼烧爆燃 +12，并扩散到击退落点周围 100 范围，每目标一次',desc:'范围伤害 24 · 击退 75'},
  flight:  {owner:2,name:'掠空',icon:'↟',cost:2,range:300,r:75,wind:.15,type:'dash',shield:25,desc:'自身跃迁 · 获得 25 护盾'},
- mend:    {owner:2,name:'羽息',icon:'✧',cost:2,range:260,r:85,wind:.1,type:'heal',amount:36,desc:'区域友军立刻回复 36 生命'},
+ mend:    {owner:2,name:'羽息',icon:'✧',cost:2,range:260,r:85,wind:.1,type:'heal',amount:18,desc:'区域友军立刻回复 18 生命'},
  pack:    {owner:2,name:'风狼',icon:'双',cost:4,range:250,r:38,wind:.5,type:'pack',desc:'召唤两只风狼 · 10 秒 / 最多 4 只'}
 };
 const HEROES = [
@@ -67,7 +67,7 @@ const RELICS = [
  {id:'vital',name:'生命枝芽',desc:'上场主力最大生命 +35'}
 ];
 const MISSIONS = [
- {id:'guard',name:'溪口守卫',goal:'击退全部来袭，守住灵核',limit:100},
+ {id:'guard',name:'溪口守卫',goal:'击败首领与三名随从，守住灵核',limit:100},
  {id:'occupy',name:'夺取风眼',goal:'主力占据风眼累计 14 秒，敌人在圈内时停计',limit:100,x:660,y:155,r:88,required:14},
  {id:'break',name:'摧毁裂隙',goal:'推进并摧毁右下方封印',limit:100,x:825,y:345}
 ];
@@ -81,11 +81,13 @@ const ENEMIES = {
  guard:{name:'护卫岩兽',kind:'brute',trait:'guard',hp:180,atk:8,range:42,speed:32,capturable:true},
  priest:{name:'共鸣祭司',kind:'archer',trait:'priest',hp:105,atk:6,range:150,speed:35,capturable:true},
  ambush:{name:'伏击影兽',kind:'raider',trait:'ambush',hp:115,atk:7,range:33,speed:48,capturable:true},
- boss:{name:'裂隙守卫',kind:'boss',hp:340,atk:12,range:50,speed:30,capturable:false}
+ boss:{name:'裂隙守卫',kind:'boss',hp:650,atk:12,range:50,speed:30,capturable:false}
 };
-const WAVE_PLANS=[[[0,'raider',0],[1,'raider',1],[8,'rage',0],[12,'archer',1],[22,'crystal',1],[25,'raider',0],[30,'archer',0]],
-   [[0,'regen',0],[0,'archer',0],[5,'raider',0],[10,'guard',0],[16,'archer',0],[20,'boss',0],[25,'brute',1],[34,'priest',0],[44,'brute',0],[55,'archer',0],[68,'brute',0],[80,'archer',0]],
-   [[0,'boss',1],[0,'archer',0],[12,'ambush',1],[23,'archer',1],[35,'raider',0],[45,'brute',1],[60,'archer',1]]];
+const WAVE_PLANS=[
+ [[0,'boss',0,760,155],[0,'rage',0,850,95],[0,'crystal',1,800,345],[0,'archer',0,870,225]],
+ [[0,'boss',0,760,155],[0,'regen',1,800,345],[0,'guard',0,850,95],[0,'priest',0,870,225]],
+ [[0,'boss',1,760,345],[0,'ambush',0,800,155],[0,'archer',1,870,405],[0,'rage',1,850,265]]
+];
 const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：低费点燃保持伤害。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或缚焰打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：短跃躲避，陨火反击。'};
 Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='cycle'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.cycle)c.tags.push('自动过牌');if(c.spread||c.pull)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
 function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)));}
@@ -153,7 +155,7 @@ class Game {
   this.deck.push(...removed);this.shuffle(this.deck);this.mulliganUsed=true;
   this.phase='battle';this.paused=false;
   const waves=WAVE_PLANS[this.wave];
-  this.schedule=waves.map(([t,k,l])=>({t:t*(this.activeHeroes.length===2?1.2:1),k,l}));
+  this.schedule=waves.map(([t,k,l,x,y])=>({t,k,l,x,y}));
   if(this.wave===2){this.seal=this.unit({kind:'seal',name:'裂隙封印',hp:this.activeHeroes.length===2?400:530,atk:0,range:0,speed:0},this.mission.x,this.mission.y,1);this.units.push(this.seal);}
   this.message=this.mission.goal+'。上场主力全倒下立即失败。';return true;
  }
@@ -437,6 +439,7 @@ class Game {
   if(c.spread&&spreadTo.size){this.message='扩散命中 ×'+spreadTo.size;this.effects.push({kind:'text',text:this.message,x:p.x,y:p.y,life:1.4,max:1.4});}
   if(c.type==='heal')allies.forEach(u=>{this.heal(u,c.amount*s);if(c.allyShield)this.grantShield(u,c.allyShield*s,p.casterId);});
   if(c.type==='shield'||c.type==='cycle')allies.forEach(u=>this.grantShield(u,c.amount*s,p.casterId));
+  if(c.type==='healfield')this.fields=this.fields.filter(f=>f.kind!=='healfield');
   if(c.type==='healfield'||c.type==='firefield')this.fields.push({id:p.id,sourceId:p.casterId,kind:c.type,x:p.x,y:p.y,r:c.r,life:c.life,amount:c.amount*s*(c.type==='firefield'?this.power:1),burn:c.burn*s*this.power});
   if(c.type==='lure'){
    this.units.filter(u=>u.kind==='lure').forEach(u=>u.hp=0);
@@ -542,7 +545,7 @@ class Game {
   this.time+=dt;this.waveTime+=dt;this.energy=Math.min(this.maxEnergy,this.energy+this.regen*dt);
   this.captureCooldown=Math.max(0,this.captureCooldown-dt);
   this.effects.forEach(f=>f.life-=dt);this.effects=this.effects.filter(f=>f.life>0);
-  while(this.schedule.length&&this.schedule[0].t<=this.waveTime){const s=this.schedule.shift();this.spawn(s.k,s.l);}
+  while(this.schedule.length&&this.schedule[0].t<=this.waveTime){const s=this.schedule.shift();const enemy=this.spawn(s.k,s.l);if(Number.isFinite(s.x)&&Number.isFinite(s.y)){enemy.x=s.x;enemy.y=s.y;enemy.lane=s.l;}}
   this.tickOrders(dt);
   for(const p of [...this.pending]){
    if(this.phase!=='battle')break;
