@@ -15,10 +15,7 @@ const CARDS = {
  needle:{owner:2,name:'雷针',icon:'针',cost:1,range:280,r:40,wind:.15,type:'blast',single:true,damage:20,desc:'单体20伤害 · 不附带眩晕',coop:'低费消费同伴孢毒或破绽；打断仍需落雷'},
 
  spark:   {owner:1,name:'火种',icon:'·',cost:1,range:300,r:35,wind:.15,type:'blast',damage:12,burn:3,coop:'低费点燃，为同伴逐风准备火势',desc:'伤害 12 · 灼烧每秒 3，持续 4 秒'},
- prepare: {owner:0,name:'整备',icon:'↻',cost:1,range:230,r:55,wind:.15,type:'cycle',amount:10,cycle:1,coop:'自动换掉最右侧 1 张其他可用牌',desc:'区域护盾 10 · 自动换右侧 1 张'},
- plan:    {owner:2,name:'协同谋划',icon:'⇄',cost:2,range:250,r:65,wind:.25,type:'cycle',amount:14,cycle:2,coop:'自动换掉最右侧 2 张其他可用牌',desc:'区域护盾 14 · 自动换右侧至多 2 张'},
- step:    {owner:2,name:'短跃',icon:'↗',cost:1,range:85,r:40,wind:.1,type:'dash',shield:8,desc:'短距离跃迁 · 护盾 8；通用动作；装备者可躲避敌人大招'},
- tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,cycle:1,cycleOnHit:true,desc:'自身突进 · 落点伤害 32 · 命中后自动换右侧 1 张'},
+ tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,desc:'自身突进 · 落点伤害 32'},
  tide:    {owner:0,name:'回潮牵引',icon:'≈',cost:2,range:240,r:100,wind:.35,type:'blast',damage:34,pull:65,control:3,coop:'牵制 3 秒；同伴火区对其伤害 +35%',desc:'伤害 34 · 向落点聚拢 65 · 牵制减速 35%'},
  shell:   {owner:0,name:'潮汐护甲',icon:'◈',cost:2,range:240,r:95,wind:.1,type:'shield',amount:45,coop:'授予同伴援盾；同伴突进可消耗至多 20 盾制造破绽',desc:'区域友军获得 45 护盾 · 6 秒'},
  spring:  {owner:0,name:'生命图腾',icon:'✣',cost:4,range:260,r:95,wind:.4,type:'healfield',amount:4,life:6,desc:'范围每秒治疗 4 · 6 秒 · 全队同时仅1个图腾'},
@@ -42,7 +39,7 @@ const HEROES = [
  {kind:'sprout',name:'蕈灵',hp:150,atk:10,range:155,speed:46,icon:'芽',desc:'孢毒 / 牵制 / 共生',skills:['venom','vine','blossom','harvest']},
  {kind:'badger',name:'岩獾',hp:245,atk:12,range:42,speed:40,icon:'岩',desc:'援盾 / 护甲转伤',skills:['grit','rockrush','shieldstrike','bulwark']}
 ];
-HEROES.forEach(h=>h.skills.push('tackle','prepare','plan','step'));
+HEROES.forEach(h=>h.skills.push('tackle'));
 HEROES[1].skills.push('spark');HEROES[0].skills.push('waterneedle');HEROES[2].skills.push('needle');
 // Traits constrain learning; loadouts constrain normal casting.
 const requirements={venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'fire',fire:'fire',meteor:'fire',ember:'fire',snare:'fire',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
@@ -61,6 +58,12 @@ Object.values(TACTICS).forEach(t=>{t.loadouts.push(['venom','vine','blossom','st
 TACTICS.shared.loadouts[3]=['tackle','venom','blossom','vine'];TACTICS.shared.loadouts[4]=['tackle','grit','shieldstrike','bulwark'];TACTICS.shared.guide='上场精灵都装备撞击，任意撞击牌可选存活装备者；同伴授盾后突进，再由另一只追击。';
 TACTICS.toxin={name:'孢毒接力',roles:[],party:[2,3],guide:'蕈灵孢针 → 雷隼雷针消费毒层；共生芽 → 短跃制造破绽 → 同伴追击。',loadouts:[['waterneedle','tide','shell','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
 TACTICS.armor={name:'援盾碎甲',roles:[],party:[0,4],guide:'潮龟护甲 → 岩獾碎甲击；或带盾滚岩突袭 → 潮龟水针追击。',loadouts:[['waterneedle','shell','tide','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
+const retiredSkills=['prepare','plan','step'];
+function upgradeLoadout(ids,hero){const legal=ids.filter(id=>canLearn(hero,id));const result=[];for(const id of ids){if(canLearn(hero,id)){result.push(id);continue;}const replacement=HEROES[hero].skills.find(c=>!legal.includes(c)&&!result.includes(c));if(replacement)result.push(replacement);}return result;}
+Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
+TACTICS.tempo.loadouts=[['waterneedle','tide','shell','lure'],['spark','fire','meteor','ember'],['needle','gale','bolt','mend'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']];
+TACTICS.tempo.roles=['承伤 / 保护','点燃 / 爆发','控制 / 支援'];TACTICS.tempo.guide='直接拖角色闪避（每只6秒冷却），手牌专注进攻与保护。';
+TACTICS.toxin.guide='孢针 → 雷针接毒；共生芽 → 同伴特殊位移技制造破绽。直接拖角色闪避不制造破绽。';
 const RELICS = [
  {id:'power',name:'雷火铭文',desc:'所有技能伤害 +20%（残响仅结算一次）'},
  {id:'flow',name:'灵能泉眼',desc:'灵能恢复从每秒 1 提高至 1.25'},
@@ -88,9 +91,9 @@ const WAVE_PLANS=[
  [[0,'boss',0,760,155],[0,'regen',1,800,345],[0,'guard',0,850,95],[0,'priest',0,870,225]],
  [[0,'boss',1,760,345],[0,'ambush',0,800,155],[0,'archer',1,870,405],[0,'rage',1,850,265]]
 ];
-const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：低费点燃保持伤害。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或缚焰打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：短跃躲避，陨火反击。'};
-Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='cycle'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.cycle)c.tags.push('自动过牌');if(c.spread||c.pull)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
-function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)));}
+const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：低费点燃保持伤害。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或缚焰打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：拖角色闪避，陨火反击。'};
+Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.spread||c.pull)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
+function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)||retiredSkills.includes(id)));}
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
   this.seed=seed; this.randomState=seed; this.phase='setup'; this.paused=false; this.wave=0;
@@ -106,7 +109,7 @@ class Game {
  }
  get enemyIntel(){return [...new Set(WAVE_PLANS[this.wave].map(w=>w[1]))].map(id=>({id,name:ENEMIES[id].name,advice:ENEMY_INFO[id]}));}
  exportBuild(){return {version:1,activeHeroes:[...this.activeHeroes],loadouts:this.loadouts.map(a=>[...a])};}
- applyBuild(b){if(this.phase!=='setup'||!validBuild(b))return false;this.activeHeroes=[...b.activeHeroes].sort();this.loadouts=HEROES.map((h,i)=>[...(b.loadouts[i]||h.skills.slice(0,4))]);this.tactic=null;this.quick();return true;}
+ applyBuild(b){if(this.phase!=='setup'||!validBuild(b))return false;this.activeHeroes=[...b.activeHeroes].sort();this.loadouts=HEROES.map((h,i)=>upgradeLoadout(b.loadouts[i]||h.skills.slice(0,4),i));this.tactic=null;this.quick();return true;}
  get partyCards(){return this.activeHeroes.flatMap(i=>this.loadouts[i]);}
  setParty(ids){
   if(this.phase!=='setup'||!Array.isArray(ids)||![2,3].includes(ids.length)||new Set(ids).size!==ids.length||ids.some(i=>!Number.isInteger(i)||!HEROES[i]))return false;
@@ -115,7 +118,7 @@ class Game {
  get mission(){return MISSIONS[this.wave];}
  random(){let t=this.randomState+=0x6D2B79F5;t=Math.imul(t^t>>>15,t|1);t^=t+Math.imul(t^t>>>7,t|61);return ((t^t>>>14)>>>0)/4294967296;}
  shuffle(a){for(let i=a.length-1;i>0;i--){const j=Math.floor(this.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
- unit(spec,x,y,side=0){return {...spec,id:'u'+(++this.serial),x,y,side,max:spec.hp,lane:y<250?0:1,attack:.5,stun:0,flash:0,shield:0,shieldTime:0,busy:null,hold:0};}
+ unit(spec,x,y,side=0){return {...spec,id:'u'+(++this.serial),x,y,side,max:spec.hp,lane:y<250?0:1,attack:.5,stun:0,flash:0,shield:0,shieldTime:0,busy:null,hold:0,dodgeCooldown:0};}
  valid(x,y,zone='any'){return Number.isFinite(x)&&Number.isFinite(y)&&x>=105&&x<=905&&y>=55&&y<=445&&(zone!=='home'||x<=405)&&!(x>430&&x<570&&Math.min(...LANES.map(l=>Math.abs(y-l)))>38);}
  fail(message){this.message=message;return false;}
  place(i,x,y){
@@ -173,11 +176,9 @@ class Game {
  }
  get reservedEnergy(){return (this.orders||[]).reduce((n,o)=>n+CARDS[o.card].cost,0);}
  get availableEnergy(){return this.energy-this.reservedEnergy;}
- autoCycleSlots(slot){return [3,2,1,0].filter(i=>i!==slot&&this.hand[i]&&!this.orderForSlot(i)&&!this.cycleLocked(i)).slice(0,CARDS[this.hand[slot]]?.cycle||0);}
  skillTargets(c,point){const targets=this.units.filter(u=>u.side&&u.hp>0&&distance(u,point)<=c.r);return c.single?targets.sort((a,b)=>distance(a,point)-distance(b,point)||a.id.localeCompare(b.id)).slice(0,1):targets;}
  meteorTarget(c,point){return this.units.filter(u=>u.side&&u.hp>0&&distance(u,point)<=c.centerRadius).sort((a,b)=>distance(a,point)-distance(b,point)||a.id.localeCompare(b.id))[0];}
- cycleLocked(slot){return this.pending.some(p=>!p.done&&p.cycleSlots?.includes(slot));}
- orderForSlot(slot){return this.orders.find(o=>o.slot===slot||o.cycleSlots.includes(slot));}
+ orderForSlot(slot){return this.orders.find(o=>o.slot===slot);}
  approachPath(caster,point,range){
   if(!caster.speed)return null;
   const ghost={...caster},path=[{x:ghost.x,y:ghost.y}];
@@ -193,14 +194,13 @@ class Game {
   const path=this.approachPath(p.caster,{x,y},p.range);
   return {...p,valid:!!path,reason:path?'靠近后施放；点击待施放牌取消':'没有可达的施法位置',approach:!!path,path};
  }
- commandCast(slot,x,y,casterId,cycleSlots=this.autoCycleSlots(slot)){
+ commandCast(slot,x,y,casterId){
   if(this.paused)return this.fail('已暂停，继续后再出牌。');
   const p=this.commandPreview(slot,x,y,casterId);
   if(!p.valid)return this.fail(p.reason);
-  if(!p.approach)return this.cast(slot,x,y,casterId,cycleSlots);
+  if(!p.approach)return this.cast(slot,x,y,casterId);
   const c=CARDS[this.hand[slot]];
-  if(!Array.isArray(cycleSlots)||cycleSlots.length>(c.cycle||0)||new Set(cycleSlots).size!==cycleSlots.length||cycleSlots.some(i=>!Number.isInteger(i)||i<0||i>3||i===slot||!this.hand[i]||this.orderForSlot(i)||this.cycleLocked(i)))return this.fail('换牌选择无效或已被待施放指令占用。');
-  const o={id:'o'+(++this.serial),slot,card:this.hand[slot],casterId:p.casterId,x,y,cycleSlots:[...cycleSlots],path:p.path};
+  const o={id:'o'+(++this.serial),slot,card:this.hand[slot],casterId:p.casterId,x,y,path:p.path};
   this.orders.push(o);p.caster.busy=o.id;this.message=p.caster.name+'正在靠近 · '+c.name+'（点击该牌取消）';return true;
  }
  cancelOrder(slot){
@@ -213,7 +213,7 @@ class Game {
    const u=this.mains.find(u=>u.id===o.casterId);
    if(!u||u.hp<=0||u.stun>0||this.hand[o.slot]!==o.card){this.cancelOrder(o.slot);continue;}
    const range=CARDS[o.card].range*(this.casters(o.card).echo?.7:1);
-   if(distance(u,o)<=range){this.cancelOrder(o.slot);this.cast(o.slot,o.x,o.y,u.id,o.cycleSlots);continue;}
+   if(distance(u,o)<=range){this.cancelOrder(o.slot);this.cast(o.slot,o.x,o.y,u.id);continue;}
    this.move(u,o,dt);
   }
  }
@@ -237,7 +237,6 @@ class Game {
   const caster=preferredId?available.find(u=>u.id===preferredId):eligible.sort((a,b)=>distance(a,point)-distance(b,point))[0]||available[0];
   let reason='';
   if(this.phase!=='battle')reason='战斗开始后可施放。';
-  else if(this.cycleLocked(slot))reason='撞击命中结算前，此牌暂时预留换牌。';
   else if(this.orderForSlot(slot))reason='该手牌已预留，点击取消移动施法。';
   else if(!this.valid(x,y))reason='落点需要是陆地或石桥。';
   else if(!caster)reason='没有存活的主力可以施法。';
@@ -250,21 +249,17 @@ class Game {
   const coop=caster?this.coopPreview(c,caster,point,echo?.45:1):{text:'',targets:[],links:[]};
   return {valid:!reason,reason,outOfRange,casterId:caster?.id,caster,echo,range,card:id,x,y,coop};
  }
- cast(slot,x,y,expectedCasterId,cycleSlots=this.autoCycleSlots(slot)){
+ cast(slot,x,y,expectedCasterId){
   if(this.paused)return this.fail('已暂停，继续战斗后再出牌。');
   const p=this.preview(slot,x,y,expectedCasterId);
   if(expectedCasterId&&p.casterId!==expectedCasterId)return this.fail('施法者已变化，请看新的高亮后再次确认。');
   if(!p.valid)return this.fail(p.reason);
   const id=this.hand[slot],c=CARDS[id],caster=p.caster;
-  if(!Array.isArray(cycleSlots)||cycleSlots.length>(c.cycle||0)||new Set(cycleSlots).size!==cycleSlots.length||cycleSlots.some(i=>!Number.isInteger(i)||i<0||i>3||i===slot||!this.hand[i]||this.orderForSlot(i)||this.cycleLocked(i)))return this.fail('过牌只能选择其他手牌，且不能超过可换数量。');
-  const exchanged=c.cycleOnHit?[]:cycleSlots.map(i=>this.hand[i]);
-  if(!c.cycleOnHit)cycleSlots.forEach(i=>this.hand[i]=null);
   this.energy-=c.cost;this.hand[slot]=null;this.stats.played++;
-  const action={id:'s'+(++this.serial),card:id,casterId:caster.id,echo:p.echo,potency:p.echo?.45:1,x,y,r:c.r,stage:'windup',wait:c.wind,total:c.wind,cycleSlots:c.cycleOnHit?[...cycleSlots]:[]};
+  const action={id:'s'+(++this.serial),card:id,casterId:caster.id,echo:p.echo,potency:p.echo?.45:1,x,y,r:c.r,stage:'windup',wait:c.wind,total:c.wind};
   caster.busy=action.id;this.pending.push(action);this.refill();
-  // Refill from existing piles first; returned cards only become eligible if those run out.
-  this.discard.push(...exchanged);this.refill();
-  this.message=caster.name+(p.echo?'承接残响 · ':'施放 · ')+c.name+(exchanged.length?' · 换掉 '+exchanged.map(id=>CARDS[id].name).join('、'):'');return true;
+  // The played card enters discard only after resolving or being interrupted.
+  this.message=caster.name+(p.echo?'承接残响 · ':'施放 · ')+c.name;return true;
  }
  capturePreview(id){
   const target=this.units.find(u=>u.id===id),probability=target?.capturable?Math.min(.85,.15+.7*(1-target.hp/target.max)):0;
@@ -455,7 +450,6 @@ class Game {
    if(u?.hp>0){
     const victims=this.units.filter(t=>t.side&&t.hp>0&&distance(t,p)<=c.r),ward=this.wardInfo(u);
     const spent=ward&&distance(u,p)>=45&&victims.length?Math.min(20,u.shield):0;
-    if(c.cycleOnHit&&victims.length&&p.cycleSlots?.length){const returned=p.cycleSlots.map(i=>this.hand[i]);p.cycleSlots.forEach(i=>this.hand[i]=null);p.cycleSlots=[];this.refill();this.discard.push(...returned);this.refill();this.message='撞击命中 · 换牌成功';}
     if(spent)u.shield-=spent;
     this.displace(u,p.x,p.y);if(c.heal)this.heal(u,c.heal*s);
     if(c.shield)this.grantShield(u,c.shield*s,u.id);
@@ -539,6 +533,19 @@ class Game {
   this.hand=[];this.deck=[];this.discard=[];this.waveTime=0;this.control=0;this.seal=null;
   this.message='下一关 · '+this.mission.goal+'。可调整阵型与配招。';return true;
  }
+ dodgePreview(id,x,y){
+  const u=this.mains.find(u=>u.id===id);if(!u||u.hp<=0)return {valid:false,reason:'角色已离场。'};
+  if(!Number.isFinite(x)||!Number.isFinite(y))return {valid:false,reason:'无效落点。',caster:u,x:u.x,y:u.y};
+  const d=distance(u,{x,y}),scale=d>85?85/d:1,point={x:u.x+(x-u.x)*scale,y:u.y+(y-u.y)*scale};let reason='';
+  if(this.phase!=='battle')reason='战斗中才能闪避。';else if(this.paused)reason='已暂停，继续后再拖动。';else if(u.stun>0)reason='被控制时不能闪避。';else if(u.dodgeCooldown>0)reason='闪避恢复 '+u.dodgeCooldown.toFixed(1)+' 秒';else if(d<12)reason='拖出方向再松手闪避。';else if(!this.valid(point.x,point.y))reason='落点必须是陆地或桥面。';
+  return {...point,caster:u,valid:!reason,reason,range:85};
+ }
+ dodge(id,x,y){
+  const p=this.dodgePreview(id,x,y);if(!p.valid)return this.fail(p.reason);const u=p.caster;
+  for(const o of [...this.orders])if(o.casterId===id)this.cancelOrder(o.slot);
+  const cancelled=this.pending.filter(a=>a.casterId===id&&a.stage==='windup');for(const a of cancelled)this.discard.push(a.card);this.pending=this.pending.filter(a=>!cancelled.includes(a));u.busy=null;
+  this.displace(u,p.x,p.y);u.dodgeCooldown=6;this.refill();this.message=u.name+'闪避'+(cancelled.length?' · 取消施法，灵能不退':'')+' · 6秒恢复';this.effects.push({kind:'dodge',x:u.x,y:u.y,r:24,life:.3,max:.3});return true;
+ }
  pause(){if(this.phase==='battle')this.paused=!this.paused;}
  step(dt){
   if(this.phase!=='battle'||this.paused||!Number.isFinite(dt)||dt<=0)return;
@@ -592,7 +599,7 @@ class Game {
    }
    if(u.poison?.until>this.time-dt){this.hit(u,2*u.poison.stacks*u.poison.strength*this.power*Math.min(dt,u.poison.until-(this.time-dt)),{x:u.x,y:u.y,side:0});if(u.hp<=0||this.phase!=='battle')continue;}
    u.flash=Math.max(0,u.flash-dt);u.shieldTime-=dt;if(u.shieldTime<=0)u.shield=0;
-   u.hold=Math.max(0,u.hold-dt);
+   u.hold=Math.max(0,u.hold-dt);u.dodgeCooldown=Math.max(0,(u.dodgeCooldown||0)-dt);
    if(u.life!==undefined){u.life-=dt;if(u.life<=0){u.hp=0;continue;}}
    if(u.side){this.tickTrait(u,dt);u.specialCooldown=Math.max(0,(u.specialCooldown??2)-dt);if(this.tickSpecial(u,dt))continue;if(u.recovery>0){u.recovery=Math.max(0,u.recovery-dt);continue;}}
    if(u.stun>0){u.stun=Math.max(0,u.stun-dt);continue;}

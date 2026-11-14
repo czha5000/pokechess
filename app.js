@@ -7,6 +7,7 @@ game.setTactic('tempo');game.setParty([1,2]);
 window.wenshouCanUpdate=()=>game.phase!=='battle';
 let replacements=new Set(),shown='',last=0,acc=0,uiTime=0,toastUntil=0,toastText='',dragging=false;
 let touchMode=matchMedia('(pointer: coarse)').matches||navigator.maxTouchPoints>0,touchTargeted=false;
+let dodgeDrag=null,dodgePreview=null;
 let lockedCaster=null,cardDrag=null,ignoreCardClick=0,replaceSkill=null;
 const picker=document.createElement('div');picker.id='caster-picker';picker.hidden=true;document.body.append(picker);
 function hidePicker(){picker.hidden=true;}
@@ -21,18 +22,17 @@ function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
  if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
  if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.detonate?' · 接同伴火势 +'+n(c.detonate*game.power):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
- if(c.type==='cycle')return '护盾 '+n(c.amount)+' · 自动换右侧至多 '+c.cycle+' 张';
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
  if(c.type==='heal')return '区域治疗 '+n(c.amount)+(c.allyShield?' · 护盾 '+n(c.allyShield):'');
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒 · 全队限1个';
  if(c.type==='firefield')return '火区 '+n(c.amount*game.power)+'/s · 灼烧 '+n(c.burn*game.power)+'/s · '+c.life+' 秒';
- if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.cycleOnHit?' · 命中自动换右侧 1 张':'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
+ if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
  if(c.type==='lure')return n(c.hp)+' 生命诱饵 · '+c.life+' 秒';
  if(c.type==='pack')return '两只风狼 · '+n(75)+' 生命 / '+n(13)+' 攻击 · 10 秒';
  return c.desc;
 }
 function coopDescription(c){return c.coop||(c.type==='dash'?'携同伴援盾突进至少 45，可使落点敌人暴露破绽 5 秒':c.damage?'可接力追击同伴的破绽，追加一次伤害':'为队友创造持续作战的窗口');}
-function reset(wave=0){
+function reset(wave=0){dodgeDrag=null;dodgePreview=null;
  lockedCaster=null;cardDrag=null;replaceSkill=null;hidePicker();
  game=new Game();game.setTactic('tempo');game.setParty([1,2]);game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
  $('overlay').hidden=true;$('inspect').close();$('mission-select').value=String(wave);ui();
@@ -53,6 +53,7 @@ function select(i){
 }
 function enemyAt(point){return game.units.filter(u=>u.side&&u.hp>0&&distance(u,point)<45).sort((a,b)=>distance(a,point)-distance(b,point))[0];}
 function updatePreview(){
+ dodgePreview=dodgeDrag?game.dodgePreview(dodgeDrag.id,aim.x,aim.y):null;
  if(game.phase!=='battle'){preview=null;return;}
  if(mode==='capture')preview=game.capturePreview(enemyAt(aim)?.id);
  else if(selected>=0)preview=game.commandPreview(selected,aim.x,aim.y,lockedCaster||undefined);
@@ -123,22 +124,21 @@ function ui(){
    const p=preview;
    $('hint').textContent=c.name+' · '+(!lockedCaster&&game.casters(game.hand[selected]).units.length>1?'滑过头像选择施法者':(p?.echo?'残响 · ':'')+(p?.caster?.name||'无可用施法者'))+(p?.caster?' · 射程 '+Math.round(p.range):'');
    $('detail').textContent=p&&!p.valid?p.reason:p?.approach?p.reason:game.paused?(touchMode?'已暂停，可调整落点；点右上角继续后再确认。':'已暂停，选好落点后按空格继续。'):cardDescription(c,p?.echo)+' · 前摇 '+c.wind+' 秒'+(p?.echo?' · 残响效力 45%':'')+(touchMode?' · 拖到落点松手施放；拖回手牌取消':' · Esc 取消');
-  }else{$('hint').textContent=game.paused?(touchMode?'战术暂停 · 选牌查看射程':'战术暂停 · 选牌查看射程，空格继续'):'选一张牌，看施法者与射程，再点落点';$('detail').textContent=touchMode?'拖牌 → 滑过施法者头像 → 拖到战场松手；单一施法者直接拖放':'1–4 选牌 · 位移牌调整站位 · C 捕获 · 上场主力全倒下即败';}
-  $('energy').textContent=game.availableEnergy.toFixed(1)+' / '+game.maxEnergy+(game.reservedEnergy?'（预留 '+game.reservedEnergy+'）':'');$('energy-fill').style.width=Math.max(0,game.availableEnergy)/game.maxEnergy*100+'%';$('regen').textContent='每秒 +'+game.regen.toFixed(2);
+  }else{$('hint').textContent=game.paused?(touchMode?'战术暂停 · 选牌查看射程':'战术暂停 · 选牌查看射程，空格继续'):'选一张牌，看施法者与射程，再点落点';$('detail').textContent=touchMode?'拖角色闪避 · 每只6秒恢复；拖手牌释放技能':'拖角色闪避 · 1–4 选牌 · C 捕获 · 上场主力全倒下即败';}
+  if(dodgePreview){$('hint').textContent=dodgePreview.caster?.name+' · 拖动闪避';$('detail').textContent=dodgePreview.valid?'松手闪避 · 最远85 · 无无敌/护盾 · 6秒恢复':dodgePreview.reason;}
+ $('energy').textContent=game.availableEnergy.toFixed(1)+' / '+game.maxEnergy+(game.reservedEnergy?'（预留 '+game.reservedEnergy+'）':'');$('energy-fill').style.width=Math.max(0,game.availableEnergy)/game.maxEnergy*100+'%';$('regen').textContent='每秒 +'+game.regen.toFixed(2);
   $('deck-info').textContent='抽 '+game.deck.length+' / 弃 '+game.discard.length+' / 施 '+game.pending.length;
   $('capture').disabled=!battle;$('capture').classList.toggle('selected',mode==='capture');$('capture').setAttribute('aria-pressed',String(mode==='capture'));
   $('capture').textContent=game.captureCooldown>0?'捕获冷却 '+game.captureCooldown.toFixed(1)+'s':'捕获 · 3 灵能'+(touchMode?'':' [C]');
-  const autoSlots=battle&&selected>=0?game.autoCycleSlots(selected):[];
-  for(const b of $('hand').querySelectorAll('[data-slot]')){b.classList.toggle('auto-cycle',autoSlots.includes(+b.dataset.slot));}
   const hints=game.hand.map((_,i)=>battle?game.comboHint(i):null);
   const handKey=game.orders.map(o=>o.id).join()+'|'+hints.map(h=>h?.text||'').join()+'|'+game.hand.join()+'|'+selected+'|'+Math.floor(game.energy)+'|'+game.phase+'|'+[...replacements].join()+'|'+game.mains.map(u=>u.hp<=0?'dead':u.busy?'busy':'ready').join();
   if(!cardDrag&&$('hand').dataset.key!==handKey){
    $('hand').dataset.key=handKey;$('hand').innerHTML=game.hand.map((id,i)=>{
     const c=CARDS[id];if(!c)return '<button class="card" disabled>等待补牌</button>';
     const echo=game.casters(id).echo,replace=replacements.has(i),isSelected=i===selected&&mode==='card';
-    const queued=game.orderForSlot(i),locked=game.cycleLocked(i),hint=hints[i];
+    const queued=game.orderForSlot(i),locked=false,hint=hints[i];
     const names=game.activeHeroes.filter(j=>game.loadouts[j].includes(id)).map(j=>HEROES[j].name).join(' / ');
-    return '<button data-slot="'+i+'" '+(locked||!battle&&!opening?'disabled':'')+' aria-pressed="'+(opening?replace:isSelected)+'" class="card '+(autoSlots.includes(i)?'auto-cycle ':'')+(hint?'combo-ready ':'')+(queued?'queued ':'')+(isSelected?'selected ':'')+(echo?'echo ':'')+(replace?'replace ':'')+(game.availableEnergy<c.cost?'poor':'')+'"><span class="owner">'+(locked?'等待撞击命中':queued?'待施放 · 点此取消':hint?hint.text+' · '+names:names)+(echo?' · 残响':'')+(opening&&replace?' · 换掉':'')+'</span><span class="cost">'+c.cost+'</span><b>'+c.icon+' '+c.name+'</b><small>'+cardDescription(c,echo)+'</small><span class="key">'+(i+1)+' · 射程 '+Math.round(c.range*(echo?.7:1))+' · 前摇 '+c.wind+'s</span></button>';
+    return '<button data-slot="'+i+'" '+(locked||!battle&&!opening?'disabled':'')+' aria-pressed="'+(opening?replace:isSelected)+'" class="card '+(hint?'combo-ready ':'')+(queued?'queued ':'')+(isSelected?'selected ':'')+(echo?'echo ':'')+(replace?'replace ':'')+(game.availableEnergy<c.cost?'poor':'')+'"><span class="owner">'+(locked?'等待撞击命中':queued?'待施放 · 点此取消':hint?hint.text+' · '+names:names)+(echo?' · 残响':'')+(opening&&replace?' · 换掉':'')+'</span><span class="cost">'+c.cost+'</span><b>'+c.icon+' '+c.name+'</b><small>'+cardDescription(c,echo)+'</small><span class="key">'+(i+1)+' · 射程 '+Math.round(c.range*(echo?.7:1))+' · 前摇 '+c.wind+'s</span></button>';
    }).join('');
   }
  }
@@ -176,7 +176,7 @@ function drawInspect(){
  $('inspect-title').textContent=config?'战前配招 · 每只携带 4 招':'共享牌库 · '+game.partyCards.length+' 张（含同名副本）';
 
  if(!config){$('inspect-body').innerHTML='<p>共享牌库：元素、身体特征或专属条件决定可学技能，装备后才能正常施放。同名牌可选任一存活装备者。</p><div class="skill-list">'+game.partyCards.map(id=>{const c=CARDS[id];return '<div class="deck-entry"><small>'+game.activeHeroes.filter(i=>game.loadouts[i].includes(id)).map(i=>HEROES[i].name).join(' / ')+'</small><b>'+c.name+' · '+c.cost+' 灵能</b><small>'+cardDescription(c)+' · 射程 '+c.range+'</small><small>配合：'+coopDescription(c)+'</small></div>';}).join('')+'</div>';return;}
- $('inspect-body').innerHTML='<p>'+(config?'先点要替换的携带技能，再点同一只的备用技能。同名技能可由多只携带；仅上场纹兽的配招进入公共牌库，入库后仅存活装备者正常施放；候补技能可预先调整。':'每份配招贡献一张牌；同名牌由存活装备者施放；标记全队通用的短跃可由任意存活主力使用。不显示隐藏牌序。')+'</p>'+HEROES.map((h,i)=>!config&&!game.activeHeroes.includes(i)?'':'<section class="skill-group"><h3>'+h.icon+' '+h.name+(!game.activeHeroes.includes(i)?' · 候补':'')+'</h3><div class="skill-list">'+(config?h.skills:game.loadouts[i]).map(id=>{
+ $('inspect-body').innerHTML='<p>'+(config?'先点要替换的携带技能，再点同一只的备用技能。同名技能可由多只携带；仅上场纹兽的配招进入公共牌库，入库后仅存活装备者正常施放；候补技能可预先调整。':'每份配招贡献一张牌；同名牌由存活装备者施放；角色可以直接拖动闪避。不显示隐藏牌序。')+'</p>'+HEROES.map((h,i)=>!config&&!game.activeHeroes.includes(i)?'':'<section class="skill-group"><h3>'+h.icon+' '+h.name+(!game.activeHeroes.includes(i)?' · 候补':'')+'</h3><div class="skill-list">'+(config?h.skills:game.loadouts[i]).map(id=>{
   const c=CARDS[id],equipped=game.loadouts[i].includes(id);
   const label='<span class="skill-tags">'+c.tags.join(' · ')+'</span><b>'+(c.requires?'限定技能 · ':'通用技能 · ')+c.name+' · '+c.cost+' 灵能</b><small>'+c.desc+' · 射程 '+c.range+' · 前摇 '+c.wind+'s</small><small class="coop-copy">配合：'+coopDescription(c)+'</small>';
   return config?'<button data-skill="'+id+'" data-skill-owner="'+i+'" aria-pressed="'+equipped+'" class="'+(equipped?'selected':'reserve')+'">'+(replaceSkill?.owner===i&&replaceSkill.id===id?'待替换 · ':equipped?'携带 · ':'备用 · ')+label+'</button>':'<div class="deck-entry">'+label+'</div>';
@@ -184,7 +184,7 @@ function drawInspect(){
 }
 function point(e){const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
 $('hand').addEventListener('pointerdown',e=>{
- const b=e.target.closest('[data-slot]');if(!b||game.phase!=='battle'||e.button!==0)return;
+ const b=e.target.closest('[data-slot]');if(!b||dodgeDrag||game.phase!=='battle'||e.button!==0)return;
  if(game.cancelOrder(+b.dataset.slot)){e.preventDefault();ignoreCardClick=performance.now()+400;notice(game.message);selected=-1;hidePicker();ui();return;}
  e.preventDefault();selected=+b.dataset.slot;mode='card';preview=null;hover=true;
  const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;
@@ -209,7 +209,8 @@ function finishDrag(e,cancel=false){
 $('hand').addEventListener('pointerup',e=>finishDrag(e));
 $('hand').addEventListener('pointercancel',e=>finishDrag(e,true));
 canvas.addEventListener('pointerdown',e=>{
- if(e.button!==0)return;aim=point(e);hover=true;canvas.focus({preventScroll:true});
+ if(e.button!==0||cardDrag||dodgeDrag)return;aim=point(e);hover=true;canvas.focus({preventScroll:true});
+ if(game.phase==='battle'&&mode!=='capture'){const u=game.mains.filter(u=>u.hp>0&&distance(u,aim)<36).sort((a,b)=>distance(a,aim)-distance(b,aim))[0];if(u){e.preventDefault();dodgeDrag={id:u.id,pointer:e.pointerId,start:{...aim},previous:selected,moved:false};selected=-1;preview=null;hidePicker();canvas.setPointerCapture(e.pointerId);updatePreview();ui();return;}}
  if(e.pointerType==='touch'&&game.phase==='battle'&&mode==='capture'){
   touchMode=true;document.documentElement.classList.add('touch-ui');touchTargeted=true;updatePreview();ui();return;
  }
@@ -219,10 +220,10 @@ canvas.addEventListener('pointerdown',e=>{
  }
  place();
 });
-canvas.addEventListener('pointermove',e=>{aim=point(e);hover=true;updatePreview();});
-canvas.addEventListener('pointerup',e=>{if(dragging){aim=point(e);dragging=false;place();}});
-canvas.addEventListener('pointercancel',()=>dragging=false);
-canvas.addEventListener('pointerleave',()=>{if(!dragging&&!touchMode)hover=false;});
+canvas.addEventListener('pointermove',e=>{aim=point(e);hover=true;if(dodgeDrag&&dodgeDrag.pointer===e.pointerId)dodgeDrag.moved ||=distance(aim,dodgeDrag.start)>12;updatePreview();});
+canvas.addEventListener('pointerup',e=>{if(dodgeDrag&&dodgeDrag.pointer===e.pointerId){const drag=dodgeDrag;dodgeDrag=null;aim=point(e);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(drag.moved){const r=canvas.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){game.dodge(drag.id,aim.x,aim.y);notice(game.message);}else notice('已取消闪避');}else{selected=drag.previous;if(selected>=0)place();}dodgePreview=null;ui();return;}if(dragging){aim=point(e);dragging=false;place();}});
+canvas.addEventListener('pointercancel',()=>{dragging=false;dodgeDrag=null;dodgePreview=null;});
+canvas.addEventListener('pointerleave',()=>{if(!dragging&&!dodgeDrag&&!touchMode)hover=false;});
 canvas.addEventListener('contextmenu',e=>{e.preventDefault();selected=-1;mode='card';preview=null;lockedCaster=null;hidePicker();ui();});
 document.addEventListener('click',e=>{
  const b=e.target.closest('button');if(!b||b.disabled)return;
@@ -255,22 +256,22 @@ $('help-toggle').onclick=()=>{$('help').hidden=!$('help').hidden;$('help-toggle'
 document.addEventListener('keydown',e=>{
  if(e.repeat||/INPUT|TEXTAREA|SELECT/.test(e.target.tagName)||$('inspect').open)return;
  if(e.code==='Space'){e.preventDefault();game.pause();ui();}
- else if(e.key==='Escape'){selected=-1;mode='card';preview=null;ui();}
+ else if(e.key==='Escape'){dodgeDrag=null;dodgePreview=null;selected=-1;mode='card';preview=null;ui();}
  else if(e.key.toLowerCase()==='c')$('capture').click();
  else if(/^[1-4]$/.test(e.key)){const i=+e.key-1;if(game.phase==='setup'){if(game.activeHeroes[i]!==undefined)select(game.activeHeroes[i]);}else select(i);}
  else if(e.target===canvas&&e.key.startsWith('Arrow')){
   e.preventDefault();aim.x=Math.max(105,Math.min(905,aim.x+(e.key==='ArrowRight'?25:e.key==='ArrowLeft'?-25:0)));aim.y=Math.max(55,Math.min(445,aim.y+(e.key==='ArrowDown'?25:e.key==='ArrowUp'?-25:0)));hover=true;updatePreview();
  }else if(e.target===canvas&&e.key==='Enter'){e.preventDefault();place();}
 });
-document.addEventListener('visibilitychange',()=>{if(document.hidden&&game.phase==='battle'){game.paused=true;ui();}});
+document.addEventListener('visibilitychange',()=>{dodgeDrag=null;dodgePreview=null;if(document.hidden&&game.phase==='battle'){game.paused=true;ui();}});
 function frame(now){
  const portrait=touchMode&&innerHeight>innerWidth&&innerWidth<700;
  document.querySelector('main').inert=portrait;
- if(portrait&&game.phase==='battle')game.paused=true;
+ if(portrait&&game.phase==='battle'){game.paused=true;dodgeDrag=null;dodgePreview=null;}
  const dt=Math.min(.06,(now-last)/1000||0);last=now;
  if(game.phase==='battle'&&!game.paused){acc+=dt;while(acc>=1/60){game.step(1/60);acc-=1/60;}}else acc=0;
  updatePreview();uiTime+=dt;if(uiTime>.1){ui();uiTime=0;}
- window.drawBattle(ctx,game,selected,aim,hover,preview,mode,touchMode);requestAnimationFrame(frame);
+ window.drawBattle(ctx,game,selected,aim,hover,preview,mode,touchMode,dodgePreview);requestAnimationFrame(frame);
 }
 ui();requestAnimationFrame(frame);
 })();

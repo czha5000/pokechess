@@ -1,5 +1,5 @@
 'use strict';
-window.drawBattle = function(ctx, game, selected, aim, hover, preview, mode, touchMode=false) {
+window.drawBattle = function(ctx, game, selected, aim, hover, preview, mode, touchMode=false, dodgePreview=null) {
 const {CARDS,HEROES,LANES}=window.DeployGame;
 const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
 function ellipse(x,y,rx,ry,color){ctx.fillStyle=color;ctx.beginPath();ctx.ellipse(x,y,rx,ry,0,0,Math.PI*2);ctx.fill();}
@@ -78,7 +78,7 @@ if(game.phase==='setup'){
   if(u.hero!==undefined){
    text(u.name,u.x,u.y+43,13,'#f0f0cc');
    if(u.shield>0){circle(u.x,u.y,31,'#a2e6e1');text((game.wardInfo(u)?'援盾 ':'盾 ')+Math.ceil(u.shield)+' · '+Math.ceil(u.shieldTime)+'s',u.x,u.y-56,11,'#bdf2e1');}
-   if(u.hold>0)text('驻留',u.x,u.y+58,10,'#dfd19c');
+   text(u.dodgeCooldown>0?'闪避 '+u.dodgeCooldown.toFixed(1)+'s':'闪避就绪',u.x,u.y+58,10,u.dodgeCooldown>0?'#c9b7a5':'#b8efc6');
   }
   if(u.side){
    if(u.recovery>0)text('反击窗口 '+u.recovery.toFixed(1)+'s',u.x,u.y+(u.trait?72:-68),13,'#c6f6ad');
@@ -142,6 +142,7 @@ if(mode==='capture'){
   text(setup?HEROES[selected].name:valid?c.name:'不可施放',aim.x,Math.max(25,aim.y-(c?.r||32)-10),14,col);
  }
 }
+if(dodgePreview?.caster){const p=dodgePreview,u=p.caster,col=p.valid?'#b5f0d2':'#f2a187';circle(u.x,u.y,85,'#b5f0d244');line(u.x,u.y,p.x,p.y,col,3);circle(p.x,p.y,24,col);text(p.valid?'松手闪避':p.reason,p.x,Math.max(25,p.y-34),13,col);}
 if(game.paused){ctx.fillStyle='#10221e44';ctx.fillRect(0,0,1000,500);text(touchMode?'战术暂停 · 点右上角继续':'战术暂停 · 空格继续',500,35,21,'#f3e6be');}
 };
 
