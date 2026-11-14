@@ -20,10 +20,10 @@ function notice(s){toastText=s;toastUntil=performance.now()+2600;}
 function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
  if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
- if(c.type==='blast')return '范围伤害 '+damage+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.detonate?' · 接同伴火势 +'+n(c.detonate*game.power):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
+ if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.detonate?' · 接同伴火势 +'+n(c.detonate*game.power):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
  if(c.type==='cycle')return '护盾 '+n(c.amount)+' · 自动换右侧至多 '+c.cycle+' 张';
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
- if(c.type==='heal')return '区域治疗 '+n(c.amount);
+ if(c.type==='heal')return '区域治疗 '+n(c.amount)+(c.allyShield?' · 护盾 '+n(c.allyShield):'');
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒';
  if(c.type==='firefield')return '火区 '+n(c.amount*game.power)+'/s · 灼烧 '+n(c.burn*game.power)+'/s · '+c.life+' 秒';
  if(c.type==='dash')return '自身跃迁'+(c.damage?' · 伤害 '+damage:'')+(c.cycleOnHit?' · 命中自动换右侧 1 张':'')+(c.heal?' · 回复 '+n(c.heal):'')+(c.shield?' · 护盾 '+n(c.shield):'');
@@ -81,6 +81,7 @@ function partyUI(){
  $('party').innerHTML=HEROES.map((h,i)=>{
   const u=game.mains.find(u=>u.hero===i),dead=u&&u.hp<=0;
   const state=!game.activeHeroes.includes(i)?'候补 · 战前可换':game.phase==='setup'?(game.wounds[i]?'带伤 · 生命上限 −20%':TACTICS[game.tactic]?.roles[i]||'4 招已配备'):dead?'倒下 · 留下残响':u?Math.ceil(u.hp)+' / '+u.max+(u.shield>0?' · '+(game.wardInfo(u)?'援盾 ':'盾 ')+Math.ceil(u.shield)+' / '+Math.ceil(u.shieldTime)+'s':'')+(u.busy?' · 施法中':u.stun>0?' · 被控制':''):'';
+  if(!game.activeHeroes.includes(i))return '';
   return '<span class="'+(dead?'fallen':'')+'">'+h.name+' · '+state+'</span>';
  }).join('');
 }
@@ -94,7 +95,7 @@ function ui(){
  $('field-note').textContent=game.wave===1?game.mission.goal+' · '+(game.control||0).toFixed(1)+'/14s':game.mission.goal;
  $('formation').hidden=!setup;$('battle-controls').hidden=setup;
  $('intel').hidden=!setup;$('quick').hidden=!setup;$('loadout').hidden=!setup;$('mission-picker').hidden=!setup;
- $('tactics').hidden=!setup;$('party-picker').hidden=!setup;$('party-mode').value=String(game.activeHeroes.length);$('bench-select').disabled=game.activeHeroes.length!==2;$('bench-select').value=String([0,1,2].find(i=>!game.activeHeroes.includes(i))??0);
+ $('tactics').hidden=!setup;$('party-picker').hidden=!setup;$('party-mode').value=String(game.activeHeroes.length);for(let j=0;j<3;j++){const el=$('roster-'+j);el.parentElement.hidden=j>=game.activeHeroes.length;el.value=String(game.activeHeroes[j]??0);for(const option of el.options)option.disabled=game.activeHeroes.includes(+option.value)&&+option.value!==game.activeHeroes[j];}
  document.querySelectorAll('[data-tactic]').forEach(b=>{const on=b.dataset.tactic===game.tactic;b.classList.toggle('selected',on);b.setAttribute('aria-pressed',String(on));});
  if(setup)$('mission-select').value=String(game.wave);
  $('begin').hidden=!(setup||opening);$('begin').disabled=setup&&game.activeHeroes.some(i=>!game.placed[i]);
@@ -166,7 +167,7 @@ function inspect(kind){
 }
 const buildKey='wenshou-deploy-builds-v1';
 function readBuilds(){try{const data=JSON.parse(localStorage.getItem(buildKey)||'[]');return Array.from({length:3},(_,i)=>Array.isArray(data)&&validBuild(data[i])?data[i]:null);}catch{return [null,null,null];}}
-function buildPanel(){return '<section class="build-panel"><b>我的配招 · 仅保存在当前浏览器</b><p>保存上场角色与三只角色的技能；载入使用推荐站位，不改变伤势或遗物。</p>'+readBuilds().map((b,i)=>'<div class="build-row"><span>槽 '+(i+1)+' · '+(b?b.activeHeroes.map(h=>HEROES[h].name).join('＋'):'空')+'</span><button data-build-save="'+i+'">'+(b?'覆盖保存':'保存当前')+'</button><button data-build-load="'+i+'" '+(!b?'disabled':'')+'>载入</button></div>').join('')+'<p id="build-status" role="status"></p></section>';}
+function buildPanel(){return '<section class="build-panel"><b>我的配招 · 仅保存在当前浏览器</b><p>保存上场角色与全部角色的技能；载入使用推荐站位，不改变伤势或遗物。</p>'+readBuilds().map((b,i)=>'<div class="build-row"><span>槽 '+(i+1)+' · '+(b?b.activeHeroes.map(h=>HEROES[h].name).join('＋'):'空')+'</span><button data-build-save="'+i+'">'+(b?'覆盖保存':'保存当前')+'</button><button data-build-load="'+i+'" '+(!b?'disabled':'')+'>载入</button></div>').join('')+'<p id="build-status" role="status"></p></section>';}
 function drawInspect(){
  if($('inspect').dataset.kind==='intel'){$('inspect-title').textContent='战前敌情 · '+game.mission.name;$('inspect-body').innerHTML='<p>'+game.mission.goal+'</p><p>本关敌人类型与应对方向；具体来袭时间不公开。</p><div class="intel-list">'+game.enemyIntel.map(e=>'<article><b>'+e.name+'</b><p>'+e.advice+'</p></article>').join('')+'</div><button id="intel-to-loadout">据此调整配招 →</button>';return;}
 
@@ -236,8 +237,8 @@ document.addEventListener('click',e=>{
  if(b.dataset.retry)reset();
  if(b.dataset.skill){const id=b.dataset.skill,owner=+b.dataset.skillOwner;if(game.loadouts[owner].includes(id))replaceSkill={owner,id};else if(replaceSkill?.owner===owner&&game.swapSkill(owner,replaceSkill.id,id))replaceSkill=null;drawInspect();ui();}
 });
-$('party-mode').onchange=e=>{game.setParty(+e.target.value===3?[0,1,2]:[1,2]);selected=-1;ui();};
-$('bench-select').onchange=e=>{game.setParty([0,1,2].filter(i=>i!==+e.target.value));selected=-1;ui();};
+$('party-mode').onchange=e=>{const ids=game.activeHeroes.slice(0,+e.target.value);if(ids.length<+e.target.value)ids.push(HEROES.findIndex((_,i)=>!ids.includes(i)));game.setParty(ids);game.quick();selected=-1;ui();};
+for(let j=0;j<3;j++){$('roster-'+j).innerHTML=HEROES.map((h,i)=>'<option value="'+i+'">'+h.name+'</option>').join('');$('roster-'+j).onchange=e=>{const ids=[...game.activeHeroes];ids[j]=+e.target.value;game.setParty(ids);game.quick();selected=-1;ui();};}
 $('quick').onclick=()=>{game.quick();selected=-1;ui();};
 $('begin').onclick=()=>{
  if(game.phase==='setup'&&game.start()){selected=-1;replacements.clear();ui();}
@@ -255,7 +256,7 @@ document.addEventListener('keydown',e=>{
  if(e.code==='Space'){e.preventDefault();game.pause();ui();}
  else if(e.key==='Escape'){selected=-1;mode='card';preview=null;ui();}
  else if(e.key.toLowerCase()==='c')$('capture').click();
- else if(/^[1-4]$/.test(e.key)){const i=+e.key-1;if(game.phase!=='setup'||i<3)select(i);}
+ else if(/^[1-4]$/.test(e.key)){const i=+e.key-1;if(game.phase==='setup'){if(game.activeHeroes[i]!==undefined)select(game.activeHeroes[i]);}else select(i);}
  else if(e.target===canvas&&e.key.startsWith('Arrow')){
   e.preventDefault();aim.x=Math.max(105,Math.min(905,aim.x+(e.key==='ArrowRight'?25:e.key==='ArrowLeft'?-25:0)));aim.y=Math.max(55,Math.min(445,aim.y+(e.key==='ArrowDown'?25:e.key==='ArrowUp'?-25:0)));hover=true;updatePreview();
  }else if(e.target===canvas&&e.key==='Enter'){e.preventDefault();place();}
