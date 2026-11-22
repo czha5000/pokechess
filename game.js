@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const LANES = [155, 345];
-const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:.9};
+const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:2.5};
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
@@ -489,7 +489,7 @@ class Game {
   }
   this.effects.push({kind:p.card,x:p.x,y:p.y,r:c.r,life:.45,max:.45});
  }
- enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':null;return kind?{...{chant:{name:'共鸣吟唱',wind:2.2,range:250,r:180,damage:0,cooldown:8},ambush:{name:'后排伏击',wind:1.5,range:260,r:48,damage:34,cooldown:6},charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:5},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:5.5},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:6}}[kind],kind}:null;}
+ enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':null;return kind?{...{chant:{name:'共鸣吟唱',wind:2.5,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:2.2,range:260,r:48,damage:34,cooldown:10},charge:{name:'蓄力冲撞',wind:2,range:190,r:28,damage:38,cooldown:9},slam:{name:'重锤砸地',wind:2.5,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:2.3,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
  enemyIntent(u){
   if(!u?.side||u.hp<=0)return null;const spec=this.enemySpec(u);if(!spec)return null;
   if(u.special)return {...u.special,actor:u,targetName:u.special.targetName||'范围目标',readyIn:0,locked:true,inRange:true,damage:u.special.damage*(this.activeHeroes.length===2?.85:1)};
@@ -535,7 +535,7 @@ class Game {
   if(p.kind==='chant'){for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==u.id&&distance(t,u)<=180))t.empoweredUntil=this.time+10;this.effects.push({kind:'text',text:'共鸣 · 下次大招强化',x:u.x,y:u.y,life:1.2,max:1.2});}
   for(const t of [...this.units,this.core])if(p.damage>0&&t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
   if(p.kind==='charge'||p.kind==='ambush'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
-  u.recovery=p.kind==='slam'?1.4:1;u.attack=u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic;
+  u.recovery=2;u.attack=u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic;
   this.effects.push({kind:'enemy-impact',x:p.x,y:p.y,r:p.r,text:p.name,life:.45,max:.45});return true;
  }
  target(u,track=true){
