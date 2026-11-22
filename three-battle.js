@@ -113,6 +113,15 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   project(x,y,h=0){const p=project(x,y,h),r=canvas.getBoundingClientRect();return {x:r.left+p.x,y:r.top+p.y};}
  };
  const pickGeo=geo(new THREE.SphereGeometry(1,12,8)),pickMat=new THREE.MeshBasicMaterial({visible:false});materials.add(pickMat);
+ function facingTarget(u,game){
+  if(game.phase!=='battle')return null;
+  const distance=t=>Math.hypot(u.x-t.x,u.y-t.y),enemies=game.units.filter(t=>t.hp>0&&t.side!==u.side&&t.kind!=='seal');
+  if(u.side){const lure=enemies.find(t=>t.kind==='lure'&&distance(t)<175);if(lure)return lure;}
+  const nearest=enemies.filter(t=>t.lane===u.lane||distance(t)<170).sort((a,b)=>distance(a)-distance(b))[0];
+  if(nearest&&distance(nearest)<(u.side?235:310))return nearest;
+  if(game.wave===1)return {...game.mission,objective:true};
+  return u.side?game.core:game.wave===2?game.seal:null;
+ }
  // Sample existing clips against game time. The renderer never schedules damage.
  function pose(a,key,seconds){
   const clip=a.clips.find(c=>c.name.endsWith(key));if(!clip)return;
@@ -152,7 +161,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   }
   a.seen=true;a.unit=u;a.hit.userData.unit=u;a.root.position.copy(world(u.x,u.y));
   // Never call Game.target here: it records lure statistics. Facing is read-only.
-  const target=game.phase==='battle'?game.units.filter(t=>t.hp>0&&t.side!==u.side&&t.kind!=='seal').sort((a,b)=>Math.hypot(a.x-u.x,a.y-u.y)-Math.hypot(b.x-u.x,b.y-u.y))[0]:null;const dx=target?target.x-u.x:u.side?-1:1,dz=target?target.y-u.y:0;
+  const target=facingTarget(u,game);const dx=target?target.x-u.x:u.side?-1:1,dz=target?target.y-u.y:0;
   const cast=game.pending.find(p=>p.casterId===u.id&&p.stage==='windup'),moving=Math.hypot(u.x-a.x,u.y-a.y)>.04;
   a.root.rotation.y=cast?Math.atan2(cast.x-u.x,cast.y-u.y):moving?Math.atan2(u.x-a.x,u.y-a.y):Math.atan2(dx,dz);a.visual.position.y=0;
   a.renderDelta=frameDelta;animate(a,u,game,target);
