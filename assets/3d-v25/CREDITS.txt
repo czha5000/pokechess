@@ -1,0 +1,9 @@
+Pokemon models for a personal prototype. Character rights: Nintendo / Creatures Inc. / GAME FREAK inc.
+Eevee and Squirtle: https://github.com/Pokemon-3D-api/assets/tree/429de1288cea0d43f5b4f56305d2276e94239d65/models/opt/regular (133.glb and 7.glb). Source GLBs unchanged.
+Eevee embedded credit: seth the yutyrannus (https://sketchfab.com/slang107123456789), CC-BY-4.0. https://sketchfab.com/3d-models/pokedex-3d-pro-eevee-08d0e011acc64f92b77045384a4fbc3b
+Squirtle: no individual artist credit embedded. Repository code license does not grant Pokemon character rights.
+Charizard source: https://www.nostalgia64.com/assets/pokemon-champions/models/charizard/
+Download: https://cdn.nostalgia64.xyz/assets/pokemon-champions/models/Charizard.glb
+Source generator: Champions Unity converter. Website offers educational downloads; no CC0 claim is made.
+Web adaptation retains all meshes, materials and images; selects six source animation clips and removes unused buffer data. Original preserved in art-pipeline/external/pokemon-models-v2 with conversion manifest.
+Eevee showcase animation is intentionally unused; Squirtle has no source animations. Both currently use their skinned reference pose. Charizard and Bulbasaur reuse existing source animations; no new skeletal animation authored.

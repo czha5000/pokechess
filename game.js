@@ -4,12 +4,12 @@ const LANES = [155, 345];
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const CARDS = {
  venom:{owner:3,name:'孢针',icon:'芽',cost:1,range:290,r:45,wind:.2,type:'blast',single:true,damage:10,poison:1,desc:'单体10伤害 · 孢毒1层；最多3层，6秒，每层每秒2伤害',coop:'同伴直接伤害技能消耗1层孢毒，追加12伤害；普攻不消耗'},
- vine:{owner:3,name:'缠根',icon:'藤',cost:2,range:260,r:65,wind:.3,type:'blast',damage:26,pull:40,control:3,desc:'范围26伤害 · 聚拢40 · 牵制减速35%，3秒',coop:'牵制可接炎狐火区，或让同伴更容易命中'},
+ vine:{owner:3,name:'缠根',icon:'藤',cost:2,range:260,r:65,wind:.3,type:'blast',damage:26,pull:40,control:3,desc:'范围26伤害 · 聚拢40 · 牵制减速35%，3秒',coop:'牵制可接伊布火区，或让同伴更容易命中'},
  blossom:{owner:3,name:'共生芽',icon:'✿',cost:3,range:250,r:70,wind:.25,type:'heal',amount:12,allyShield:20,desc:'区域治疗12 · 护盾20，6秒',coop:'为同伴续航并授盾，可接位移破绽或岩獾碎甲击'},
  harvest:{owner:3,name:'毒果收割',icon:'果',cost:3,range:280,r:45,wind:.5,type:'blast',single:true,damage:45,harvest:true,desc:'单体45伤害 · 消耗全部孢毒，每层额外10伤害',coop:'自己兑现毒层，或把毒层留给同伴低费技能接力'},
  grit:{owner:4,name:'砾甲',icon:'岩',cost:1,range:220,r:55,wind:.15,type:'shield',amount:16,desc:'区域友军护盾16 · 6秒',coop:'同伴带盾位移可制造破绽；也可先给自己蓄盾'},
  rockrush:{owner:4,name:'滚岩突袭',icon:'滚',cost:2,range:200,r:55,wind:.25,type:'dash',damage:24,shield:12,desc:'自身突进 · 落点24伤害 · 自身护盾12',coop:'携同伴援盾突进至少45，可制造破绽让同伴追击'},
- shieldstrike:{owner:4,name:'碎甲击',icon:'砾',cost:3,range:160,r:50,wind:.55,type:'blast',single:true,damage:55,shieldStrike:true,desc:'单体55伤害 · 命中消耗自身至多30盾，每盾追加1.5伤害',coop:'潮龟或妙蛙种子授盾，再碎甲击；消耗防御换取爆发'},
+ shieldstrike:{owner:4,name:'碎甲击',icon:'砾',cost:3,range:160,r:50,wind:.55,type:'blast',single:true,damage:55,shieldStrike:true,desc:'单体55伤害 · 命中消耗自身至多30盾，每盾追加1.5伤害',coop:'杰尼龟或妙蛙种子授盾，再碎甲击；消耗防御换取爆发'},
  bulwark:{owner:4,name:'山岳守护',icon:'山',cost:4,range:230,r:80,wind:.4,type:'shield',amount:65,desc:'区域友军护盾65 · 6秒',coop:'承受高压或为同伴援盾突袭准备资源；护盾取较高值，不叠加'},
  waterneedle:{owner:0,name:'水针',icon:'滴',cost:1,range:250,r:40,wind:.15,type:'blast',single:true,damage:22,desc:'单体22伤害 · 低费接力',coop:'接孢毒或同伴制造的破绽，单体也有价值'},
  needle:{owner:2,name:'雷针',icon:'针',cost:1,range:280,r:40,wind:.15,type:'blast',single:true,damage:20,desc:'单体20伤害 · 不附带眩晕',coop:'低费消费同伴孢毒或破绽；打断仍需落雷'},
@@ -33,8 +33,8 @@ const CARDS = {
  pack:    {owner:2,name:'风狼',icon:'双',cost:4,range:250,r:38,wind:.5,type:'pack',desc:'召唤两只风狼 · 10 秒 / 最多 4 只'}
 };
 const HEROES = [
- {kind:'turtle',name:'潮龟',hp:270,atk:11,range:40,speed:43,icon:'◈',desc:'承伤 / 保护',skills:['tide','shell','spring','rush','lure']},
- {kind:'fox',name:'炎狐',hp:135,atk:18,range:165,speed:49,icon:'焰',desc:'爆发 / 持续伤害',skills:['fire','meteor','ember','retreat','snare']},
+ {kind:'turtle',name:'杰尼龟',hp:270,atk:11,range:40,speed:43,icon:'◈',desc:'承伤 / 保护',skills:['tide','shell','spring','rush','lure']},
+ {kind:'fox',name:'伊布',hp:135,atk:18,range:165,speed:49,icon:'焰',desc:'爆发 / 持续伤害',skills:['fire','meteor','ember','retreat','snare']},
  {kind:'bird',name:'雷隼',hp:120,atk:14,range:175,speed:58,icon:'羽',desc:'控制 / 机动支援',skills:['bolt','gale','flight','mend','pack']},
  {kind:'sprout',name:'妙蛙种子',hp:150,atk:10,range:155,speed:46,icon:'芽',desc:'孢毒 / 牵制 / 共生',skills:['venom','vine','blossom','harvest']},
  {kind:'badger',name:'岩獾',hp:245,atk:12,range:42,speed:40,icon:'岩',desc:'援盾 / 护甲转伤',skills:['grit','rockrush','shieldstrike','bulwark']}
@@ -49,15 +49,15 @@ Object.entries(CARDS).forEach(([id,c])=>c.requires=requirements[id]||null);
 function canLearn(hero,id){return !!HEROES[hero]&&!!CARDS[id]&&HEROES[hero].skills.includes(id)&&(!CARDS[id].requires||HEROES[hero].traits.includes(CARDS[id].requires));}
 // Presets only change legal loadouts and placement. They never arrange the hand.
 const TACTICS = {
- tempo:{name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；3–5 费重点技能兑现。过牌自动换右侧其他可用牌，无需额外选择。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
+ tempo:{party:[1,3],name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；3–5 费重点技能兑现。过牌自动换右侧其他可用牌，无需额外选择。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
  shared:{name:'公共撞击',roles:['撞击 / 授盾','撞击 / 追击','撞击 / 接力'],guide:'三只都带撞击：牌库有三张，任一张均可选择存活装备者。拖过头像再拖到目标。',loadouts:[['tackle','shell','tide','spring'],['tackle','fire','ember','retreat'],['tackle','bolt','gale','mend']]},
- wildfire:{name:'聚敌焚场',roles:['聚敌 / 保护','铺火 / 点燃','推回火区 / 扩散'],guide:'回潮聚敌 → 炎狐铺火 → 雷隼从合适角度逐风。两只就能配合，第三只扩散火势。',loadouts:[['tide','shell','spring','lure'],['fire','ember','snare','retreat'],['gale','flight','bolt','mend']]},
- escort:{name:'护送突袭',roles:['授盾 / 接应','接力追击','带盾突进 / 破甲'],guide:'潮龟给同伴援盾 → 雷隼掠空突进制造破绽 → 炎狐直接伤害技追击。注意三者射程。',loadouts:[['shell','tide','spring','rush'],['fire','meteor','snare','retreat'],['flight','bolt','gale','mend']]}
+ wildfire:{name:'聚敌焚场',roles:['聚敌 / 保护','铺火 / 点燃','推回火区 / 扩散'],guide:'回潮聚敌 → 伊布铺火 → 雷隼从合适角度逐风。两只就能配合，第三只扩散火势。',loadouts:[['tide','shell','spring','lure'],['fire','ember','snare','retreat'],['gale','flight','bolt','mend']]},
+ escort:{name:'护送突袭',roles:['授盾 / 接应','接力追击','带盾突进 / 破甲'],guide:'杰尼龟给同伴援盾 → 雷隼掠空突进制造破绽 → 伊布直接伤害技追击。注意三者射程。',loadouts:[['shell','tide','spring','rush'],['fire','meteor','snare','retreat'],['flight','bolt','gale','mend']]}
 };
 Object.values(TACTICS).forEach(t=>{t.loadouts.push(['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']);t.roles.push('孢毒 / 共生','援盾 / 碎甲');});
 TACTICS.shared.loadouts[3]=['tackle','venom','blossom','vine'];TACTICS.shared.loadouts[4]=['tackle','grit','shieldstrike','bulwark'];TACTICS.shared.guide='上场精灵都装备撞击，任意撞击牌可选存活装备者；同伴授盾后突进，再由另一只追击。';
 TACTICS.toxin={name:'孢毒接力',roles:[],party:[2,3],guide:'妙蛙种子孢针 → 雷隼雷针消费毒层；共生芽 → 短跃制造破绽 → 同伴追击。',loadouts:[['waterneedle','tide','shell','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
-TACTICS.armor={name:'援盾碎甲',roles:[],party:[0,4],guide:'潮龟护甲 → 岩獾碎甲击；或带盾滚岩突袭 → 潮龟水针追击。',loadouts:[['waterneedle','shell','tide','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
+TACTICS.armor={name:'援盾碎甲',roles:[],party:[0,4],guide:'杰尼龟护甲 → 岩獾碎甲击；或带盾滚岩突袭 → 杰尼龟水针追击。',loadouts:[['waterneedle','shell','tide','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
 const retiredSkills=['prepare','plan','step'];
 function upgradeLoadout(ids,hero){const legal=ids.filter(id=>canLearn(hero,id));const result=[];for(const id of ids){if(canLearn(hero,id)){result.push(id);continue;}const replacement=HEROES[hero].skills.find(c=>!legal.includes(c)&&!result.includes(c));if(replacement)result.push(replacement);}return result;}
 Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
@@ -84,7 +84,7 @@ const ENEMIES = {
  guard:{name:'护卫岩兽',kind:'brute',trait:'guard',hp:180,atk:8,range:42,speed:32,capturable:true},
  priest:{name:'共鸣祭司',kind:'archer',trait:'priest',hp:105,atk:6,range:150,speed:35,capturable:true},
  ambush:{name:'伏击影兽',kind:'raider',trait:'ambush',hp:115,atk:7,range:33,speed:48,capturable:true},
- boss:{name:'裂隙守卫',kind:'boss',hp:650,atk:12,range:50,speed:30,capturable:false}
+ boss:{name:'喷火龙',kind:'boss',hp:650,atk:12,range:50,speed:30,capturable:false}
 };
 const WAVE_PLANS=[
  [[0,'boss',0,760,155],[0,'rage',0,850,95],[0,'crystal',1,800,345],[0,'archer',0,870,225]],
