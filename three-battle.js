@@ -80,21 +80,21 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   return g;
  }
  for(const kind of ['bird','badger','raider','brute','wolf','archer','lure'])templates.set(kind,prototype(kind));
- const heights={fox:.82,turtle:.82,sprout:.70,boss:1.30,bird:.92,badger:.72,raider:.7,brute:.9,wolf:.65,archer:.98,lure:.78};
+ const heights={fox:.82,turtle:.82,sprout:.70,boss:1.30,pikachu:.78,gengar:.95,bird:.92,badger:.72,raider:.7,brute:.9,wolf:.65,archer:.98,lure:.78};
  const draco=new DRACOLoader().setDecoderPath(new URL('./vendor/three-r180/draco/',import.meta.url).href);
  const loader=new GLTFLoader().setDRACOLoader(draco),clips=new Map(),rigged=new Set();let loaded=0;
- const modelLoad=Promise.all(['fox','turtle','sprout','boss'].map(async kind=>{
-  const url=kind==='sprout'?new URL('./assets/3d-v23/bulbasaur.glb',import.meta.url):new URL(({fox:'eevee',turtle:'squirtle',boss:'charizard'})[kind]+'.glb',assetRoot);
+ const modelLoad=Promise.all(['fox','turtle','sprout','boss','pikachu','gengar'].map(async kind=>{
+  const url=['pikachu','gengar'].includes(kind)?new URL('./assets/3d-v27/'+kind+'.glb',import.meta.url):kind==='sprout'?new URL('./assets/3d-v23/bulbasaur.glb',import.meta.url):new URL(({fox:'eevee',turtle:'squirtle',boss:'charizard'})[kind]+'.glb',assetRoot);
   const gltf=await loader.loadAsync(url.href);if(disposed)return;
   const source=gltf.scene,bounds=new THREE.Box3().setFromObject(source),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
   const normalized=new THREE.Group(),offset=new THREE.Group();offset.position.set(-center.x,-bounds.min.y,-center.z);offset.add(source);normalized.add(offset);normalized.scale.setScalar(heights[kind]/size.y);
   // Downloaded Pokemon assets face +Z; the scene wrapper owns navigation rotation.
   normalized.rotation.y=0;
   // Eevee's single showcase action is not a battle idle; keep its reference pose.
-  if(['sprout','boss'].includes(kind)&&gltf.animations.length)clips.set(kind,gltf.animations);
+  if(['sprout','boss','pikachu','gengar'].includes(kind)&&gltf.animations.length)clips.set(kind,gltf.animations);
   source.traverse(o=>{if(o.isSkinnedMesh)rigged.add(kind);});
   source.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material]){materials.add(m);if(m.map)textures.add(m.map);m.roughness=Math.max(.45,m.roughness||0);}}});
-  templates.set(kind,normalized);loading.querySelector('span').textContent='载入角色模型 · '+(++loaded)+' / 4';
+  templates.set(kind,normalized);loading.querySelector('span').textContent='载入角色模型 · '+(++loaded)+' / 6';
  })).then(()=>{if(disposed)return;ready=true;canvas.dataset.ready='true';loading.remove();}).catch(error=>{loading.innerHTML='<b>3D 模型加载未完成</b><span>请刷新页面重试</span>';console.error(error);});
  const ringGeo=geo(new THREE.RingGeometry(.96,1,64)),diskGeo=geo(new THREE.CircleGeometry(1,64)),orbGeo=geo(new THREE.SphereGeometry(1,12,8));
  function effect(key,type,x,y,r,c,opacity=.9,h=.045){
@@ -128,8 +128,9 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
  function pose(a,key,seconds){
   const aliases={ '001aidle':'Battle Idle','001walk':'Battle Idle','001fight_b':'Attack 1','001fight_d':'Ranged Attack 1','001ko':'Down',bossSlam:'Attack 3',bossHurt:'Damage 1' };
   const durations={'001aidle':1.6666666,'001walk':1.1666666,'001fight_b':1.75,'001fight_d':2.625,'001ko':2};
-  const clip=a.kind==='boss'?a.clips.find(c=>c.name===aliases[key]):a.clips.find(c=>c.name.endsWith(key));if(!clip)return;
-  if(a.kind==='boss'&&durations[key])seconds=seconds/durations[key]*clip.duration;
+  const sourceClip=a.kind!=='sprout';
+  const clip=sourceClip?a.clips.find(c=>c.name===aliases[key])||(['001aidle','001walk'].includes(key)?a.clips.find(c=>c.name==='Idle'):null):a.clips.find(c=>c.name.endsWith(key));if(!clip)return;
+  if(sourceClip&&durations[key])seconds=seconds/durations[key]*clip.duration;
   if(a.clip!==clip){a.mixer.stopAllAction();a.action=a.mixer.clipAction(clip);a.action.reset().setLoop(THREE.LoopOnce,1);a.action.clampWhenFinished=true;a.action.play();a.clip=clip;}
   a.action.paused=true;a.action.time=clamp(seconds,0,clip.duration);a.mixer.update(0);a.state=key;
  }
@@ -223,7 +224,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   for(const [id,a]of actors)if(!a.seen){
    if(a.mixer&&a.unit?.hp<=0&&!['setup','opening'].includes(game.phase)){
     a.deathTime??=0;a.deathTime+=game.paused?0:game.phase==='battle'?Math.max(0,game.time-a.gameTime):frameDelta;a.gameTime=game.time;
-    const duration=a.kind==='boss'?a.clips.find(c=>c.name==='Down').duration:2;
+    const duration=a.clips.find(c=>c.name==='Down')?.duration||2;
     a.el.hidden=true;a.hit.userData.unit=null;pose(a,'001ko',Math.min(2,a.deathTime/duration*2));if(a.deathTime<duration+.4)continue;
    }
    removeActor(id,a);

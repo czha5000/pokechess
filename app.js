@@ -22,7 +22,7 @@ function notice(s){toastText=s;toastUntil=performance.now()+2600;}
 function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
  if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
- if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.detonate?' · 接同伴火势 +'+n(c.detonate*game.power):'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
+ if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.allySetupBonus?' · 同伴标记至多 +'+n(c.allySetupBonus*game.power):'')+(c.control?' · 减速35% / '+n(c.control)+'秒':'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
  if(c.type==='heal')return '区域治疗 '+n(c.amount)+(c.allyShield?' · 护盾 '+n(c.allyShield):'');
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒 · 全队限1个';

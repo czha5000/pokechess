@@ -4,6 +4,13 @@ const LANES = [155, 345];
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
+ thunderwave:{owner:5,name:'电磁波',icon:'麻',cost:2,range:260,r:40,wind:.25,type:'blast',single:true,damage:12,stun:.4,control:4,desc:'单体12伤害 · 打断0.4秒 · 牵制减速35%，4秒',coop:'为同伴祸不单行创造窗口；自己的电球不吃自己标记'},
+ electroball:{owner:5,name:'电球',icon:'电',cost:3,range:280,r:45,wind:.45,type:'blast',single:true,damage:46,allySetupBonus:24,desc:'单体46伤害 · 同伴毒层/牵制追加至多24',coop:'接妙蛙种子孢毒或耿鬼影缚；毒层另按原规则消费1层'},
+ voltswitch:{owner:5,name:'伏特替换',icon:'跃',cost:2,range:220,r:45,wind:.2,type:'dash',damage:22,desc:'自身突进 · 落点22伤害 · 不自动换人',coop:'带同伴援盾移动至少45并命中，制造破绽供同伴追击'},
+ shadowpin:{owner:6,name:'影缚',icon:'缚',cost:1,range:260,r:35,wind:.2,type:'blast',single:true,damage:8,control:3,desc:'单体8伤害 · 牵制减速35%，3秒 · 不打断',coop:'低费铺垫同伴电球；自身祸不单行不吃这层协作加成'},
+ shadowball:{owner:6,name:'暗影球',icon:'影',cost:2,range:300,r:40,wind:.35,type:'blast',single:true,damage:44,desc:'单体44伤害',coop:'消费同伴孢毒或援盾突袭破绽，适合稳定追击'},
+ hex:{owner:6,name:'祸不单行',icon:'咒',cost:4,range:290,r:45,wind:.65,type:'blast',single:true,damage:60,allySetupBonus:42,desc:'单体60伤害 · 同伴毒层/牵制追加至多42',coop:'同伴先挂毒或电磁波，命中时仍有效才追加；自己影缚不触发'},
+ substitute:{owner:6,name:'替身',icon:'替',cost:2,range:230,r:175,wind:.3,type:'lure',hp:55,life:4,desc:'55生命替身 · 吸引近敌4秒 · 不回血',coop:'为同伴高费技能争取施法窗口；全队只保留一个诱饵'} ,
  venom:{owner:3,name:'孢针',icon:'芽',cost:1,range:290,r:45,wind:.2,type:'blast',single:true,damage:10,poison:1,desc:'单体10伤害 · 孢毒1层；最多3层，6秒，每层每秒2伤害',coop:'同伴直接伤害技能消耗1层孢毒，追加12伤害；普攻不消耗'},
  vine:{owner:3,name:'缠根',icon:'藤',cost:2,range:260,r:65,wind:.3,type:'blast',damage:26,pull:40,control:3,desc:'范围26伤害 · 聚拢40 · 牵制减速35%，3秒',coop:'聚拢和减速，帮助同伴命中高费技能'},
  blossom:{owner:3,name:'共生芽',icon:'✿',cost:3,range:250,r:70,wind:.25,type:'heal',amount:12,allyShield:20,desc:'区域治疗12 · 护盾20，6秒',coop:'为同伴续航并授盾，可接位移破绽或岩獾碎甲击'},
@@ -38,13 +45,15 @@ const HEROES = [
  {kind:'fox',name:'伊布',hp:135,atk:18,range:165,speed:49,icon:'星',desc:'普通系 / 接力追击',skills:['fire','meteor','ember','retreat','snare']},
  {kind:'bird',name:'雷隼',hp:120,atk:14,range:175,speed:58,icon:'羽',desc:'控制 / 机动支援',skills:['bolt','gale','flight','mend','pack']},
  {kind:'sprout',name:'妙蛙种子',hp:150,atk:10,range:155,speed:46,icon:'芽',desc:'孢毒 / 牵制 / 共生',skills:['venom','vine','blossom','harvest']},
- {kind:'badger',name:'岩獾',hp:245,atk:12,range:42,speed:40,icon:'岩',desc:'援盾 / 护甲转伤',skills:['grit','rockrush','shieldstrike','bulwark']}
+ {kind:'badger',name:'岩獾',hp:245,atk:12,range:42,speed:40,icon:'岩',desc:'援盾 / 护甲转伤',skills:['grit','rockrush','shieldstrike','bulwark']},
+ {kind:'pikachu',name:'皮卡丘',hp:125,atk:12,range:155,speed:58,icon:'电',desc:'电系 / 控制接力',skills:['needle','thunderwave','electroball','voltswitch','bolt']},
+ {kind:'gengar',name:'耿鬼',hp:145,atk:14,range:150,speed:48,icon:'影',desc:'幽灵 / 条件爆发',skills:['shadowpin','shadowball','hex','substitute']}
 ];
 HEROES.forEach(h=>h.skills.push('tackle'));
 HEROES[1].skills.push('spark');HEROES[0].skills.push('waterneedle');HEROES[2].skills.push('needle');
 // Traits constrain learning; loadouts constrain normal casting.
-const requirements={venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'normal',fire:'normal',meteor:'normal',ember:'normal',snare:'fox',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
-const traitSets=[['water','turtle'],['normal','fox'],['lightning','wind','wings'],['plant','spore'],['earth']];
+const requirements={thunderwave:'lightning',electroball:'lightning',voltswitch:'lightning',shadowpin:'ghost',shadowball:'ghost',hex:'ghost',substitute:'ghost',venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'normal',fire:'normal',meteor:'normal',ember:'normal',snare:'fox',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
+const traitSets=[['water','turtle'],['normal','fox'],['lightning','wind','wings'],['plant','spore'],['earth'],['lightning'],['ghost','poison']];
 HEROES.forEach((h,i)=>h.traits=traitSets[i]);
 Object.entries(CARDS).forEach(([id,c])=>c.requires=requirements[id]||null);
 function canLearn(hero,id){return !!HEROES[hero]&&!!CARDS[id]&&HEROES[hero].skills.includes(id)&&(!CARDS[id].requires||HEROES[hero].traits.includes(CARDS[id].requires));}
@@ -66,6 +75,10 @@ TACTICS.tempo.loadouts=[['waterneedle','tide','shell','lure'],['spark','fire','m
 TACTICS.wildfire={...TACTICS.wildfire,name:'援盾接力',party:[0,1],guide:'杰尼龟潮汐护甲 → 伊布电光一闪突进 → 杰尼龟水针追击；至少45距离且落点命中。',loadouts:[['waterneedle','shell','tide','rush'],['spark','retreat','fire','ember'],['needle','gale','bolt','flight'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']]};
 TACTICS.tempo.roles=['承伤 / 保护','普通系 / 接力追击','控制 / 支援'];TACTICS.tempo.guide='直接拖角色闪避（每只6秒冷却），手牌专注进攻与保护。';
 TACTICS.toxin.guide='孢针 → 雷针接毒；共生芽 → 同伴特殊位移技制造破绽。直接拖角色闪避不制造破绽。';
+// Extend existing presets without changing their established parties or hand randomness.
+Object.values(TACTICS).forEach(t=>{for(let i=t.loadouts.length;i<HEROES.length;i++)t.loadouts.push(HEROES[i].skills.slice(0,4));});
+TACTICS.voltghost={name:'电影接力',party:[5,6],roles:[],guide:'耿鬼影缚 → 皮卡丘电球；皮卡丘电磁波 → 耿鬼祸不单行。只有同伴标记能加成，留灵能应对大招。',loadouts:HEROES.map(h=>h.skills.slice(0,4))};
+TACTICS.venomhex={name:'毒影追击',party:[3,6],roles:[],guide:'妙蛙种子孢针 → 耿鬼暗影球低费接毒，或积攒4费祸不单行；替身争取施法窗口。',loadouts:HEROES.map(h=>h.skills.slice(0,4))};
 const RELICS = [
  {id:'power',name:'雷火铭文',desc:'所有技能伤害 +20%（残响仅结算一次）'},
  {id:'flow',name:'灵能泉眼',desc:'灵能恢复从每秒 1 提高至 1.25'},
@@ -94,8 +107,8 @@ const WAVE_PLANS=[
  [[0,'boss',1,760,345],[0,'ambush',0,800,155],[0,'archer',1,870,405],[0,'rage',1,850,265]]
 ];
 const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：孢毒或持续进攻压制回血。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或咬住打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：拖角色闪避，高费技能反击。'};
-Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.spread||c.pull||c.push)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
-function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)||retiredSkills.includes(id)));}
+Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.spread||c.pull||c.push||c.control||c.allySetupBonus)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
+function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,5,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)||retiredSkills.includes(id)));}
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
   this.seed=seed; this.randomState=seed; this.phase='setup'; this.paused=false; this.wave=0;
@@ -107,7 +120,7 @@ class Game {
   this.hand=[]; this.deck=[]; this.discard=[]; this.mulliganUsed=false;
   this.relics=[]; this.wounds=HEROES.map(()=>false); this.captured=[]; this.captureCooldown=0;
   this.stats={played:0,damage:0,healed:0,lured:0,captureAttempts:0,captures:0,cooperations:0,trios:0,coopDamage:0};
-  this.message='五只候选精灵，上场两或三只，每只四招。';
+  this.message='七只候选精灵，上场两或三只，每只四招。';
  }
  get enemyIntel(){return [...new Set(WAVE_PLANS[this.wave].map(w=>w[1]))].map(id=>({id,name:ENEMIES[id].name,advice:ENEMY_INFO[id]}));}
  exportBuild(){return {version:1,activeHeroes:[...this.activeHeroes],loadouts:this.loadouts.map(a=>[...a])};}
@@ -224,6 +237,7 @@ class Game {
   for(const u of this.casters(this.hand[slot]).units){
    if(u.busy||u.stun>0)continue;
    for(const t of this.units.filter(t=>t.side&&t.hp>0)){
+    if(c.allySetupBonus&&this.setupMark(t,u.id)&&this.preview(slot,t.x,t.y,u.id).valid)return {text:'接同伴标记',casterId:u.id,targetId:t.id};
     if(c.damage&&this.active(t.poison)&&t.poison.sourceId!==u.id&&this.preview(slot,t.x,t.y,u.id).valid)return {text:'接孢毒',casterId:u.id,targetId:t.id};
     const mark=c.spread?this.active(t.burn)&&t.burn:c.type==='firefield'?this.active(t.controlTag)&&t.controlTag:c.damage?this.active(t.breach)&&t.breach:null;
     if(mark&&mark.sourceId!==u.id&&this.preview(slot,t.x,t.y,u.id).valid)return {text:c.spread?'接灼烧':c.type==='firefield'?'接牵制':'追破绽',casterId:u.id,targetId:t.id};
@@ -306,8 +320,10 @@ class Game {
   this.effects.push({kind:'coop',x:target.x,y:target.y,r:40,text:ids.length===3?'三兽合击':kind,life:1.4,max:1.4});
  }
  applyPoison(u,p){if(u.hp<=0)return;const old=this.active(u.poison)&&u.poison.sourceId===p.casterId?u.poison:null;u.poison={sourceId:p.casterId,token:p.id,stacks:Math.min(3,(old?.stacks||0)+1),strength:p.potency,until:this.time+6};}
+ setupMark(u,casterId){return [u.poison,u.controlTag].find(m=>this.active(m)&&m.sourceId!==casterId);}
  skillHit(u,base,p,source){
-  const poison=u.poison,c=CARDS[p.card];
+  const poison=u.poison,c=CARDS[p.card],setup=c?.allySetupBonus&&this.setupMark(u,p.casterId);
+  if(u.hp>0&&setup){const extra=c.allySetupBonus*Math.min(setup.strength??1,p.potency)*this.power;this.stats.coopDamage+=Math.max(0,Math.min(u.hp,base+extra)-Math.min(u.hp,base));base+=extra;this.cooperate('异兽协攻',u,[setup.sourceId,p.casterId],p.id+':setup:'+u.id);this.effects.push({kind:'text',text:'协攻 +'+Math.round(extra),x:u.x,y:u.y-30,life:1,max:1});}
   if(u.hp>0&&this.active(poison)&&poison.stacks>0&&poison.lastProc!==p.id&&(c?.harvest||poison.sourceId!==p.casterId)){
    const stacks=c?.harvest?poison.stacks:1,extra=stacks*(c?.harvest?10:12)*Math.min(poison.strength,p.potency)*this.power;
    poison.lastProc=p.id;poison.stacks-=stacks;if(!poison.stacks)u.poison=null;this.stats.coopDamage+=poison.sourceId!==p.casterId?Math.max(0,Math.min(u.hp,base+extra)-Math.min(u.hp,base)):0;
@@ -330,6 +346,7 @@ class Game {
   let highlighted=[],notes=[];
   if(c.centerRadius){const center=this.meteorTarget(c,point);if(center)highlighted.push(center);notes.push(center?'中心重击 '+center.name+' '+Math.round(c.centerDamage*potency*this.power)+'；其他目标溅射 '+Math.round(c.damage*potency*this.power):'中心35范围内无目标，仅造成外围溅射；命中时重判');}
   if(c.damage){const poisoned=targets.filter(u=>this.active(u.poison)&&(c.harvest||u.poison.sourceId!==caster.id));if(poisoned.length){highlighted.push(...poisoned);notes.push(c.harvest?'消耗全部孢毒，每层追加10伤害':'接同伴孢毒：每目标消耗1层，追加12伤害');}}
+  if(c.allySetupBonus){const marked=targets.filter(u=>this.setupMark(u,caster.id));highlighted.push(...marked);notes.push(marked.length?'可接同伴标记，追加至多 '+Math.round(c.allySetupBonus*potency*this.power)+' 伤害；命中时重判':'需要同伴的孢毒或牵制；自己的标记不追加协攻伤害');}
   if(c.shieldStrike)notes.push('命中消耗自身至多30盾，当前可追加 '+Math.round(Math.min(30,caster.shield)*1.5*potency*this.power)+' 伤害');
   const name=id=>this.mains.find(u=>u.id===id)?.name||'同伴';
   if(c.type==='shield'){
@@ -420,7 +437,7 @@ class Game {
    this.skillHit(u,(u===center?c.centerDamage:c.damage)*s*this.power+extra+armorExtra,p,source);
    if(extra){this.cooperate('接力爆燃',u,[burn.sourceId,p.casterId],p.id+':detonate:'+u.id);this.effects.push({kind:'text',text:'接力爆燃 +'+Math.round(extra),x:u.x,y:u.y-30,life:1.2,max:1.2});}
    if(c.stun)u.stun=Math.max(u.stun,c.stun*s);if(c.push)this.push(u,source,c.push*s);
-   if(c.pull){this.push(u,p,-c.pull*s);if(u.kind!=='seal')u.controlTag={sourceId:p.casterId,token:p.id,until:this.time+c.control*s};}
+   if(c.pull)this.push(u,p,-c.pull*s);if(c.control&&u.kind!=='seal')u.controlTag={sourceId:p.casterId,token:p.id,strength:s,until:this.time+c.control*s};
    if(c.poison)this.applyPoison(u,p);
    if(c.burn)this.applyBurn(u,{sourceId:p.casterId,token:p.id,dps:c.burn*s*this.power});
    if(c.spread&&burn&&u.hp>0)burning.push({u,burn});
@@ -440,7 +457,7 @@ class Game {
   if(c.type==='healfield'||c.type==='firefield')this.fields.push({id:p.id,sourceId:p.casterId,kind:c.type,x:p.x,y:p.y,r:c.r,life:c.life,amount:c.amount*s*(c.type==='firefield'?this.power:1),burn:c.burn*s*this.power});
   if(c.type==='lure'){
    this.units.filter(u=>u.kind==='lure').forEach(u=>u.hp=0);
-   this.units.push(this.unit({kind:'lure',name:'诱饵',hp:c.hp*s,atk:0,range:0,speed:0,life:c.life},p.x,p.y));
+   this.units.push(this.unit({kind:'lure',name:c.name,hp:c.hp*s,atk:0,range:0,speed:0,life:c.life},p.x,p.y));
   }
   if(c.type==='pack')for(const dy of [-15,15]){
    if(this.units.filter(u=>u.kind==='wolf'&&u.hp>0).length>=4)break;

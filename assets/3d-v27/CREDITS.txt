@@ -1,0 +1,8 @@
+Pikachu and Gengar model / existing animations for personal prototype.
+Sources: https://www.nostalgia64.com/assets/pokemon-champions/models/pikachu/
+https://www.nostalgia64.com/assets/pokemon-champions/models/gengar/
+Downloads: https://cdn.nostalgia64.xyz/assets/pokemon-champions/models/Pikachu.glb
+https://cdn.nostalgia64.xyz/assets/pokemon-champions/models/Gengar.glb
+Generator: Champions Unity converter. Pokemon character rights belong to Nintendo / Creatures Inc. / GAME FREAK inc. Educational download availability is not a CC0 declaration.
+Web copies retain all meshes, materials and embedded textures; select five source animation clips and remove unused animation buffers. Original source, conversion scripts and SHA256 manifests preserved in art-pipeline/external/pokemon-models-v4.
+Existing idle, attack, ranged and down clips sampled against game state. No original walk cycle supplied: movement uses the source idle pose while the game translates the actor. No new custom skeletal animation authored.
