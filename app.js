@@ -1,11 +1,11 @@
 (() => {
 'use strict';
 const {Game,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
-const $=id=>document.getElementById(id),canvas=$('board'),ctx=canvas.getContext('2d');
+const $=id=>document.getElementById(id),canvas=$('board');
 let game=new Game(),selected=-1,aim={x:370,y:155},hover=false,mode='card',preview=null;
 game.setTactic('tempo');game.setParty([1,2]);
 window.wenshouCanUpdate=()=>game.phase!=='battle';
-let replacements=new Set(),shown='',last=0,acc=0,uiTime=0,toastUntil=0,toastText='',dragging=false;
+let replacements=new Set(),shown='',acc=0,uiTime=0,toastUntil=0,toastText='',dragging=false;
 let touchMode=matchMedia('(pointer: coarse)').matches||navigator.maxTouchPoints>0,touchTargeted=false;
 let dodgeDrag=null,dodgePreview=null;
 let lockedCaster=null,cardDrag=null,ignoreCardClick=0,replaceSkill=null;
@@ -303,15 +303,18 @@ document.addEventListener('keydown',e=>{
  }else if(e.target===canvas&&e.key==='Enter'){e.preventDefault();place();}
 });
 document.addEventListener('visibilitychange',()=>{dodgeDrag=null;dodgePreview=null;if(document.hidden&&game.phase==='battle'){game.paused=true;ui();}});
-function frame(now){
+function frame(now,delta){
  const portrait=touchMode&&innerHeight>innerWidth&&innerWidth<700;
  document.querySelector('main').inert=portrait;
  if(portrait&&game.phase==='battle'){game.paused=true;dodgeDrag=null;dodgePreview=null;}
- const dt=Math.min(.06,(now-last)/1000||0);last=now;
+ const dt=Math.min(.06,Math.max(0,delta/1000||0));
  if(game.phase==='battle'&&!game.paused){acc+=dt;while(acc>=1/60){game.step(1/60);acc-=1/60;}}else acc=0;
  updatePreview();uiTime+=dt;if(uiTime>.1){ui();uiTime=0;}
- window.drawBattle(ctx,game,selected,aim,hover,preview,mode,touchMode,dodgePreview);requestAnimationFrame(frame);
 }
-ui();requestAnimationFrame(frame);
+ui();
+try{
+ const renderer=window.createBattleRenderer(canvas,frame,()=>({game,selected,aim,hover,preview,mode,touchMode,dodgePreview}),message=>{if(game.phase==='battle')game.paused=true;dodgeDrag=null;dodgePreview=null;notice(message);ui();});
+ window.addEventListener('pagehide',e=>{if(!e.persisted)renderer.destroy();},{once:true});
+}catch(error){$('hint').textContent='战场加载失败，请刷新重试';$('detail').textContent=error.message;$('begin').disabled=true;console.error(error);}
 })();
 
