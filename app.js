@@ -3,7 +3,7 @@ function bootBattleApp(){
 const {Game,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
 const $=id=>document.getElementById(id),canvas=$('board');
 let game=new Game(),selected=-1,aim={x:370,y:155},hover=false,mode='card',preview=null;
-game.setTactic('tempo');game.setParty([1,2]);
+game.setTactic('toxin');
 window.wenshouCanUpdate=()=>game.phase!=='battle';
 let replacements=new Set(),shown='',acc=0,uiTime=0,toastUntil=0,toastText='',dragging=false;
 let touchMode=matchMedia('(pointer: coarse)').matches||navigator.maxTouchPoints>0,touchTargeted=false;
@@ -35,7 +35,7 @@ function cardDescription(c,echo=false){
 function coopDescription(c){return c.coop||(c.type==='dash'?'携同伴援盾突进至少 45，可使落点敌人暴露破绽 5 秒':c.damage?'可接力追击同伴的破绽，追加一次伤害':'为队友创造持续作战的窗口');}
 function reset(wave=0){dodgeDrag=null;dodgePreview=null;
  lockedCaster=null;cardDrag=null;replaceSkill=null;hidePicker();
- game=new Game();game.setTactic('tempo');game.setParty([1,2]);game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
+ game=new Game();game.setTactic('toxin');game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
  $('overlay').hidden=true;$('inspect').close();$('mission-select').value=String(wave);ui();
 }
 function select(i){
