@@ -114,6 +114,43 @@ const WAVE_PLANS=[
 ];
 const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：孢毒或持续进攻压制回血。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或咬住打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：拖角色闪避，高费技能反击。'};
 Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.spread||c.pull||c.push||c.control||c.allySetupBonus)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
+
+// Shared vocabulary describes actual mechanics, not prescribed skill combinations.
+const MECHANICS={
+ poison:{name:'中毒（孢毒）',text:'最多3层，持续6秒；每层每秒2伤害。同一施加者再次上毒增加1层，并刷新全部毒层时长；不同施加者重新施加时替换为1层。另一只主力的直接技能命中消耗1层并追加12伤害，每次施法对同一目标最多触发一次。普攻和持续伤害不消耗。'},
+ paralysis:{name:'麻痹',text:'移动速度降低35%，持续时间见技能。不叠加；再次施加会覆盖来源和剩余时长。与牵制共用一个减速状态，二者互相覆盖，不叠加减速。麻痹本身不停止攻击或施法；短暂无法行动由技能另列的眩晕提供。'},
+ control:{name:'牵制',text:'移动速度降低35%，不叠加。持续时间见技能；再次施加覆盖来源和剩余时长。与麻痹互相覆盖。单独的牵制不打断施法。'},
+ stun:{name:'眩晕／打断',text:'持续期间不能移动、普攻或施法，并打断正在蓄力的技能。重复眩晕保留较长剩余时间，不相加；已飞出的投射物保留。'},
+ setup:{name:'异常增伤',text:'命中时目标带有另一只主力施加的中毒、麻痹或牵制，追加技能注明的伤害。同一命中只追加一次，多种状态不重复加算，自己的状态不触发。增伤本身不消耗状态；中毒仍会另行触发耗层追加伤害。'},
+ shield:{name:'护盾／援盾',text:'护盾优先吸收伤害，持续6秒，不相加。更高护盾覆盖；同来源再次授盾可刷新时长。其他主力授予的护盾称援盾，自身授盾不是援盾。'},
+ breach:{name:'破绽',text:'携带援盾使用位移技能，实际移动至少45且落点有敌人，消耗至多20护盾，施加5秒破绽。另一只主力的直接技能命中消耗破绽，追加至多24伤害，按消耗盾量缩放。基础闪避不产生破绽。'},
+ harvest:{name:'收割',text:'命中消耗目标全部毒层，每层追加10伤害，可消耗自己施加的中毒。该次命中使用收割规则，不再另加普通的单层12伤害。'},
+ armor:{name:'护甲转伤',text:'命中时消耗自身至多30点护盾，每点转为1.5伤害；没有命中不消耗护盾。可以使用自身或同伴授予的护盾。'},
+ displacement:{name:'位移／推拉',text:'自身位移受技能射程及合法落点限制。击退将敌人推离施法来源，聚拢将敌人拉向落点；地形会限制实际距离。位移本身不提供无敌。'},
+ heal:{name:'治疗',text:'恢复生命但不超过当前生命上限。即时治疗见技能数值；持续治疗按每秒结算，不清除战后伤势。'},
+ lure:{name:'诱饵',text:'引导附近敌人的后续选敌，已有蓄力落点不会因此改变。持续时间或生命耗尽后消失；全队同时只保留一个。'},
+ summon:{name:'召唤',text:'生成两只自动战斗的风狼，存在10秒，全队最多4只。它们不计入上场主力，也不延迟全主力倒下的失败判定。'}
+};
+Object.entries(CARDS).forEach(([id,c])=>{
+ const keys=[],notes=[];c.controlKind=c.control?(c.requires==='lightning'?'paralysis':'control'):null;
+ if(c.poison){keys.push('poison');notes.push('施加中毒1层；同来源叠层并刷新6秒，最多3层。');}
+ if(c.control){keys.push(c.controlKind);notes.push('施加'+(c.controlKind==='paralysis'?'麻痹':'牵制')+c.control+'秒：移动减速35%，不叠加。');}
+ if(c.stun){keys.push('stun');notes.push('眩晕'+c.stun+'秒，并打断蓄力。');}
+ if(c.allySetupBonus){keys.push('setup');notes.push('异常增伤：同伴施加的中毒／麻痹／牵制满足条件，额外+'+c.allySetupBonus+'伤害，不随状态数量叠加。');}
+ if(c.harvest){keys.push('harvest','poison');notes.push('收割全部毒层，每层+10伤害；可消费自身毒层。');}
+ if(c.shieldStrike){keys.push('armor','shield');notes.push('护甲转伤：命中才消耗自身至多30盾，每盾+1.5伤害。');}
+ if(c.type==='shield'||c.shield||c.allyShield){keys.push('shield');notes.push('护盾持续6秒，不相加；同伴授盾属于援盾。');}
+ if(c.type==='dash'&&!c.quickDodge){keys.push('displacement','breach');notes.push('携援盾位移至少45并命中落点，可消耗至多20盾施加5秒破绽。');}
+ if(c.pull||c.push)keys.push('displacement');
+ if(c.type==='heal'||c.type==='healfield')keys.push('heal');
+ if(c.type==='lure')keys.push('lure');if(c.type==='pack')keys.push('summon');
+ if(c.damage){keys.push('poison','breach');if(!c.harvest)notes.push('直接命中可消费同伴中毒或破绽；普攻、持续跳伤不消费。');}
+ c.mechanisms=[...new Set(keys)];c.ruleNotes=notes.join(' ');
+});
+CARDS.thunderwave.desc='单体12伤害 · 眩晕0.4秒 · 麻痹4秒（移动减速35%）';
+CARDS.electroball.desc='单体46伤害 · 异常增伤+24（要求同伴施加的异常）';
+CARDS.hex.desc='单体60伤害 · 异常增伤+42（要求同伴施加的异常）';
+
 function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,5,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)||retiredSkills.includes(id)));}
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
@@ -445,7 +482,7 @@ class Game {
    this.skillHit(u,(u===center?c.centerDamage:c.damage)*s*this.power+extra+armorExtra,p,source);
    if(extra){this.cooperate('接力爆燃',u,[burn.sourceId,p.casterId],p.id+':detonate:'+u.id);this.effects.push({kind:'text',text:'接力爆燃 +'+Math.round(extra),x:u.x,y:u.y-30,life:1.2,max:1.2});}
    if(c.stun)u.stun=Math.max(u.stun,c.stun*s);if(c.push)this.push(u,source,c.push*s);
-   if(c.pull)this.push(u,p,-c.pull*s);if(c.control&&u.kind!=='seal')u.controlTag={sourceId:p.casterId,token:p.id,strength:s,until:this.time+c.control*s};
+   if(c.pull)this.push(u,p,-c.pull*s);if(c.control&&u.kind!=='seal')u.controlTag={kind:c.controlKind,sourceId:p.casterId,token:p.id,strength:s,until:this.time+c.control*s};
    if(c.poison)this.applyPoison(u,p);
    if(c.burn)this.applyBurn(u,{sourceId:p.casterId,token:p.id,dps:c.burn*s*this.power});
    if(c.spread&&burn&&u.hp>0)burning.push({u,burn});
@@ -690,6 +727,6 @@ class Game {
   else if(this.wave===0&&!this.schedule.length&&!this.units.some(u=>u.side))this.finish(true,'溪口守住了。');
  }
 }
-const api={validBuild,canLearn,Game,CARDS,HEROES,TACTICS,RELICS,MISSIONS,LANES,distance};
+const api={MECHANICS,validBuild,canLearn,Game,CARDS,HEROES,TACTICS,RELICS,MISSIONS,LANES,distance};
 if(typeof module!=='undefined')module.exports=api;else window.DeployGame=api;
 })();

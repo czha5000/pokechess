@@ -1,6 +1,6 @@
 function bootBattleApp(){
 'use strict';
-const {Game,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
+const {Game,MECHANICS,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
 const $=id=>document.getElementById(id),canvas=$('board');
 let game=new Game(),selected=-1,aim={x:370,y:155},hover=false,mode='card',preview=null;
 game.setTactic('tactical');
@@ -27,7 +27,7 @@ function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
  if(c.quickDodge)return '1灵能＋本牌 · 立即位移'+(echo?59.5:85)+' · 可拖角色触发';
  if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
- if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.allySetupBonus?' · 同伴标记至多 +'+n(c.allySetupBonus*game.power):'')+(c.control?' · 减速35% / '+n(c.control)+'秒':'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
+ if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.allySetupBonus?' · 同伴标记至多 +'+n(c.allySetupBonus*game.power):'')+(c.control?' · '+(c.controlKind==='paralysis'?'麻痹':'牵制')+'35% / '+n(c.control)+'秒':'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
  if(c.type==='heal')return '区域治疗 '+n(c.amount)+(c.allyShield?' · 护盾 '+n(c.allyShield):'');
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒 · 全队限1个';
@@ -37,7 +37,9 @@ function cardDescription(c,echo=false){
  if(c.type==='pack')return '两只风狼 · '+n(75)+' 生命 / '+n(13)+' 攻击 · 10 秒';
  return c.desc;
 }
-function coopDescription(c){return c.coop||(c.type==='dash'?'携同伴援盾突进至少 45，可使落点敌人暴露破绽 5 秒':c.damage?'可接力追击同伴的破绽，追加一次伤害':'为队友创造持续作战的窗口');}
+function coopDescription(c){return c.ruleNotes||'效果按技能数值结算，无额外组合条件。';}
+function mechanismPanel(ids){const keys=[...new Set(ids.flatMap(id=>CARDS[id].mechanisms||[]))];return '<details class="mechanism-panel"><summary>状态机制说明 · 层数 / 持续 / 触发与消耗</summary><p>以下为基础数值；遗物与残响可改变伤害、效力和部分时长。元素属性不自动附加状态，以技能明示效果为准。</p>'+keys.map(k=>'<article><b>'+MECHANICS[k].name+'</b><p>'+MECHANICS[k].text+'</p></article>').join('')+'</details>';}
+
 function reset(wave=0){dodgeDrag=null;dodgePreview=null;
  lockedCaster=null;cardDrag=null;replaceSkill=null;hidePicker();
  game=new Game();game.setTactic('tactical');game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
@@ -202,11 +204,11 @@ function drawInspect(){
  const config=$('inspect').dataset.kind==='loadout'&&game.phase==='setup';
  $('inspect-title').textContent=config?'战前配招 · 每只携带 4 招':'共享牌库 · '+game.partyCards.length+' 张（含同名副本）';
 
- if(!config){$('inspect-body').innerHTML='<p>共享牌库：元素、身体特征或专属条件决定可学技能，装备后才能正常施放。同名牌可选任一存活装备者。</p><div class="skill-list">'+game.partyCards.map(id=>{const c=CARDS[id];return '<div class="deck-entry">'+skillArt(id)+'<small>'+game.activeHeroes.filter(i=>game.loadouts[i].includes(id)).map(i=>HEROES[i].name).join(' / ')+'</small><b>'+c.name+' · '+c.cost+' 灵能</b><small>'+cardDescription(c)+' · 前摇 '+c.wind+'秒 · 射程 '+c.range+'</small><small>配合：'+coopDescription(c)+'</small></div>';}).join('')+'</div>';return;}
+ if(!config){$('inspect-body').innerHTML='<p>共享牌库：元素、身体特征或专属条件决定可学技能，装备后才能正常施放。同名牌可选任一存活装备者。</p><div class="skill-list">'+game.partyCards.map(id=>{const c=CARDS[id];return '<div class="deck-entry">'+skillArt(id)+'<small>'+game.activeHeroes.filter(i=>game.loadouts[i].includes(id)).map(i=>HEROES[i].name).join(' / ')+'</small><b>'+c.name+' · '+c.cost+' 灵能</b><small>'+cardDescription(c)+' · 前摇 '+c.wind+'秒 · 射程 '+c.range+'</small><small>机制：'+coopDescription(c)+'</small></div>';}).join('')+'</div>'+mechanismPanel(game.partyCards);return;}
  if(!HEROES[loadoutHero])loadoutHero=game.activeHeroes[0];
  const h=HEROES[loadoutHero],slots=game.loadouts[loadoutHero],choice=replaceSkill?.owner===loadoutHero?replaceSkill.id:null;
  const tile=(id,equipped)=>{const c=CARDS[id];return '<button class="loadout-tile '+(choice===id?'chosen':'')+'" data-skill="'+id+'" data-skill-owner="'+loadoutHero+'" aria-pressed="'+(choice===id)+'">'+skillArt(id)+'<b>'+c.name+'</b><span class="loadout-cost">'+c.cost+' 灵能</span><small>'+c.desc+'</small><small>射程 '+c.range+' · 前摇 '+c.wind+'秒</small><small class="coop-copy">'+coopDescription(c)+'</small></button>';};
- $('inspect-body').innerHTML='<div class="loadout-tabs">'+HEROES.map((h,i)=>'<button data-loadout-hero="'+i+'" aria-pressed="'+(i===loadoutHero)+'" class="'+(i===loadoutHero?'selected':'')+'">'+h.name+'<small>'+(game.activeHeroes.includes(i)?'上场':'候补')+'</small></button>').join('')+'</div><p class="loadout-note">闪避是基础动作：只耗1灵能，不占技能槽。共享牌库 '+game.partyCards.length+' 张。</p><h3>'+h.name+' · 携带技能 4 / 4</h3><div class="loadout-slots">'+slots.map(id=>tile(id,true)).join('')+'</div><h3>'+(choice?'替换「'+CARDS[choice].name+'」：选择下方技能':'先点上方一个携带槽，再选下方技能')+'</h3><div class="loadout-options">'+h.skills.filter(id=>!slots.includes(id)).map(id=>tile(id,false)).join('')+'</div>'+buildPanel();
+ $('inspect-body').innerHTML='<div class="loadout-tabs">'+HEROES.map((h,i)=>'<button data-loadout-hero="'+i+'" aria-pressed="'+(i===loadoutHero)+'" class="'+(i===loadoutHero?'selected':'')+'">'+h.name+'<small>'+(game.activeHeroes.includes(i)?'上场':'候补')+'</small></button>').join('')+'</div><p class="loadout-note">闪避是基础动作：只耗1灵能，不占技能槽。共享牌库 '+game.partyCards.length+' 张。</p>'+mechanismPanel(h.skills)+'<h3>'+h.name+' · 携带技能 4 / 4</h3><div class="loadout-slots">'+slots.map(id=>tile(id,true)).join('')+'</div><h3>'+(choice?'替换「'+CARDS[choice].name+'」：选择下方技能':'先点上方一个携带槽，再选下方技能')+'</h3><div class="loadout-options">'+h.skills.filter(id=>!slots.includes(id)).map(id=>tile(id,false)).join('')+'</div>'+buildPanel();
 
 }
 function point(e,ground=!!dodgeDrag||!!CARDS[game.hand[selected]]?.quickDodge){if(window.battleView)return window.battleView.point(e.clientX,e.clientY,!ground);const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
