@@ -110,7 +110,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
  function prepareRay(clientX,clientY){const r=canvas.getBoundingClientRect();ray.setFromCamera(new THREE.Vector2((clientX-r.left)/r.width*2-1,-(clientY-r.top)/r.height*2+1),camera);}
  function picked(clientX,clientY){prepareRay(clientX,clientY);return ray.intersectObjects(pickTargets,false)[0]?.object.userData.unit;}
  window.battleView={
-  point(clientX,clientY){const u=picked(clientX,clientY);if(u)return {x:u.x,y:u.y};const hit=ray.ray.intersectPlane(plane,new THREE.Vector3());return hit?{x:hit.x*WORLD+500,y:hit.z*WORLD+250}:{x:-1000,y:-1000};},
+  point(clientX,clientY,snap=true){const u=picked(clientX,clientY);if(snap&&u)return {x:u.x,y:u.y};const hit=ray.ray.intersectPlane(plane,new THREE.Vector3());return hit?{x:hit.x*WORLD+500,y:hit.z*WORLD+250}:{x:-1000,y:-1000};},
   hero(clientX,clientY){const u=picked(clientX,clientY);return u?.hero!==undefined?u.id:null;},
   project(x,y,h=0){const p=project(x,y,h),r=canvas.getBoundingClientRect();return {x:r.left+p.x,y:r.top+p.y};}
  };
@@ -220,7 +220,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
    if(preview?.caster&&!setup){effect('range','ring',preview.caster.x,preview.caster.y,preview.range,'#c6efde',.5);effect('caster','ring',preview.caster.x,preview.caster.y,34,'#fff5ba');beam('aimline',preview.caster,aim,col,.7,.013);}
    if(preview?.coop){for(const id of preview.coop.targets){const u=game.units.find(u=>u.id===id);if(u)effect(id+'coop','ring',u.x,u.y,39,'#c8ffa8');}preview.coop.links.forEach((l,i)=>beam('coop'+i,l.from,l.to,'#b4f5d0'));}
   }
-  if(dodgePreview?.caster){const p=dodgePreview,c=p.valid?'#b9ffe1':'#ff9e84';effect('dodge-range','ring',p.caster.x,p.caster.y,85,c,.5);effect('dodge-end','ring',p.x,p.y,24,c);beam('dodge-line',p.caster,p,c);}
+  if(dodgePreview?.caster){const p=dodgePreview,c=p.valid?'#b9ffe1':'#ff9e84';effect('dodge-range','ring',p.caster.x,p.caster.y,p.range,c,.5);effect('dodge-end','ring',p.x,p.y,24,c);beam('dodge-line',p.caster,p,c);}
   for(const [id,a]of actors)if(!a.seen){
    if(a.mixer&&a.unit?.hp<=0&&!['setup','opening'].includes(game.phase)){
     a.deathTime??=0;a.deathTime+=game.paused?0:game.phase==='battle'?Math.max(0,game.time-a.gameTime):frameDelta;a.gameTime=game.time;

@@ -157,3 +157,10 @@ body[data-phase="setup"] #log{display:none}
  body[data-phase="setup"] .instruction strong{font-size:11px}
  body[data-phase="setup"] .instruction #detail{font-size:10px}
 }
+
+/* v28: forecast distinguishes preparation from committed windup. */
+.danger.forecast{background:#20383bed;border-color:#83b9b1}.danger #danger-detail{display:block;font-size:10px;line-height:1.4;margin-top:4px;color:#e4d9b7}.danger.forecast>span{color:#b2e2dc}.danger.forecast>b{font-size:12px}.camp-heals{display:flex;gap:8px}
+
+.overlay{display:flex;align-items:flex-start;justify-content:center}.sheet{margin-top:auto;margin-bottom:auto}.choices{flex-wrap:wrap}.choices button{flex:1 1 140px;min-width:0}
+
+body[data-phase="reward"] .instruction,body[data-phase="victory"] .instruction,body[data-phase="defeat"] .instruction{display:none}

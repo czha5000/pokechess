@@ -4,6 +4,7 @@ const LANES = [155, 345];
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
+ sidestep:{owner:0,name:'闪避',icon:'闪',cost:1,range:85,r:0,wind:0,type:'dash',quickDodge:true,desc:'立即位移至多85 · 消耗手牌与1灵能',coop:'拖角色快捷使用；无无敌、伤害或护盾，不制造援盾破绽'},
  thunderwave:{owner:5,name:'电磁波',icon:'麻',cost:2,range:260,r:40,wind:.25,type:'blast',single:true,damage:12,stun:.4,control:4,desc:'单体12伤害 · 打断0.4秒 · 牵制减速35%，4秒',coop:'为同伴祸不单行创造窗口；自己的电球不吃自己标记'},
  electroball:{owner:5,name:'电球',icon:'电',cost:3,range:280,r:45,wind:.45,type:'blast',single:true,damage:46,allySetupBonus:24,desc:'单体46伤害 · 同伴毒层/牵制追加至多24',coop:'接妙蛙种子孢毒或耿鬼影缚；毒层另按原规则消费1层'},
  voltswitch:{owner:5,name:'伏特替换',icon:'跃',cost:2,range:220,r:45,wind:.2,type:'dash',damage:22,desc:'自身突进 · 落点22伤害 · 不自动换人',coop:'带同伴援盾移动至少45并命中，制造破绽供同伴追击'},
@@ -49,7 +50,7 @@ const HEROES = [
  {kind:'pikachu',name:'皮卡丘',hp:125,atk:12,range:155,speed:58,icon:'电',desc:'电系 / 控制接力',skills:['needle','thunderwave','electroball','voltswitch','bolt']},
  {kind:'gengar',name:'耿鬼',hp:145,atk:14,range:150,speed:48,icon:'影',desc:'幽灵 / 条件爆发',skills:['shadowpin','shadowball','hex','substitute']}
 ];
-HEROES.forEach(h=>h.skills.push('tackle'));
+HEROES.forEach(h=>h.skills.push('tackle','sidestep'));
 HEROES[1].skills.push('spark');HEROES[0].skills.push('waterneedle');HEROES[2].skills.push('needle');
 // Traits constrain learning; loadouts constrain normal casting.
 const requirements={thunderwave:'lightning',electroball:'lightning',voltswitch:'lightning',shadowpin:'ghost',shadowball:'ghost',hex:'ghost',substitute:'ghost',venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'normal',fire:'normal',meteor:'normal',ember:'normal',snare:'fox',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
@@ -73,12 +74,14 @@ function upgradeLoadout(ids,hero){const legal=ids.filter(id=>canLearn(hero,id));
 Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
 TACTICS.tempo.loadouts=[['waterneedle','tide','shell','lure'],['spark','fire','meteor','ember'],['needle','gale','bolt','mend'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']];
 TACTICS.wildfire={...TACTICS.wildfire,name:'援盾接力',party:[0,1],guide:'杰尼龟潮汐护甲 → 伊布电光一闪突进 → 杰尼龟水针追击；至少45距离且落点命中。',loadouts:[['waterneedle','shell','tide','rush'],['spark','retreat','fire','ember'],['needle','gale','bolt','flight'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']]};
-TACTICS.tempo.roles=['承伤 / 保护','普通系 / 接力追击','控制 / 支援'];TACTICS.tempo.guide='直接拖角色闪避（每只6秒冷却），手牌专注进攻与保护。';
+TACTICS.tempo.roles=['承伤 / 保护','普通系 / 接力追击','控制 / 支援'];TACTICS.tempo.guide='本配招偏进攻；若需要拖角色闪避，请在配招中带入公共闪避牌，并保留1灵能。';
 TACTICS.toxin.guide='孢针 → 雷针接毒；共生芽 → 同伴特殊位移技制造破绽。直接拖角色闪避不制造破绽。';
 // Extend existing presets without changing their established parties or hand randomness.
 Object.values(TACTICS).forEach(t=>{for(let i=t.loadouts.length;i<HEROES.length;i++)t.loadouts.push(HEROES[i].skills.slice(0,4));});
 TACTICS.voltghost={name:'电影接力',party:[5,6],roles:[],guide:'耿鬼影缚 → 皮卡丘电球；皮卡丘电磁波 → 耿鬼祸不单行。只有同伴标记能加成，留灵能应对大招。',loadouts:HEROES.map(h=>h.skills.slice(0,4))};
 TACTICS.venomhex={name:'毒影追击',party:[3,6],roles:[],guide:'妙蛙种子孢针 → 耿鬼暗影球低费接毒，或积攒4费祸不单行；替身争取施法窗口。',loadouts:HEROES.map(h=>h.skills.slice(0,4))};
+TACTICS.tactical={name:'攻防取舍',party:[1,3],roles:[],guide:'护盾、输出和闪避共享灵能。拖角色使用手中闪避牌；预留1费与手牌，或选择承伤抢杀。损血带到下关，营地治疗与遗物二选一。',loadouts:HEROES.map(h=>[...h.skills.slice(0,3),'sidestep'])};
+TACTICS.tactical.loadouts[0]=['waterneedle','shell','tide','sidestep'];TACTICS.tactical.loadouts[1]=['spark','fire','meteor','sidestep'];
 const RELICS = [
  {id:'power',name:'雷火铭文',desc:'所有技能伤害 +20%（残响仅结算一次）'},
  {id:'flow',name:'灵能泉眼',desc:'灵能恢复从每秒 1 提高至 1.25'},
@@ -118,7 +121,7 @@ class Game {
   this.activeHeroes=[0,1,2];this.placed=HEROES.map(()=>null); this.loadouts=HEROES.map(h=>h.skills.slice(0,4));
   this.tactic=null;this.coopEvents=[];this.coopSeen=new Set();
   this.hand=[]; this.deck=[]; this.discard=[]; this.mulliganUsed=false;
-  this.relics=[]; this.wounds=HEROES.map(()=>false); this.captured=[]; this.captureCooldown=0;
+  this.damageCarry=HEROES.map(()=>0);this.relics=[]; this.wounds=HEROES.map(()=>false); this.captured=[]; this.captureCooldown=0;
   this.stats={played:0,damage:0,healed:0,lured:0,captureAttempts:0,captures:0,cooperations:0,trios:0,coopDamage:0};
   this.message='七只候选精灵，上场两或三只，每只四招。';
  }
@@ -157,8 +160,7 @@ class Game {
   if(this.phase!=='setup'||this.activeHeroes.some(i=>!this.placed[i]||this.loadouts[i].length!==4||new Set(this.loadouts[i]).size!==4||this.loadouts[i].some(id=>!canLearn(i,id))))return false;
   this.mains=this.activeHeroes.map(i=>{
    const p=this.placed[i];
-   const max=Math.round((HEROES[i].hp+(this.relics.includes('vital')?35:0))*(this.wounds[i]?.8:1));
-   return this.unit({...HEROES[i],hp:max,hero:i},p.x,p.y);
+   const max=this.journeyMax(i),u=this.unit({...HEROES[i],hp:max,hero:i},p.x,p.y);u.hp=this.journeyHP(i);return u;
   });
   this.units=[...this.mains];this.fields=[];this.effects=[];this.pending=[];this.orders=[];this.discard=[];this.coopEvents=[];this.coopSeen.clear();
   this.deck=this.shuffle(this.partyCards);this.hand=this.deck.splice(0,4);
@@ -247,6 +249,7 @@ class Game {
  preview(slot,x,y,preferredId){
   const id=this.hand[slot],c=CARDS[id],point={x,y};
   if(!c)return {valid:false,reason:'此手牌位正在补牌。'};
+  if(c.quickDodge){const units=this.casters(id).units,unit=preferredId?units.find(u=>u.id===preferredId):units.slice().sort((a,b)=>distance(a,point)-distance(b,point))[0];return unit?this.dodgePreview(unit.id,x,y,slot):{valid:false,reason:'没有存活的主力可以施法。'};}
   const {echo,units:available}=this.casters(id),range=c.range*(echo?.7:1);
   const eligible=available.filter(u=>!u.busy&&u.stun<=0&&distance(u,point)<=range);
   const stable=eligible.find(u=>u.id===preferredId);
@@ -271,6 +274,7 @@ class Game {
   if(expectedCasterId&&p.casterId!==expectedCasterId)return this.fail('施法者已变化，请看新的高亮后再次确认。');
   if(!p.valid)return this.fail(p.reason);
   const id=this.hand[slot],c=CARDS[id],caster=p.caster;
+  if(c.quickDodge)return this.dodge(caster.id,x,y,slot);
   this.energy-=c.cost;this.hand[slot]=null;this.stats.played++;
   const action={id:'s'+(++this.serial),card:id,casterId:caster.id,echo:p.echo,potency:p.echo?.45:1,x,y,r:c.r,stage:'windup',wait:c.wind,total:c.wind};
   caster.busy=action.id;this.pending.push(action);this.refill();
@@ -354,6 +358,7 @@ class Game {
    highlighted=friends;notes.push(friends.length?'援护 '+friends.map(u=>u.name).join('、')+'：带盾突进可制造破绽':'瞄准同伴授予援盾；自身护盾不触发协作');
    for(const u of friends)links.push({from:caster,to:u});
   }
+  if(c.quickDodge)return {text:'消耗一张闪避牌与1灵能；不获得无敌或援盾破绽',targets:[],links:[]};
   if(c.type==='dash'){
    const ward=this.wardInfo(caster);
    if(ward&&distance(caster,point)>=45&&targets.length){
@@ -483,14 +488,24 @@ class Game {
   }
   this.effects.push({kind:p.card,x:p.x,y:p.y,r:c.r,life:.45,max:.45});
  }
+ enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':null;return kind?{...{chant:{name:'共鸣吟唱',wind:2.2,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:1.5,range:260,r:48,damage:34,cooldown:9},charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
+ enemyIntent(u){
+  if(!u?.side||u.hp<=0)return null;const spec=this.enemySpec(u);if(!spec)return null;
+  if(u.special)return {...u.special,actor:u,targetName:u.special.targetName||'范围目标',readyIn:0,locked:true,inRange:true,damage:u.special.damage*(this.activeHeroes.length===2?.85:1)};
+  const enemies=this.units.filter(t=>t.hp>0&&!t.side&&t.kind!=='seal');let target=enemies.find(t=>t.kind==='lure'&&distance(u,t)<175)||enemies.filter(t=>t.lane===u.lane||distance(u,t)<170).sort((a,b)=>distance(u,a)-distance(u,b))[0];
+  if(u.trait==='ambush')target=this.mains.filter(t=>t.hp>0&&distance(u,t)<=260).sort((a,b)=>b.range-a.range)[0]||target;
+  if(!target)return {...spec,actor:u,targetName:'寻找目标',readyIn:Math.max(0,u.specialCooldown??2),inRange:false,damage:0};
+  const busy=this.units.find(e=>e.hp>0&&e.special),readyIn=Math.max(u.specialCooldown??2,u.stun||0,u.recovery||0,(this.nextThreatAt||0)-this.time,busy?busy.special.wait+1.4:0,0);
+  return {...spec,actor:u,targetName:target.name||'灵核',targetId:target.id,readyIn,inRange:distance(u,target)<=spec.range,damage:spec.damage*(1+(u.rage||0)*.2)*((u.empoweredUntil||0)>this.time?1.25:1)*(this.activeHeroes.length===2?.85:1)};
+ }
  enemySpecial(u,t){
   if(!u.side||(!['brute','archer','boss'].includes(u.kind)&&u.trait!=='ambush')||!t||t.objective||t.hp<=0)return false;
   if(this.time<(this.nextThreatAt||0)||this.units.some(e=>e.hp>0&&e.special))return false;
   if(u.trait==='ambush'){const back=this.mains.filter(h=>h.hp>0&&this.valid(h.x,h.y)&&distance(u,h)<=260).sort((a,b)=>b.range-a.range)[0];if(back)t=back;}
   const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
-  const spec={chant:{name:'共鸣吟唱',wind:2.2,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:1.5,range:260,r:48,damage:34,cooldown:9},charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:10}}[kind];
+  const spec=this.enemySpec(u);
   if(distance(u,t)>spec.range)return false;
-  const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},x:['slam','chant'].includes(kind)?u.x:t.x,y:['slam','chant'].includes(kind)?u.y:t.y,wait:spec.wind};
+  const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},targetId:t.id,targetName:t.name||'灵核',x:['slam','chant'].includes(kind)?u.x:t.x,y:['slam','chant'].includes(kind)?u.y:t.y,wait:spec.wind};
   if(kind==='ambush'&&!this.valid(p.x,p.y))return false;
   if(kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(p.x-u.x)*i/20,u.y+(p.y-u.y)*i/20))return false;
   p.rage=u.rage||0;p.damage*=1+p.rage*.2;if(kind!=='chant'&&(u.empoweredUntil||0)>this.time){p.damage*=1.25;u.empoweredUntil=0;}
@@ -539,31 +554,41 @@ class Game {
   const step=Math.min(d,u.speed*(this.active(u.controlTag)?.65:1)*dt);u.x+=(tx-u.x)/d*step;u.y+=(ty-u.y)/d*step;
   if(u.x<=430||u.x>=570)u.lane=u.y<250?0:1;
  }
+ journeyMax(i){return Math.round((HEROES[i].hp+(this.relics.includes('vital')?35:0))*(this.wounds[i]?.8:1));}
+ journeyHP(i){return Math.max(1,this.journeyMax(i)-(this.damageCarry[i]||0));}
  finish(success,reason){
   if(this.phase!=='battle')return;
   this.phase=success?(this.wave===2?'victory':'reward'):'defeat';this.paused=false;this.message=reason;
-  if(success){this.wounds=this.wounds.map((w,i)=>w||this.mains.some(u=>u.hero===i&&u.hp<=0));this.campHealUsed=false;}
+  if(success){for(const u of this.mains){const i=u.hero;if(u.hp<=0){this.wounds[i]=true;this.damageCarry[i]=Math.round(this.journeyMax(i)*.7);}else this.damageCarry[i]=Math.max(0,u.max-u.hp);}this.campHealUsed=false;}
  }
- healWound(i){if(this.phase!=='reward'||this.campHealUsed||!this.wounds[i])return false;this.wounds[i]=false;this.campHealUsed=true;return true;}
+ healWound(i){
+  if(this.phase!=='reward'||!HEROES[i]||this.campHealUsed||(!this.wounds[i]&&!this.damageCarry[i]))return false;
+  this.wounds[i]=false;this.damageCarry[i]=Math.max(0,this.damageCarry[i]-Math.ceil(this.journeyMax(i)*.4));this.campHealUsed=true;return this.leaveCamp();
+ }
  choose(id){
-  if(this.phase!=='reward'||this.relics.includes(id)||!RELICS.some(r=>r.id===id))return false;
-  this.relics.push(id);if(id==='power')this.power=1.2;if(id==='flow')this.regen=1.25;
+  if(this.phase!=='reward'||this.campHealUsed||this.relics.includes(id)||!RELICS.some(r=>r.id===id))return false;
+  this.relics.push(id);if(id==='power')this.power=1.2;if(id==='flow')this.regen=1.25;return this.leaveCamp();
+ }
+ leaveCamp(){
   this.wave++;this.phase='setup';this.units=[];this.mains=[];this.fields=[];this.pending=[];this.orders=[];this.effects=[];
   this.hand=[];this.deck=[];this.discard=[];this.waveTime=0;this.control=0;this.seal=null;
-  this.message='下一关 · '+this.mission.goal+'。可调整阵型与配招。';return true;
+  this.message='下一关 · '+this.mission.goal+'。损血保留，可调整阵型与配招。';return true;
  }
- dodgePreview(id,x,y){
+ dodgePreview(id,x,y,preferredSlot){
   const u=this.mains.find(u=>u.id===id);if(!u||u.hp<=0)return {valid:false,reason:'角色已离场。'};
-  if(!Number.isFinite(x)||!Number.isFinite(y))return {valid:false,reason:'无效落点。',caster:u,x:u.x,y:u.y};
-  const d=distance(u,{x,y}),scale=d>85?85/d:1,point={x:u.x+(x-u.x)*scale,y:u.y+(y-u.y)*scale};let reason='';
-  if(this.phase!=='battle')reason='战斗中才能闪避。';else if(this.paused)reason='已暂停，继续后再拖动。';else if(u.stun>0)reason='被控制时不能闪避。';else if(u.dodgeCooldown>0)reason='闪避恢复 '+u.dodgeCooldown.toFixed(1)+' 秒';else if(d<12)reason='拖出方向再松手闪避。';else if(!this.valid(point.x,point.y))reason='落点必须是陆地或桥面。';
-  return {...point,caster:u,valid:!reason,reason,range:85};
+  const slot=preferredSlot??this.hand.findIndex((c,i)=>c==='sidestep'&&!this.orderForSlot(i)),echo=this.casters('sidestep').echo;
+  const range=85*(echo?.7:1);if(!Number.isFinite(x)||!Number.isFinite(y))return {valid:false,reason:'无效落点。',caster:u,x:u.x,y:u.y};
+  const d=distance(u,{x,y}),scale=d>range?range/d:1,point={x:u.x+(x-u.x)*scale,y:u.y+(y-u.y)*scale};let reason='';
+  const ownReserve=this.orders.filter(o=>o.casterId===id).reduce((n,o)=>n+CARDS[o.card].cost,0);
+  if(this.phase!=='battle')reason='战斗中才能闪避。';else if(this.paused)reason='已暂停，继续后再拖动。';else if(u.stun>0)reason='被控制时不能闪避。';else if(!this.casters('sidestep').units.includes(u))reason='该角色未装备闪避。';else if(slot<0||this.hand[slot]!=='sidestep'||this.orderForSlot(slot))reason='手中没有可用闪避牌。';else if(this.availableEnergy+ownReserve<1)reason='闪避需要1点灵能。';else if(d<12)reason='拖出方向再松手闪避。';else if(!this.valid(point.x,point.y))reason='落点必须是陆地或桥面。';
+  return {...point,caster:u,casterId:u.id,valid:!reason,reason,range,slot,card:'sidestep',echo,coop:{text:'消耗闪避牌与1灵能；取消前摇不退费，无无敌或护盾',targets:[],links:[]}};
  }
- dodge(id,x,y){
-  const p=this.dodgePreview(id,x,y);if(!p.valid)return this.fail(p.reason);const u=p.caster;
+ dodge(id,x,y,slot){
+  const p=this.dodgePreview(id,x,y,slot);if(!p.valid)return this.fail(p.reason);const u=p.caster;
   for(const o of [...this.orders])if(o.casterId===id)this.cancelOrder(o.slot);
   const cancelled=this.pending.filter(a=>a.casterId===id&&a.stage==='windup');for(const a of cancelled)this.discard.push(a.card);this.pending=this.pending.filter(a=>!cancelled.includes(a));u.busy=null;
-  this.displace(u,p.x,p.y);u.dodgeCooldown=6;this.refill();this.message=u.name+'闪避'+(cancelled.length?' · 取消施法，灵能不退':'')+' · 6秒恢复';this.effects.push({kind:'dodge',x:u.x,y:u.y,r:24,life:.3,max:.3});return true;
+  this.energy-=1;this.hand[p.slot]=null;this.stats.played++;this.discard.push('sidestep');
+  this.displace(u,p.x,p.y);this.refill();this.message=u.name+'闪避 · 消耗1灵能与一张牌'+(cancelled.length?' · 取消施法，原费用不退':'');this.effects.push({kind:'dodge',x:u.x,y:u.y,r:24,life:.3,max:.3});return true;
  }
  pause(){if(this.phase==='battle')this.paused=!this.paused;}
  step(dt){

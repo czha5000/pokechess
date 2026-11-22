@@ -3,7 +3,7 @@ function bootBattleApp(){
 const {Game,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
 const $=id=>document.getElementById(id),canvas=$('board');
 let game=new Game(),selected=-1,aim={x:370,y:155},hover=false,mode='card',preview=null;
-game.setTactic('toxin');
+game.setTactic('tactical');
 window.wenshouCanUpdate=()=>game.phase!=='battle';
 let replacements=new Set(),shown='',acc=0,uiTime=0,toastUntil=0,toastText='',dragging=false;
 let touchMode=matchMedia('(pointer: coarse)').matches||navigator.maxTouchPoints>0,touchTargeted=false;
@@ -21,6 +21,7 @@ $('help-toggle').textContent='规则';document.querySelector('nav').prepend($('h
 function notice(s){toastText=s;toastUntil=performance.now()+2600;}
 function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
+ if(c.quickDodge)return '1灵能＋本牌 · 立即位移'+(echo?59.5:85)+' · 可拖角色触发';
  if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
  if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 孢毒1层 / 6秒':'')+(c.harvest?' · 每层孢毒追加'+n(10*game.power):'')+(c.shieldStrike?' · 消耗至多30盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.allySetupBonus?' · 同伴标记至多 +'+n(c.allySetupBonus*game.power):'')+(c.control?' · 减速35% / '+n(c.control)+'秒':'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
  if(c.type==='shield')return '区域护盾 '+n(c.amount)+' · 6 秒';
@@ -35,7 +36,7 @@ function cardDescription(c,echo=false){
 function coopDescription(c){return c.coop||(c.type==='dash'?'携同伴援盾突进至少 45，可使落点敌人暴露破绽 5 秒':c.damage?'可接力追击同伴的破绽，追加一次伤害':'为队友创造持续作战的窗口');}
 function reset(wave=0){dodgeDrag=null;dodgePreview=null;
  lockedCaster=null;cardDrag=null;replaceSkill=null;hidePicker();
- game=new Game();game.setTactic('toxin');game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
+ game=new Game();game.setTactic('tactical');game.wave=wave;selected=-1;mode='card';preview=null;shown='';acc=0;toastText='';touchTargeted=false;replacements.clear();
  $('overlay').hidden=true;$('inspect').close();$('mission-select').value=String(wave);ui();
 }
 function select(i){
@@ -87,15 +88,15 @@ function threatened(u){
 }
 function partyUI(){
  if(dodgeDrag?.portrait)return;
- const key=game.phase+'|'+(game.phase==='setup'?game.wounds.join()+game.tactic+game.activeHeroes.join():game.mains.map(u=>Math.ceil(u.hp)+':'+Math.ceil(u.shield)+':'+Math.ceil(u.dodgeCooldown)+':'+!!u.busy+':'+(u.stun>0)+':'+threatened(u)).join());
+ const key=game.hand.join()+Math.floor(game.availableEnergy)+game.damageCarry.join()+game.orders.length+game.paused+game.phase+'|'+(game.phase==='setup'?game.wounds.join()+game.tactic+game.activeHeroes.join():game.mains.map(u=>Math.ceil(u.hp)+':'+Math.ceil(u.shield)+':'+Math.ceil(u.dodgeCooldown)+':'+!!u.busy+':'+(u.stun>0)+':'+threatened(u)).join());
  if($('party').dataset.key===key)return;$('party').dataset.key=key;
  $('party').innerHTML=HEROES.map((h,i)=>{
   const u=game.mains.find(u=>u.hero===i),dead=u&&u.hp<=0;
-  const state=!game.activeHeroes.includes(i)?'候补 · 战前可换':game.phase==='setup'?(game.wounds[i]?'带伤 · 生命上限 −20%':TACTICS[game.tactic]?.roles[i]||'4 招已配备'):dead?'倒下 · 留下残响':u?Math.ceil(u.hp)+' / '+u.max+(u.shield>0?' · '+(game.wardInfo(u)?'援盾 ':'盾 ')+Math.ceil(u.shield)+' / '+Math.ceil(u.shieldTime)+'s':'')+(u.busy?' · 施法中':u.stun>0?' · 被控制':''):'';
+  const state=!game.activeHeroes.includes(i)?'候补 · 战前可换':game.phase==='setup'?(Math.ceil(game.journeyHP(i))+' / '+game.journeyMax(i)+(game.wounds[i]?' · 带伤':'')+' · 4招'):dead?'倒下 · 留下残响':u?Math.ceil(u.hp)+' / '+u.max+(u.shield>0?' · '+(game.wardInfo(u)?'援盾 ':'盾 ')+Math.ceil(u.shield)+' / '+Math.ceil(u.shieldTime)+'s':'')+(u.busy?' · 施法中':u.stun>0?' · 被控制':''):'';
   if(!game.activeHeroes.includes(i))return '';
-  const ready=u&&!dead&&u.dodgeCooldown<=0&&u.stun<=0;
+  const evade=u&&!dead?game.dodgePreview(u.id,u.x+20,u.y):null;const ready=evade?.valid;
   const danger=game.phase==='battle'&&threatened(u);
-  return '<button class="hero-status '+(dead?'fallen':'')+(danger?' threatened':'')+'" data-dodge-hero="'+i+'" '+(game.phase!=='battle'||dead?'disabled':'')+' aria-label="'+h.name+'，'+state+'。拖头像到战场闪避"><span class="hero-sigil">'+h.icon+'</span><span class="hero-copy"><b>'+h.name+'</b><small>'+state+'</small><span class="hero-health"><i style="width:'+(u?Math.max(0,u.hp/u.max)*100:100)+'%"></i></span><em>'+(danger?'危险 · ':'')+(dead?'残响支援':ready?'拖动闪避':u?.dodgeCooldown>0?'闪避 '+Math.ceil(u.dodgeCooldown)+'s':'待命')+'</em></span></button>';
+  return '<button class="hero-status '+(dead?'fallen':'')+(danger?' threatened':'')+'" data-dodge-hero="'+i+'" '+(game.phase!=='battle'||dead?'disabled':'')+' aria-label="'+h.name+'，'+state+'。拖头像到战场闪避"><span class="hero-sigil">'+h.icon+'</span><span class="hero-copy"><b>'+h.name+'</b><small>'+state+'</small><span class="hero-health"><i style="width:'+(u?Math.max(0,u.hp/u.max)*100:100)+'%"></i></span><em>'+(danger?'危险 · ':'')+(dead?'残响支援':ready?'拖动闪避 · 1费＋牌':evade?.reason||'待命')+'</em></span></button>';
  }).join('');
 }
 function ui(){
@@ -103,9 +104,9 @@ function ui(){
  document.body.dataset.phase=game.phase;
  document.body.classList.toggle('is-paused',game.paused);
  document.body.classList.toggle('is-aiming',selected>=0||!!dodgeDrag||mode==='capture');
- const threat=battle?game.units.find(u=>u.hp>0&&u.side&&u.special):null;
- $('danger').hidden=!threat;
- if(threat){const p=threat.special;$('danger-name').textContent=threat.name+' · '+p.name;$('danger-time').textContent=Math.max(0,p.wait).toFixed(1)+'s';$('danger-fill').style.width=Math.min(100,Math.max(0,1-p.wait/p.wind)*100)+'%';$('danger').classList.toggle('urgent',p.wait<.6);}
+ const intents=battle?game.units.map(u=>game.enemyIntent(u)).filter(Boolean).sort((a,b)=>Number(!!b.locked)-Number(!!a.locked)||Number(b.inRange)-Number(a.inRange)||a.readyIn-b.readyIn):[],intent=intents[0];
+ $('danger').hidden=!intent;
+ if(intent){$('danger-status').textContent=intent.locked?'落点已锁定 · 可打断':'下一次行动 · 预计';$('danger-name').textContent=intent.actor.name+' · '+intent.name;$('danger-detail').textContent=(intent.locked?'目标：':'预计目标：')+intent.targetName+' · '+(intent.damage?Math.round(intent.damage)+'伤害':'强化同伴');$('danger-time').textContent=intent.locked?Math.max(0,intent.wait).toFixed(1)+'s':intent.inRange?'≥'+intent.readyIn.toFixed(1)+'s':'接近后';$('danger-fill').style.width=(intent.locked?Math.min(100,Math.max(0,1-intent.wait/intent.wind)*100):Math.max(0,1-intent.readyIn/intent.cooldown)*100)+'%';$('danger').classList.toggle('urgent',!!intent.locked&&intent.wait<.6);$('danger').classList.toggle('forecast',!intent.locked);}
  const label={setup:'战前布阵',opening:'选择起手',battle:'实时交战',reward:'营地休整',victory:'旅程完成',defeat:'挑战失败'};
  $('phase').textContent=game.paused?'战术暂停':label[game.phase];
  $('core').textContent='灵核 '+Math.ceil(game.core.hp)+' / '+game.core.max;
@@ -142,8 +143,8 @@ function ui(){
    const p=preview;
    $('hint').textContent=c.name+' · '+(!lockedCaster&&game.casters(game.hand[selected]).units.length>1?'滑过头像选择施法者':(p?.echo?'残响 · ':'')+(p?.caster?.name||'无可用施法者'))+(p?.caster?' · 射程 '+Math.round(p.range):'');
    $('detail').textContent=p&&!p.valid?p.reason:p?.approach?p.reason:game.paused?(touchMode?'已暂停，可调整落点；点右上角继续后再确认。':'已暂停，选好落点后按空格继续。'):cardDescription(c,p?.echo)+' · 前摇 '+c.wind+' 秒'+(p?.echo?' · 残响效力 45%':'')+(touchMode?' · 拖到落点松手施放；拖回手牌取消':' · Esc 取消');
-  }else{$('hint').textContent=game.paused?'战术暂停 · 可查看手牌':'拖手牌到战场释放';$('detail').textContent='拖角色或左侧头像闪避 · 每只6秒恢复';}
-  if(dodgePreview){$('hint').textContent=dodgePreview.caster?.name+' · 拖动闪避';$('detail').textContent=dodgePreview.valid?'松手闪避 · 最远85 · 无无敌/护盾 · 6秒恢复':dodgePreview.reason;}
+  }else{$('hint').textContent=game.paused?'战术暂停 · 可查看手牌':'拖手牌到战场释放';$('detail').textContent='拖角色使用手中闪避牌 · 消耗1灵能';}
+  if(dodgePreview){$('hint').textContent=dodgePreview.caster?.name+' · 拖动闪避';$('detail').textContent=dodgePreview.valid?'松手消耗一张闪避牌与1灵能 · 无无敌/护盾':dodgePreview.reason;}
  $('energy').textContent=game.availableEnergy.toFixed(1)+' / '+game.maxEnergy+(game.reservedEnergy?'（预留 '+game.reservedEnergy+'）':'');$('energy-fill').style.width=Math.max(0,game.availableEnergy)/game.maxEnergy*100+'%';$('regen').textContent='每秒 +'+game.regen.toFixed(2);
  const spend=mode==='capture'?3:CARDS[game.hand[selected]]?.cost||0;
  $('energy-reserved').style.left=game.availableEnergy/game.maxEnergy*100+'%';$('energy-reserved').style.width=game.reservedEnergy/game.maxEnergy*100+'%';
@@ -172,15 +173,16 @@ function ui(){
  $('teamwork-state').textContent=setup||opening?(TACTICS[game.tactic]?.guide||'试试推荐配招：聚敌焚场 / 护送突袭。每张技能仍可独立使用。'):
   latest&&game.time-latest.time<5?latest.text:
   '援盾 '+game.mains.filter(u=>u.hp>0&&game.wardInfo(u)).length+' · 牵制 '+live.filter(u=>game.active(u.controlTag)).length+' · 灼烧 '+live.filter(u=>game.active(u.burn)).length+' · 破绽 '+live.filter(u=>game.active(u.breach)).length+' · 看目标倒计时接力';
- const key=game.phase+game.wave+game.wounds.join()+game.campHealUsed;
+ const key=game.phase+game.wave+game.wounds.join()+game.damageCarry.join()+game.campHealUsed;
  if(!battle)hidePicker();
  if(['reward','victory','defeat'].includes(game.phase)&&shown!==key){
   shown=key;selected=-1;mode='card';$('overlay').hidden=false;
   const stats='<p class="stats">出牌 '+game.stats.played+' · 配合 '+game.stats.cooperations+(game.activeHeroes.length===3?' · 三兽合击 '+game.stats.trios:'')+' · 收服 '+game.stats.captures+' · 治疗 '+Math.round(game.stats.healed)+'</p>';
   const captures=game.captured.length?'<p>收服记录：'+game.captured.map(u=>u.name).join('、')+'（暂未开放换队）</p>':'';
   if(game.phase==='reward'){
-   const healButtons=game.wounds.map((w,i)=>w?'<button data-heal="'+i+'" '+(game.campHealUsed?'disabled':'')+'>治疗 '+HEROES[i].name+'</button>':'').join(' ');
-   $('sheet').innerHTML='<span class="eyebrow">CAMP / '+(game.wave+1)+'</span><h2>'+game.mission.name+' · 完成</h2><p>下关主力归队、生命与灵核回满。倒下者带伤：上限 −20%。</p>'+(healButtons?'<div class="camp-heals">本营地可治疗一只：'+healButtons+'</div>':'')+'<p>选择遗物，前往下一关；阵型与配招可重新调整。</p><div class="choices">'+RELICS.filter(r=>!game.relics.includes(r.id)).map(r=>'<button data-relic="'+r.id+'"><b>'+r.name+'</b><small>'+r.desc+'</small></button>').join('')+'</div>'+stats+captures;
+   const healButtons=HEROES.map((h,i)=>(game.wounds[i]||game.damageCarry[i]>0)?'<button data-heal="'+i+'"><b>治疗 '+h.name+'</b><small>'+Math.ceil(game.journeyHP(i))+'/'+game.journeyMax(i)+'生命 → 恢复40%最大生命并清除伤势；放弃本营地遗物</small></button>':'').join('');
+   $('sheet').innerHTML='<span class="eyebrow">CAMP / '+(game.wave+1)+'</span><h2>'+game.mission.name+' · 完成</h2><p>损血带入下一关；倒下者以带伤上限的约30%生命归队。灵核重置。</p><p><strong>只选一项：治疗一只，或取得一个遗物。</strong></p><div class="choices">'+healButtons+RELICS.filter(r=>!game.relics.includes(r.id)).map(r=>'<button data-relic="'+r.id+'"><b>'+r.name+'</b><small>'+r.desc+'；保留当前损血</small></button>').join('')+'</div>'+stats+captures;
+
   }else $('sheet').innerHTML='<span class="eyebrow">'+(game.phase==='victory'?'JOURNEY COMPLETE':'TRY ANOTHER HAND')+'</span><h2>'+(game.phase==='victory'?'裂隙已封，旅程完成':'这次没能守住')+'</h2><p>'+game.message+'</p>'+stats+captures+'<button data-retry="true" class="primary">再试一局 →</button>';
  }
 }
@@ -204,7 +206,7 @@ function drawInspect(){
   return config?'<button data-skill="'+id+'" data-skill-owner="'+i+'" aria-pressed="'+equipped+'" class="'+(equipped?'selected':'reserve')+'">'+(replaceSkill?.owner===i&&replaceSkill.id===id?'待替换 · ':equipped?'携带 · ':'备用 · ')+label+'</button>':'<div class="deck-entry">'+label+'</div>';
  }).join('')+'</div></section>').join('')+(config?buildPanel():'');
 }
-function point(e){if(window.battleView)return window.battleView.point(e.clientX,e.clientY);const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
+function point(e,ground=!!dodgeDrag||!!CARDS[game.hand[selected]]?.quickDodge){if(window.battleView)return window.battleView.point(e.clientX,e.clientY,!ground);const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
 // Fixed portraits disambiguate overlapping creatures without changing dodge rules.
 $('party').addEventListener('pointerdown',e=>{
  const b=e.target.closest('[data-dodge-hero]');if(!b||b.disabled||e.button!==0||cardDrag||dodgeDrag||game.phase!=='battle')return;
@@ -216,7 +218,7 @@ function finishPortraitDodge(e,cancel=false){
  if(!dodgeDrag?.portrait||dodgeDrag.pointer!==e.pointerId)return;
  const drag=dodgeDrag,r=canvas.getBoundingClientRect();dodgeDrag=null;dodgePreview=null;
  if($('party').hasPointerCapture(e.pointerId))$('party').releasePointerCapture(e.pointerId);
- if(!cancel&&drag.moved&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){aim=point(e);game.dodge(drag.id,aim.x,aim.y);notice(game.message);}
+ if(!cancel&&drag.moved&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){aim=point(e,true);game.dodge(drag.id,aim.x,aim.y);notice(game.message);}
  else if(drag.moved)notice('已取消闪避');
  ui();
 }
@@ -260,7 +262,7 @@ canvas.addEventListener('pointerdown',e=>{
  place();
 });
 canvas.addEventListener('pointermove',e=>{aim=point(e);hover=true;if(dodgeDrag&&dodgeDrag.pointer===e.pointerId)dodgeDrag.moved ||=Math.hypot(e.clientX-dodgeDrag.client.x,e.clientY-dodgeDrag.client.y)>8;updatePreview();});
-canvas.addEventListener('pointerup',e=>{if(dodgeDrag&&dodgeDrag.pointer===e.pointerId){const drag=dodgeDrag;dodgeDrag=null;aim=point(e);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(drag.moved){const r=canvas.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){game.dodge(drag.id,aim.x,aim.y);notice(game.message);}else notice('已取消闪避');}else{selected=drag.previous;if(selected>=0)place();}dodgePreview=null;ui();return;}if(dragging){aim=point(e);dragging=false;place();}});
+canvas.addEventListener('pointerup',e=>{if(dodgeDrag&&dodgeDrag.pointer===e.pointerId){const drag=dodgeDrag;dodgeDrag=null;aim=point(e,true);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(drag.moved){const r=canvas.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){game.dodge(drag.id,aim.x,aim.y);notice(game.message);}else notice('已取消闪避');}else{selected=drag.previous;if(selected>=0)place();}dodgePreview=null;ui();return;}if(dragging){aim=point(e);dragging=false;place();}});
 canvas.addEventListener('pointercancel',()=>{dragging=false;dodgeDrag=null;dodgePreview=null;});
 canvas.addEventListener('pointerleave',()=>{if(!dragging&&!dodgeDrag&&!touchMode)hover=false;});
 canvas.addEventListener('contextmenu',e=>{e.preventDefault();selected=-1;mode='card';preview=null;lockedCaster=null;hidePicker();ui();});
@@ -273,7 +275,7 @@ document.addEventListener('click',e=>{
  if(b.dataset.tactic&&game.setTactic(b.dataset.tactic)){selected=-1;notice('已选 '+TACTICS[b.dataset.tactic].name+' · 可以调整站位，起手仍随机');ui();}
  if(b.dataset.slot!==undefined&&performance.now()>ignoreCardClick)select(+b.dataset.slot);
  if(b.dataset.caster){lockedCaster=b.dataset.caster;hidePicker();picker.querySelectorAll('[data-caster]').forEach(el=>el.classList.toggle('selected',el===b));updatePreview();ui();}
- if(b.dataset.heal!==undefined){game.healWound(+b.dataset.heal);ui();}
+ if(b.dataset.heal!==undefined&&game.healWound(+b.dataset.heal)){shown='';$('overlay').hidden=true;selected=-1;ui();}
  if(b.dataset.relic&&game.choose(b.dataset.relic)){shown='';$('overlay').hidden=true;selected=-1;ui();}
  if(b.dataset.retry)reset();
  if(b.dataset.skill){const id=b.dataset.skill,owner=+b.dataset.skillOwner;if(game.loadouts[owner].includes(id))replaceSkill={owner,id};else if(replaceSkill?.owner===owner&&game.swapSkill(owner,replaceSkill.id,id))replaceSkill=null;drawInspect();ui();}
