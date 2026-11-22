@@ -2,9 +2,10 @@
 'use strict';
 const LANES = [155, 345];
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+// Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
  venom:{owner:3,name:'孢针',icon:'芽',cost:1,range:290,r:45,wind:.2,type:'blast',single:true,damage:10,poison:1,desc:'单体10伤害 · 孢毒1层；最多3层，6秒，每层每秒2伤害',coop:'同伴直接伤害技能消耗1层孢毒，追加12伤害；普攻不消耗'},
- vine:{owner:3,name:'缠根',icon:'藤',cost:2,range:260,r:65,wind:.3,type:'blast',damage:26,pull:40,control:3,desc:'范围26伤害 · 聚拢40 · 牵制减速35%，3秒',coop:'牵制可接伊布火区，或让同伴更容易命中'},
+ vine:{owner:3,name:'缠根',icon:'藤',cost:2,range:260,r:65,wind:.3,type:'blast',damage:26,pull:40,control:3,desc:'范围26伤害 · 聚拢40 · 牵制减速35%，3秒',coop:'聚拢和减速，帮助同伴命中高费技能'},
  blossom:{owner:3,name:'共生芽',icon:'✿',cost:3,range:250,r:70,wind:.25,type:'heal',amount:12,allyShield:20,desc:'区域治疗12 · 护盾20，6秒',coop:'为同伴续航并授盾，可接位移破绽或岩獾碎甲击'},
  harvest:{owner:3,name:'毒果收割',icon:'果',cost:3,range:280,r:45,wind:.5,type:'blast',single:true,damage:45,harvest:true,desc:'单体45伤害 · 消耗全部孢毒，每层额外10伤害',coop:'自己兑现毒层，或把毒层留给同伴低费技能接力'},
  grit:{owner:4,name:'砾甲',icon:'岩',cost:1,range:220,r:55,wind:.15,type:'shield',amount:16,desc:'区域友军护盾16 · 6秒',coop:'同伴带盾位移可制造破绽；也可先给自己蓄盾'},
@@ -14,27 +15,27 @@ const CARDS = {
  waterneedle:{owner:0,name:'水针',icon:'滴',cost:1,range:250,r:40,wind:.15,type:'blast',single:true,damage:22,desc:'单体22伤害 · 低费接力',coop:'接孢毒或同伴制造的破绽，单体也有价值'},
  needle:{owner:2,name:'雷针',icon:'针',cost:1,range:280,r:40,wind:.15,type:'blast',single:true,damage:20,desc:'单体20伤害 · 不附带眩晕',coop:'低费消费同伴孢毒或破绽；打断仍需落雷'},
 
- spark:   {owner:1,name:'火种',icon:'·',cost:1,range:300,r:35,wind:.15,type:'blast',damage:12,burn:3,coop:'低费点燃，为同伴逐风准备火势',desc:'伤害 12 · 灼烧每秒 3，持续 4 秒'},
+ spark:{owner:1,name:'佯攻',icon:'闪',cost:1,range:300,r:35,wind:.15,type:'blast',single:true,damage:22,desc:'单体22伤害 · 无元素附伤',coop:'低费消费同伴孢毒或破绽；本招不生成标记'},
  tackle:  {owner:0,name:'撞击',icon:'➜',cost:2,range:210,r:60,wind:.2,type:'dash',damage:32,desc:'自身突进 · 落点伤害 32'},
- tide:    {owner:0,name:'回潮牵引',icon:'≈',cost:2,range:240,r:100,wind:.35,type:'blast',damage:34,pull:65,control:3,coop:'牵制 3 秒；同伴火区对其伤害 +35%',desc:'伤害 34 · 向落点聚拢 65 · 牵制减速 35%'},
+ tide:    {owner:0,name:'回潮牵引',icon:'≈',cost:2,range:240,r:100,wind:.35,type:'blast',damage:34,pull:65,control:3,coop:'聚拢并减速，帮助同伴命中技能',desc:'伤害 34 · 向落点聚拢 65 · 牵制减速 35%'},
  shell:   {owner:0,name:'潮汐护甲',icon:'◈',cost:2,range:240,r:95,wind:.1,type:'shield',amount:45,coop:'授予同伴援盾；同伴突进可消耗至多 20 盾制造破绽',desc:'区域友军获得 45 护盾 · 6 秒'},
  spring:  {owner:0,name:'生命图腾',icon:'✣',cost:4,range:260,r:95,wind:.4,type:'healfield',amount:4,life:6,desc:'范围每秒治疗 4 · 6 秒 · 全队同时仅1个图腾'},
  rush:    {owner:0,name:'踏浪',icon:'↗',cost:2,range:235,r:65,wind:.15,type:'dash',damage:25,shield:25,desc:'自身跃迁 · 落点伤害 25 / 护盾 25'},
  lure:    {owner:0,name:'诱饵木偶',icon:'◎',cost:1,range:265,r:175,wind:.3,type:'lure',hp:45,life:5,desc:'45 生命诱饵 · 吸引近敌 5 秒'},
- fire:    {owner:1,name:'焰弹',icon:'焰',cost:2,range:320,r:55,wind:.3,type:'blast',damage:50,burn:3,coop:'附加灼烧 4 秒；同伴逐风可扩散',desc:'目标区域伤害 50 · 灼烧每秒 3'},
- meteor:  {owner:1,name:'陨火',icon:'☄',cost:5,range:360,r:100,wind:.9,type:'blast',damage:56,centerDamage:160,centerRadius:35,desc:'中心最近单体 160 · 其余范围溅射 56 · 前摇 0.9 秒'},
- ember:   {owner:1,name:'余烬地带',icon:'♨',cost:3,range:300,r:90,wind:.4,type:'firefield',amount:12,burn:3,life:6,coop:'附加灼烧；同伴牵制中的敌人承受火区伤害 +35%',desc:'范围每秒伤害 12 · 灼烧每秒 3 · 6 秒'},
- retreat: {owner:1,name:'狐步',icon:'↶',cost:2,range:235,r:30,wind:.1,type:'dash',heal:10,desc:'自身跃迁 · 回复 10 生命'},
- snare:   {owner:1,name:'缚焰',icon:'⌁',cost:2,range:300,r:85,wind:.3,type:'blast',damage:26,stun:.9,desc:'范围伤害 26 · 定身 0.9 秒'},
+ fire:{owner:1,name:'高速星星',icon:'星',cost:2,range:320,r:55,wind:.3,type:'blast',single:true,damage:50,desc:'单体50伤害 · 无灼烧',coop:'接同伴孢毒或援盾突袭制造的破绽'},
+ meteor:{owner:1,name:'破坏光线',icon:'光',cost:5,range:360,r:100,wind:.9,type:'blast',damage:56,centerDamage:160,centerRadius:35,desc:'中心最近单体160 · 其余溅射56 · 前摇0.9秒',coop:'同伴牵制、聚拢或打断后，再投入5费；落点判定不追踪'},
+ ember:{owner:1,name:'帮助',icon:'援',cost:3,range:300,r:70,wind:.25,type:'shield',amount:55,desc:'区域友军护盾55 · 6秒 · 不叠加',coop:'给同伴援盾，接特殊位移制造破绽，或供岩獾碎甲击消耗'},
+ retreat:{owner:1,name:'电光一闪',icon:'闪',cost:2,range:235,r:30,wind:.1,type:'dash',damage:25,desc:'自身突进 · 落点25伤害 · 不回血',coop:'带同伴援盾突进至少45距离，制造破绽后交给同伴追击'},
+ snare:{owner:1,name:'咬住',icon:'牙',cost:2,range:160,r:35,wind:.3,type:'blast',single:true,damage:26,stun:.9,desc:'单体26伤害 · 打断0.9秒',coop:'短射程打断敌人大招，为同伴创造施法窗口'},
  bolt:    {owner:2,name:'落雷',icon:'ϟ',cost:3,range:330,r:80,wind:.4,type:'blast',damage:40,stun:1,desc:'范围伤害 40 · 眩晕 1 秒'},
- gale:    {owner:2,name:'逐风',icon:'彡',cost:2,range:280,r:90,wind:.3,type:'blast',damage:24,push:75,spread:100,detonate:12,coop:'接同伴灼烧爆燃 +12，并扩散到击退落点周围 100 范围，每目标一次',desc:'范围伤害 24 · 击退 75'},
+ gale:    {owner:2,name:'逐风',icon:'彡',cost:2,range:280,r:90,wind:.3,type:'blast',damage:24,push:75,spread:100,detonate:12,coop:'击退逼近的敌人保护后排，或用直接命中消费同伴孢毒与破绽',desc:'范围伤害 24 · 击退 75'},
  flight:  {owner:2,name:'掠空',icon:'↟',cost:2,range:300,r:75,wind:.15,type:'dash',shield:25,desc:'自身跃迁 · 获得 25 护盾'},
  mend:    {owner:2,name:'羽息',icon:'✧',cost:2,range:260,r:85,wind:.1,type:'heal',amount:18,desc:'区域友军立刻回复 18 生命'},
  pack:    {owner:2,name:'风狼',icon:'双',cost:4,range:250,r:38,wind:.5,type:'pack',desc:'召唤两只风狼 · 10 秒 / 最多 4 只'}
 };
 const HEROES = [
  {kind:'turtle',name:'杰尼龟',hp:270,atk:11,range:40,speed:43,icon:'◈',desc:'承伤 / 保护',skills:['tide','shell','spring','rush','lure']},
- {kind:'fox',name:'伊布',hp:135,atk:18,range:165,speed:49,icon:'焰',desc:'爆发 / 持续伤害',skills:['fire','meteor','ember','retreat','snare']},
+ {kind:'fox',name:'伊布',hp:135,atk:18,range:165,speed:49,icon:'星',desc:'普通系 / 接力追击',skills:['fire','meteor','ember','retreat','snare']},
  {kind:'bird',name:'雷隼',hp:120,atk:14,range:175,speed:58,icon:'羽',desc:'控制 / 机动支援',skills:['bolt','gale','flight','mend','pack']},
  {kind:'sprout',name:'妙蛙种子',hp:150,atk:10,range:155,speed:46,icon:'芽',desc:'孢毒 / 牵制 / 共生',skills:['venom','vine','blossom','harvest']},
  {kind:'badger',name:'岩獾',hp:245,atk:12,range:42,speed:40,icon:'岩',desc:'援盾 / 护甲转伤',skills:['grit','rockrush','shieldstrike','bulwark']}
@@ -42,16 +43,16 @@ const HEROES = [
 HEROES.forEach(h=>h.skills.push('tackle'));
 HEROES[1].skills.push('spark');HEROES[0].skills.push('waterneedle');HEROES[2].skills.push('needle');
 // Traits constrain learning; loadouts constrain normal casting.
-const requirements={venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'fire',fire:'fire',meteor:'fire',ember:'fire',snare:'fire',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
-const traitSets=[['water','turtle'],['fire','fox'],['lightning','wind','wings'],['plant','spore'],['earth']];
+const requirements={venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'normal',fire:'normal',meteor:'normal',ember:'normal',snare:'fox',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
+const traitSets=[['water','turtle'],['normal','fox'],['lightning','wind','wings'],['plant','spore'],['earth']];
 HEROES.forEach((h,i)=>h.traits=traitSets[i]);
 Object.entries(CARDS).forEach(([id,c])=>c.requires=requirements[id]||null);
 function canLearn(hero,id){return !!HEROES[hero]&&!!CARDS[id]&&HEROES[hero].skills.includes(id)&&(!CARDS[id].requires||HEROES[hero].traits.includes(CARDS[id].requires));}
 // Presets only change legal loadouts and placement. They never arrange the hand.
 const TACTICS = {
- tempo:{party:[1,3],name:'轻重配招',roles:['过牌 / 保护','点火 / 陨火终结','短跃 / 控制 / 调整手牌'],guide:'1 费火种、整备、诱饵、短跃创造机会；3–5 费重点技能兑现。过牌自动换右侧其他可用牌，无需额外选择。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
+ tempo:{party:[1,3],name:'轻重配招',roles:['承伤 / 保护','普通系 / 接力追击','控制 / 支援'],guide:'低费技能接力，高费技能兑现；正常随机抽牌。',loadouts:[['prepare','tide','shell','lure'],['spark','step','meteor','ember'],['step','gale','bolt','prepare']]},
  shared:{name:'公共撞击',roles:['撞击 / 授盾','撞击 / 追击','撞击 / 接力'],guide:'三只都带撞击：牌库有三张，任一张均可选择存活装备者。拖过头像再拖到目标。',loadouts:[['tackle','shell','tide','spring'],['tackle','fire','ember','retreat'],['tackle','bolt','gale','mend']]},
- wildfire:{name:'聚敌焚场',roles:['聚敌 / 保护','铺火 / 点燃','推回火区 / 扩散'],guide:'回潮聚敌 → 伊布铺火 → 雷隼从合适角度逐风。两只就能配合，第三只扩散火势。',loadouts:[['tide','shell','spring','lure'],['fire','ember','snare','retreat'],['gale','flight','bolt','mend']]},
+ wildfire:{name:'援盾接力',roles:['授盾 / 保护','普通系 / 突进','击退 / 保护'],guide:'同伴授盾，伊布突进制造破绽，再由同伴追击。',loadouts:[['tide','shell','spring','lure'],['fire','ember','snare','retreat'],['gale','flight','bolt','mend']]},
  escort:{name:'护送突袭',roles:['授盾 / 接应','接力追击','带盾突进 / 破甲'],guide:'杰尼龟给同伴援盾 → 雷隼掠空突进制造破绽 → 伊布直接伤害技追击。注意三者射程。',loadouts:[['shell','tide','spring','rush'],['fire','meteor','snare','retreat'],['flight','bolt','gale','mend']]}
 };
 Object.values(TACTICS).forEach(t=>{t.loadouts.push(['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']);t.roles.push('孢毒 / 共生','援盾 / 碎甲');});
@@ -62,7 +63,8 @@ const retiredSkills=['prepare','plan','step'];
 function upgradeLoadout(ids,hero){const legal=ids.filter(id=>canLearn(hero,id));const result=[];for(const id of ids){if(canLearn(hero,id)){result.push(id);continue;}const replacement=HEROES[hero].skills.find(c=>!legal.includes(c)&&!result.includes(c));if(replacement)result.push(replacement);}return result;}
 Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
 TACTICS.tempo.loadouts=[['waterneedle','tide','shell','lure'],['spark','fire','meteor','ember'],['needle','gale','bolt','mend'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']];
-TACTICS.tempo.roles=['承伤 / 保护','点燃 / 爆发','控制 / 支援'];TACTICS.tempo.guide='直接拖角色闪避（每只6秒冷却），手牌专注进攻与保护。';
+TACTICS.wildfire={...TACTICS.wildfire,name:'援盾接力',party:[0,1],guide:'杰尼龟潮汐护甲 → 伊布电光一闪突进 → 杰尼龟水针追击；至少45距离且落点命中。',loadouts:[['waterneedle','shell','tide','rush'],['spark','retreat','fire','ember'],['needle','gale','bolt','flight'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']]};
+TACTICS.tempo.roles=['承伤 / 保护','普通系 / 接力追击','控制 / 支援'];TACTICS.tempo.guide='直接拖角色闪避（每只6秒冷却），手牌专注进攻与保护。';
 TACTICS.toxin.guide='孢针 → 雷针接毒；共生芽 → 同伴特殊位移技制造破绽。直接拖角色闪避不制造破绽。';
 const RELICS = [
  {id:'power',name:'雷火铭文',desc:'所有技能伤害 +20%（残响仅结算一次）'},
@@ -91,8 +93,8 @@ const WAVE_PLANS=[
  [[0,'boss',0,760,155],[0,'regen',1,800,345],[0,'guard',0,850,95],[0,'priest',0,870,225]],
  [[0,'boss',1,760,345],[0,'ambush',0,800,155],[0,'archer',1,870,405],[0,'rage',1,850,265]]
 ];
-const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：低费点燃保持伤害。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或缚焰打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：拖角色闪避，陨火反击。'};
-Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.spread||c.pull)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
+const ENEMY_INFO={raider:'近战消耗：保护脆弱后排。',brute:'蓄力直线冲撞：侧向位移或打断。',archer:'延迟轰炸锁定落点：离开预警圈。',rage:'每8秒蓄怒强化大招：优先击破，或留控制打断。',crystal:'4秒内4次直接命中破甲：小技能配合普攻，破甲后再爆发；灼烧不计次数。',regen:'4秒未受伤开始回血：孢毒或持续进攻压制回血。',guard:'护链保护附近同伴：击杀护卫或击退拉开连接。',priest:'吟唱强化同伴下一次大招：保留落雷或咬住打断。',ambush:'标记远程主力位置后突袭：保留位移躲落点。',boss:'蓄力重锤，收招时停步停攻：拖角色闪避，高费技能反击。'};
+Object.values(CARDS).forEach(c=>{c.tags=[];if(c.poison||c.harvest)c.tags.push('孢毒');if(c.shieldStrike)c.tags.push('护甲转伤');if(c.single)c.tags.push('单体');if(c.burn)c.tags.push('点燃');if(c.stun)c.tags.push('打断');if(c.type==='dash')c.tags.push('位移');if(c.centerDamage)c.tags.push('单体爆发');if(c.type==='firefield'||c.type==='blast'&&!c.centerDamage&&!c.single)c.tags.push('范围压制');if(c.type==='shield'||c.type==='lure'||c.shield)c.tags.push('保护');if(c.type==='heal'||c.type==='healfield'||c.heal)c.tags.push('治疗');if(c.spread||c.pull||c.push)c.tags.push('协作');if(c.type==='pack')c.tags.push('召唤');});
 function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&&[2,3].includes(b.activeHeroes.length)&&new Set(b.activeHeroes).size===b.activeHeroes.length&&b.activeHeroes.every(i=>Number.isInteger(i)&&!!HEROES[i])&&Array.isArray(b.loadouts)&&[3,HEROES.length].includes(b.loadouts.length)&&b.loadouts.every((ids,i)=>Array.isArray(ids)&&ids.length===4&&new Set(ids).size===4&&ids.every(id=>canLearn(i,id)||retiredSkills.includes(id)));}
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
@@ -343,7 +345,7 @@ class Game {
    }else notes.push(!ward?'同伴援盾 + 至少 45 距离突进，可使落点敌人暴露破绽':distance(caster,point)<45?'位移至少 45 才能突袭；原地施放不会消耗援盾':'援盾已就绪；落点附近无敌人，不消耗援盾');
   }
   if(c.pull){
-   highlighted=targets;notes.push('聚拢 '+targets.length+' 个目标并牵制：同伴火区伤害 +35%');
+   highlighted=targets;notes.push('聚拢 '+targets.length+' 个目标并减速，方便同伴命中高费技能');
    for(const u of targets)links.push({from:u,to:this.shiftPoint(u,point,-c.pull*potency)});
   }
   if(c.type==='firefield'){
@@ -352,7 +354,7 @@ class Game {
   }
   if(c.spread){
    const burning=targets.filter(u=>this.active(u.burn)&&u.burn.sourceId!==caster.id);
-   highlighted=[...burning];notes.push(burning.length?'可借 '+name(burning[0].burn.sourceId)+'的火势爆燃 +'+(c.detonate*potency*this.power).toFixed(0)+' 并扩散；按箭头检查击退方向':'逐风可扩散同伴灼烧；先点燃，或将敌人推回火区');
+   highlighted=[...burning];notes.push(burning.length?'可借 '+name(burning[0].burn.sourceId)+'的火势爆燃 +'+(c.detonate*potency*this.power).toFixed(0)+' 并扩散；按箭头检查击退方向':'击退保护同伴，或消费同伴孢毒与破绽；按箭头检查方向');
    for(const u of targets)links.push({from:u,to:this.shiftPoint(u,caster,c.push*potency)});
    const receivers=new Set();
    for(const origin of burning){const landing=this.shiftPoint(origin,caster,c.push*potency);for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==origin.id)){
