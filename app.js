@@ -1,4 +1,4 @@
-(() => {
+function bootBattleApp(){
 'use strict';
 const {Game,CARDS,HEROES,TACTICS,RELICS,distance,validBuild}=window.DeployGame;
 const $=id=>document.getElementById(id),canvas=$('board');
@@ -118,7 +118,7 @@ function ui(){
  $('tactics').hidden=!setup;$('party-picker').hidden=!setup;$('party-mode').value=String(game.activeHeroes.length);for(let j=0;j<3;j++){const el=$('roster-'+j);el.parentElement.hidden=j>=game.activeHeroes.length;el.value=String(game.activeHeroes[j]??0);for(const option of el.options)option.disabled=game.activeHeroes.includes(+option.value)&&+option.value!==game.activeHeroes[j];}
  document.querySelectorAll('[data-tactic]').forEach(b=>{const on=b.dataset.tactic===game.tactic;b.classList.toggle('selected',on);b.setAttribute('aria-pressed',String(on));});
  if(setup)$('mission-select').value=String(game.wave);
- $('begin').hidden=!(setup||opening);$('begin').disabled=setup&&game.activeHeroes.some(i=>!game.placed[i]);
+ $('begin').hidden=!(setup||opening);$('begin').disabled=setup&&(canvas.dataset.ready!=='true'||game.activeHeroes.some(i=>!game.placed[i]));
  $('begin').textContent=opening?(replacements.size?'换 '+replacements.size+' 张并开战 →':'保留起手并开战 →'):'查看起手 →';
  $('pause').disabled=!battle;$('pause').textContent=game.paused?'继续 · 空格':'暂停 · 空格';
  if(touchMode)$('pause').textContent=game.paused?'继续战斗':'暂停思考';
@@ -204,7 +204,7 @@ function drawInspect(){
   return config?'<button data-skill="'+id+'" data-skill-owner="'+i+'" aria-pressed="'+equipped+'" class="'+(equipped?'selected':'reserve')+'">'+(replaceSkill?.owner===i&&replaceSkill.id===id?'待替换 · ':equipped?'携带 · ':'备用 · ')+label+'</button>':'<div class="deck-entry">'+label+'</div>';
  }).join('')+'</div></section>').join('')+(config?buildPanel():'');
 }
-function point(e){const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
+function point(e){if(window.battleView)return window.battleView.point(e.clientX,e.clientY);const r=canvas.getBoundingClientRect(),s=Math.min(r.width/1000,r.height/500);return {x:(e.clientX-r.left-(r.width-1000*s)/2)/s,y:(e.clientY-r.top-(r.height-500*s)/2)/s};}
 // Fixed portraits disambiguate overlapping creatures without changing dodge rules.
 $('party').addEventListener('pointerdown',e=>{
  const b=e.target.closest('[data-dodge-hero]');if(!b||b.disabled||e.button!==0||cardDrag||dodgeDrag||game.phase!=='battle')return;
@@ -249,7 +249,7 @@ $('hand').addEventListener('pointerup',e=>finishDrag(e));
 $('hand').addEventListener('pointercancel',e=>finishDrag(e,true));
 canvas.addEventListener('pointerdown',e=>{
  if(e.button!==0||cardDrag||dodgeDrag)return;aim=point(e);hover=true;canvas.focus({preventScroll:true});
- if(game.phase==='battle'&&mode!=='capture'){const u=game.mains.filter(u=>u.hp>0&&distance(u,aim)<36).sort((a,b)=>distance(a,aim)-distance(b,aim))[0];if(u){e.preventDefault();dodgeDrag={id:u.id,pointer:e.pointerId,start:{...aim},previous:selected,moved:false};selected=-1;preview=null;hidePicker();canvas.setPointerCapture(e.pointerId);updatePreview();ui();return;}}
+ if(game.phase==='battle'&&mode!=='capture'){const picked=window.battleView?.hero(e.clientX,e.clientY);const u=game.mains.find(u=>u.hp>0&&u.id===picked)||game.mains.filter(u=>u.hp>0&&distance(u,aim)<36).sort((a,b)=>distance(a,aim)-distance(b,aim))[0];if(u){e.preventDefault();aim={x:u.x,y:u.y};dodgeDrag={id:u.id,pointer:e.pointerId,start:{...aim},client:{x:e.clientX,y:e.clientY},previous:selected,moved:false};selected=-1;preview=null;hidePicker();canvas.setPointerCapture(e.pointerId);updatePreview();ui();return;}}
  if(e.pointerType==='touch'&&game.phase==='battle'&&mode==='capture'){
   touchMode=true;document.documentElement.classList.add('touch-ui');touchTargeted=true;updatePreview();ui();return;
  }
@@ -259,7 +259,7 @@ canvas.addEventListener('pointerdown',e=>{
  }
  place();
 });
-canvas.addEventListener('pointermove',e=>{aim=point(e);hover=true;if(dodgeDrag&&dodgeDrag.pointer===e.pointerId)dodgeDrag.moved ||=distance(aim,dodgeDrag.start)>12;updatePreview();});
+canvas.addEventListener('pointermove',e=>{aim=point(e);hover=true;if(dodgeDrag&&dodgeDrag.pointer===e.pointerId)dodgeDrag.moved ||=Math.hypot(e.clientX-dodgeDrag.client.x,e.clientY-dodgeDrag.client.y)>8;updatePreview();});
 canvas.addEventListener('pointerup',e=>{if(dodgeDrag&&dodgeDrag.pointer===e.pointerId){const drag=dodgeDrag;dodgeDrag=null;aim=point(e);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(drag.moved){const r=canvas.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){game.dodge(drag.id,aim.x,aim.y);notice(game.message);}else notice('已取消闪避');}else{selected=drag.previous;if(selected>=0)place();}dodgePreview=null;ui();return;}if(dragging){aim=point(e);dragging=false;place();}});
 canvas.addEventListener('pointercancel',()=>{dragging=false;dodgeDrag=null;dodgePreview=null;});
 canvas.addEventListener('pointerleave',()=>{if(!dragging&&!dodgeDrag&&!touchMode)hover=false;});
@@ -314,7 +314,9 @@ function frame(now,delta){
 ui();
 try{
  const renderer=window.createBattleRenderer(canvas,frame,()=>({game,selected,aim,hover,preview,mode,touchMode,dodgePreview}),message=>{if(game.phase==='battle')game.paused=true;dodgeDrag=null;dodgePreview=null;notice(message);ui();});
+ window.wenshouRenderDiagnostics=renderer.diagnostics;
  window.addEventListener('pagehide',e=>{if(!e.persisted)renderer.destroy();},{once:true});
 }catch(error){$('hint').textContent='战场加载失败，请刷新重试';$('detail').textContent=error.message;$('begin').disabled=true;console.error(error);}
-})();
+}
+if(window.createBattleRenderer)bootBattleApp();else window.addEventListener('battle-renderer-ready',bootBattleApp,{once:true});
 

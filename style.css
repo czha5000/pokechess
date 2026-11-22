@@ -111,6 +111,16 @@ body.is-paused #pause{background:#d9c28b;color:#152b28;border-color:#e9d9ad}
 @media(max-width:740px) and (orientation:landscape){body:not([data-phase="setup"]) #energy-budget{display:none}body:not([data-phase="setup"]) .status #wave{max-width:110px;overflow:hidden;white-space:nowrap}body:not([data-phase="setup"]) header h1{font-size:12px}body:not([data-phase="setup"]) .card{padding:5px}body:not([data-phase="setup"]) .card b{font-size:11px}}
 body.is-aiming:not([data-phase="setup"]) .instruction #detail{display:block;color:#e9ddbc;line-height:1.4}
 body.is-paused #pause{background:#d9c28b!important;color:#152b28!important}
+#board[data-engine="three"]{object-fit:fill;display:block;width:100%!important;height:100%!important}
+.world-labels{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:2}
+.world-unit,.world-float{position:absolute;left:0;top:0;will-change:transform;pointer-events:none;white-space:nowrap;text-align:center}
+.world-unit{width:68px;text-shadow:0 1px 3px #142826,0 0 4px #142826;color:#f6fff0;font-size:10px;line-height:1.25}
+.world-unit b{font-weight:600;font-size:10px;display:block;margin-bottom:3px}.world-unit>i{display:block;height:4px;background:#263c36d9;border-radius:2px;box-shadow:0 0 0 1px #112b2566;overflow:hidden}.world-unit em{display:block;height:100%;background:#a9f1bd}.world-unit.enemy em{background:#f4af8c}.world-unit small{display:block;font-size:9px;color:#fff4b7;margin-top:2px}
+.world-float{font-size:11px;font-weight:600;text-shadow:0 1px 3px #142826,0 0 4px #142826;color:#f4ffea}.world-float.damage{font-size:14px;color:#fff0ce}.world-float.danger{position:absolute;width:auto;padding:3px 6px;background:#592c28d9;border:1px solid #f3b496;border-radius:4px;font-size:11px;box-shadow:none}.world-float.gold{color:#ffe4a9}.world-float.heal{color:#c1ffd0}
+.world-loading{position:absolute;inset:0;z-index:9;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:9px;background:#18393b75;backdrop-filter:blur(4px);color:#fff2ce;text-shadow:0 1px 8px #173c39}.world-loading b{font-size:20px;letter-spacing:2px}.world-loading span{font-size:12px}
+.world-float.danger{right:auto;bottom:auto;top:0;left:0}
+body:not([data-phase="setup"]) .field:has(#board[data-engine="three"]){border-color:#8aa899;background:#badbd8}
+@media(max-height:550px){.world-unit{width:54px}.world-unit b{font-size:9px}.world-unit small{font-size:8px}.world-float{font-size:10px}.world-unit>i{height:3px}}
 .party .hero-status.threatened{border-color:#ff977c;background:linear-gradient(130deg,#57312f,#2b262b)}.hero-status.threatened .hero-copy em{color:#ffc6a8}
 nav #help-toggle{padding:4px 8px;min-height:28px;border:1px solid var(--line);border-radius:7px}
 body[data-phase="setup"] main{max-width:1280px;height:100dvh;display:grid;grid-template-columns:minmax(0,1fr) 330px;grid-template-rows:54px 26px minmax(0,1fr);gap:8px 16px;padding:14px 18px}
