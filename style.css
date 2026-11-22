@@ -173,3 +173,11 @@ body:not([data-phase="setup"]) .card b{font-size:12px;line-height:16px;margin:0;
 body:not([data-phase="setup"]) .card .cost{z-index:1;top:5px;right:6px}
 .deck-entry .skill-art{width:64px;height:64px;float:left;margin:0 10px 5px 0}
 @media(orientation:landscape) and (max-height:550px){body:not([data-phase="setup"]) .card{padding:3px 6px;min-height:70px}body:not([data-phase="setup"]) .card .skill-art{height:40px}body:not([data-phase="setup"]) .card b{font-size:11px;line-height:14px}}
+
+/* v32 loadout workspace */
+#inspect{width:min(960px,96vw);max-width:96vw;max-height:94dvh}#inspect .dialog-head{position:sticky;top:0;z-index:2;background:#1e3233;padding:8px 0}
+.loadout-tabs{display:flex;gap:6px;overflow:auto;padding:5px 0}.loadout-tabs button{flex-shrink:0;min-height:44px}.loadout-tabs small{display:block;font-size:10px;color:#b5c6b7}.loadout-tabs .selected{border-color:#e5c883;background:#415447}.loadout-note{color:#a7d9b0;font-size:12px}
+.loadout-slots,.loadout-options{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}.loadout-tile{position:relative;min-width:0;text-align:left;padding:8px;background:#172a2d}.loadout-tile .skill-art{width:100%;height:64px;display:block}.loadout-tile b,.loadout-tile small{display:block}.loadout-tile small{font-size:11px;color:#b5c6b7;margin-top:5px}.loadout-tile .loadout-cost{position:absolute;right:6px;top:6px;font-size:11px;color:#e5c883}.loadout-tile.chosen{border:2px solid #e5c883;background:#3d4c3e}.loadout-slots{border-bottom:1px solid #49615b;padding-bottom:14px}.loadout-options .loadout-tile{border-style:dashed}
+@media(max-width:700px){.loadout-options{grid-template-columns:repeat(2,minmax(0,1fr))}.loadout-slots .loadout-tile small{font-size:10px}.loadout-tile{padding:5px}.loadout-tabs button{font-size:12px;padding:6px}}
+
+#inspect{padding:0}#inspect .dialog-head{margin:0;padding:10px 16px;top:0;border-bottom:1px solid #49615b}#inspect-body{padding:0 16px 16px}

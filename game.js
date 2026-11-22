@@ -51,7 +51,7 @@ const HEROES = [
  {kind:'pikachu',name:'皮卡丘',hp:125,atk:12,range:155,speed:58,icon:'电',desc:'电系 / 控制接力',skills:['needle','thunderwave','electroball','voltswitch','bolt']},
  {kind:'gengar',name:'耿鬼',hp:145,atk:14,range:150,speed:48,icon:'影',desc:'幽灵 / 条件爆发',skills:['shadowpin','shadowball','hex','substitute']}
 ];
-HEROES.forEach(h=>h.skills.push('tackle','sidestep'));
+HEROES.forEach(h=>h.skills.push('tackle'));
 HEROES[1].skills.push('spark');HEROES[0].skills.push('waterneedle');HEROES[2].skills.push('needle');
 // Traits constrain learning; loadouts constrain normal casting.
 const requirements={thunderwave:'lightning',electroball:'lightning',voltswitch:'lightning',shadowpin:'ghost',shadowball:'ghost',hex:'ghost',substitute:'ghost',venom:'spore',vine:'plant',blossom:'plant',harvest:'spore',grit:'earth',rockrush:'earth',shieldstrike:'earth',bulwark:'earth',waterneedle:'water',needle:'lightning',spark:'normal',fire:'normal',meteor:'normal',ember:'normal',snare:'fox',tide:'water',shell:'water',spring:'water',rush:'water',lure:'turtle',retreat:'fox',bolt:'lightning',gale:'wind',flight:'wings',mend:'wings',pack:'wind'};
@@ -70,19 +70,21 @@ Object.values(TACTICS).forEach(t=>{t.loadouts.push(['venom','vine','blossom','st
 TACTICS.shared.loadouts[3]=['tackle','venom','blossom','vine'];TACTICS.shared.loadouts[4]=['tackle','grit','shieldstrike','bulwark'];TACTICS.shared.guide='上场精灵都装备撞击，任意撞击牌可选存活装备者；同伴授盾后突进，再由另一只追击。';
 TACTICS.toxin={name:'孢毒接力',roles:[],party:[2,3],guide:'妙蛙种子孢针 → 雷隼雷针消费毒层；共生芽 → 短跃制造破绽 → 同伴追击。',loadouts:[['waterneedle','tide','shell','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
 TACTICS.armor={name:'援盾碎甲',roles:[],party:[0,4],guide:'杰尼龟护甲 → 岩獾碎甲击；或带盾滚岩突袭 → 杰尼龟水针追击。',loadouts:[['waterneedle','shell','tide','step'],['spark','fire','meteor','step'],['needle','gale','bolt','step'],['venom','vine','blossom','step'],['grit','rockrush','shieldstrike','step']]};
-const retiredSkills=['prepare','plan','step'];
+const retiredSkills=['prepare','plan','step','sidestep'];
 function upgradeLoadout(ids,hero){const legal=ids.filter(id=>canLearn(hero,id));const result=[];for(const id of ids){if(canLearn(hero,id)){result.push(id);continue;}const replacement=HEROES[hero].skills.find(c=>!legal.includes(c)&&!result.includes(c));if(replacement)result.push(replacement);}return result;}
 Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
 TACTICS.tempo.loadouts=[['waterneedle','tide','shell','lure'],['spark','fire','meteor','ember'],['needle','gale','bolt','mend'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']];
 TACTICS.wildfire={...TACTICS.wildfire,name:'援盾接力',party:[0,1],guide:'杰尼龟潮汐护甲 → 伊布电光一闪突进 → 杰尼龟水针追击；至少45距离且落点命中。',loadouts:[['waterneedle','shell','tide','rush'],['spark','retreat','fire','ember'],['needle','gale','bolt','flight'],['venom','vine','blossom','harvest'],['grit','rockrush','shieldstrike','bulwark']]};
-TACTICS.tempo.roles=['承伤 / 保护','普通系 / 接力追击','控制 / 支援'];TACTICS.tempo.guide='本配招偏进攻；若需要拖角色闪避，请在配招中带入公共闪避牌，并保留1灵能。';
+TACTICS.tempo.roles=['承伤 / 保护','普通系 / 接力追击','控制 / 支援'];TACTICS.tempo.guide='本配招偏进攻；拖角色闪避只需保留1灵能。';
 TACTICS.toxin.guide='孢针 → 雷针接毒；共生芽 → 同伴特殊位移技制造破绽。直接拖角色闪避不制造破绽。';
 // Extend existing presets without changing their established parties or hand randomness.
 Object.values(TACTICS).forEach(t=>{for(let i=t.loadouts.length;i<HEROES.length;i++)t.loadouts.push(HEROES[i].skills.slice(0,4));});
 TACTICS.voltghost={name:'电影接力',party:[5,6],roles:[],guide:'耿鬼影缚 → 皮卡丘电球；皮卡丘电磁波 → 耿鬼祸不单行。只有同伴标记能加成，留灵能应对大招。',loadouts:HEROES.map(h=>h.skills.slice(0,4))};
 TACTICS.venomhex={name:'毒影追击',party:[3,6],roles:[],guide:'妙蛙种子孢针 → 耿鬼暗影球低费接毒，或积攒4费祸不单行；替身争取施法窗口。',loadouts:HEROES.map(h=>h.skills.slice(0,4))};
 TACTICS.tactical={name:'攻防取舍',party:[1,3],roles:[],guide:'护盾、输出和闪避共享灵能。拖角色使用手中闪避牌；预留1费与手牌，或选择承伤抢杀。损血带到下关，营地治疗与遗物二选一。',loadouts:HEROES.map(h=>[...h.skills.slice(0,3),'sidestep'])};
-TACTICS.tactical.loadouts[0]=['waterneedle','shell','tide','sidestep'];TACTICS.tactical.loadouts[1]=['spark','fire','meteor','sidestep'];
+TACTICS.tactical.loadouts[0]=['waterneedle','shell','tide','rush'];TACTICS.tactical.loadouts[1]=['spark','fire','meteor','ember'];
+Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
+TACTICS.tactical.guide='输出、防御和闪避共享灵能。闪避只耗1灵能，不占配招或手牌；损血带到下关。';
 const RELICS = [
  {id:'power',name:'雷火铭文',desc:'所有技能伤害 +20%（残响仅结算一次）'},
  {id:'flow',name:'灵能泉眼',desc:'灵能恢复从每秒 1 提高至 1.25'},
@@ -598,19 +600,19 @@ class Game {
  escape(id){const p=this.escapePreview(id);return p.valid?this.dodge(id,p.x,p.y,p.slot):this.fail(p.reason);}
  dodgePreview(id,x,y,preferredSlot){
   const u=this.mains.find(u=>u.id===id);if(!u||u.hp<=0)return {valid:false,reason:'角色已离场。'};
-  const slot=preferredSlot??this.hand.findIndex((c,i)=>c==='sidestep'&&!this.orderForSlot(i)),echo=this.casters('sidestep').echo;
+  const slot=-1,echo=false;
   const range=85*(echo?.7:1);if(!Number.isFinite(x)||!Number.isFinite(y))return {valid:false,reason:'无效落点。',caster:u,x:u.x,y:u.y};
   const d=distance(u,{x,y}),scale=d>range?range/d:1,point={x:u.x+(x-u.x)*scale,y:u.y+(y-u.y)*scale};let reason='';
   const ownReserve=this.orders.filter(o=>o.casterId===id).reduce((n,o)=>n+CARDS[o.card].cost,0);
-  if(this.phase!=='battle')reason='战斗中才能闪避。';else if(this.paused)reason='已暂停，继续后再拖动。';else if(u.stun>0)reason='被控制时不能闪避。';else if(!this.casters('sidestep').units.includes(u))reason='该角色未装备闪避。';else if(slot<0||this.hand[slot]!=='sidestep'||this.orderForSlot(slot))reason='手中没有可用闪避牌。';else if(this.availableEnergy+ownReserve<1)reason='闪避需要1点灵能。';else if(d<12)reason='拖出方向再松手闪避。';else if(!this.valid(point.x,point.y))reason='落点必须是陆地或桥面。';
-  return {...point,caster:u,casterId:u.id,valid:!reason,reason,range,slot,card:'sidestep',echo,coop:{text:'消耗闪避牌与1灵能；取消前摇不退费，无无敌或护盾',targets:[],links:[]}};
+  if(this.phase!=='battle')reason='战斗中才能闪避。';else if(this.paused)reason='已暂停，继续后再拖动。';else if(u.stun>0)reason='被控制时不能闪避。';else if(this.availableEnergy+ownReserve<1)reason='闪避需要1点灵能。';else if(d<12)reason='拖出方向再松手闪避。';else if(!this.valid(point.x,point.y))reason='落点必须是陆地或桥面。';
+  return {...point,caster:u,casterId:u.id,valid:!reason,reason,range,slot,card:'sidestep',echo,coop:{text:'仅消耗1灵能；取消前摇不退费，无无敌或护盾',targets:[],links:[]}};
  }
  dodge(id,x,y,slot){
   const p=this.dodgePreview(id,x,y,slot);if(!p.valid)return this.fail(p.reason);const u=p.caster;
   for(const o of [...this.orders])if(o.casterId===id)this.cancelOrder(o.slot);
   const cancelled=this.pending.filter(a=>a.casterId===id&&a.stage==='windup');for(const a of cancelled)this.discard.push(a.card);this.pending=this.pending.filter(a=>!cancelled.includes(a));u.busy=null;
-  this.energy-=1;this.hand[p.slot]=null;this.stats.played++;this.discard.push('sidestep');
-  this.displace(u,p.x,p.y);this.refill();this.message=u.name+'闪避 · 消耗1灵能与一张牌'+(cancelled.length?' · 取消施法，原费用不退':'');this.effects.push({kind:'dodge',x:u.x,y:u.y,r:24,life:.3,max:.3});return true;
+  this.energy-=1;this.stats.dodges=(this.stats.dodges||0)+1;
+  this.displace(u,p.x,p.y);this.message=u.name+'闪避 · 消耗1灵能'+(cancelled.length?' · 取消施法，原费用不退':'');this.effects.push({kind:'dodge',x:u.x,y:u.y,r:24,life:.3,max:.3});return true;
  }
  pause(){if(this.phase==='battle')this.paused=!this.paused;}
  step(dt){
