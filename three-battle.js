@@ -96,12 +96,13 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   source.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material]){materials.add(m);if(m.map)textures.add(m.map);m.roughness=Math.max(.45,m.roughness||0);}}});
   templates.set(kind,normalized);loading.querySelector('span').textContent='载入角色模型 · '+(++loaded)+' / 6';
  })).then(()=>{if(disposed)return;ready=true;canvas.dataset.ready='true';loading.remove();}).catch(error=>{loading.innerHTML='<b>3D 模型加载未完成</b><span>请刷新页面重试</span>';console.error(error);});
- const ringGeo=geo(new THREE.RingGeometry(.96,1,64)),diskGeo=geo(new THREE.CircleGeometry(1,64)),orbGeo=geo(new THREE.SphereGeometry(1,12,8));
+ const corridorGeo=geo(new THREE.PlaneGeometry(1,1));
+ const ringGeo=geo(new THREE.RingGeometry(.92,1,64)),diskGeo=geo(new THREE.CircleGeometry(1,64)),orbGeo=geo(new THREE.SphereGeometry(1,12,8));
  function effect(key,type,x,y,r,c,opacity=.9,h=.045){
   let o=effects.get(key);
   if(!o){o=new THREE.Mesh(type==='ring'?ringGeo:type==='disk'?diskGeo:type==='orb'?orbGeo:cylinder,basic(c,opacity));o.castShadow=false;o.renderOrder=6;effects.set(key,o);scene.add(o);}
   o.geometry=type==='ring'?ringGeo:type==='disk'?diskGeo:type==='orb'?orbGeo:cylinder;
-  o.seen=true;o.visible=true;o.position.copy(world(x,y,h));o.scale.setScalar(Math.max(.001,r/WORLD));o.rotation.set(type==='orb'?0:-Math.PI/2,0,0);o.material.color.set(c);o.material.opacity=opacity;o.material.transparent=true;return o;
+  o.seen=true;o.visible=true;o.position.copy(world(x,y,h));o.scale.setScalar(Math.max(.001,r/WORLD));o.rotation.set(type==='orb'?0:-Math.PI/2,0,0);o.material.color.set(c);o.material.opacity=opacity;o.material.transparent=true;o.material.depthTest=!(key.includes('warning-edge')||key.includes('start-edge')||key.includes('edge-1')||key.includes('edge1'));return o;
  }
  function beam(key,a,b,c,opacity=.7,width=.014){const from=world(a.x,a.y,a.h??.055),to=world(b.x,b.y,b.h??.055),d=to.clone().sub(from);const o=effect(key,'beam',0,0,1,c,opacity);o.position.copy(from).add(to).multiplyScalar(.5);o.quaternion.setFromUnitVectors(new THREE.Vector3(0,1,0),d.clone().normalize());o.scale.set(width,Math.max(.001,d.length()),width);}
  function project(x,y,h=0){const p=world(x,y,h).project(camera);return {x:(p.x+1)/2*viewW,y:(1-p.y)/2*viewH,visible:p.z>-1&&p.z<1};}
@@ -200,22 +201,29 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
    else for(const u of game.units.filter(u=>u.hp>0)){if(u.kind==='seal'){effect(u.id,'orb',u.x,u.y,35,'#d896d7',.85,.45);label('seal','封印 '+Math.ceil(u.hp),u.x,u.y,.96,'danger');}else actor(u,game);}
   }
   if(game.wave===1){const m=game.mission;effect('objective','ring',m.x,m.y,m.r,'#ffe49f');effect('objective-fill','disk',m.x,m.y,m.r,'#ffe49f',.12);label('objective-label','风眼 '+(game.control||0).toFixed(1)+' / 14s',m.x,m.y,.1,'gold');}
+  const dangerActive=game.units.some(u=>u.hp>0&&u.side&&u.special?.damage>0);
   for(const u of game.units.filter(u=>u.hp>0)){
    if(u.trait==='guard'){const t=game.units.find(t=>t.id===u.guardTarget&&t.hp>0);if(t&&game.guardFor(t)===u)beam(u.id+'link',{...u,h:.35},{...t,h:.35},'#8fe4ff',.8,.025);}
    if(game.active(u.breach))effect(u.id+'breach','ring',u.x,u.y,37,'#ffe89b');
    const p=u.special;if(!p)continue;
-   effect(u.id+'warning','disk',p.x,p.y,p.r,p.kind==='chant'?'#bda2fa':'#ff634d',.36,.065);effect(u.id+'warning-edge','ring',p.x,p.y,p.r,'#ffe0b1',.95,.07);
-   if(p.kind==='charge')beam(u.id+'charge',p.from,p,'#f06c59',.34,p.r/WORLD);
-   label(u.id+'windup',p.name+' '+Math.max(0,p.wait).toFixed(1)+'s',u.x,u.y,(heights[u.kind]||.7)+.45,'danger');
+   effect(u.id+'warning','disk',p.x,p.y,p.r,p.kind==='chant'?'#bda2fa':'#ff2346',.46,.065);effect(u.id+'warning-edge','ring',p.x,p.y,p.r,'#ff2346',1,.07);
+   if(p.kind==='charge'){
+    const dx=p.x-p.from.x,dy=p.y-p.from.y,len=Math.hypot(dx,dy),nx=-dy/(len||1)*p.r,ny=dx/(len||1)*p.r;
+    const corridor=effect(u.id+'corridor','disk',(p.from.x+p.x)/2,(p.from.y+p.y)/2,1,'#ff2346',.46,.066);corridor.geometry=corridorGeo;corridor.rotation.set(-Math.PI/2,0,-Math.atan2(dy,dx));corridor.scale.set(len/WORLD,2*p.r/WORLD,1);
+    effect(u.id+'start','disk',p.from.x,p.from.y,p.r,'#ff2346',.46,.065);
+    for(const sign of [-1,1])beam(u.id+'edge'+sign,{x:p.from.x+nx*sign,y:p.from.y+ny*sign},{x:p.x+nx*sign,y:p.y+ny*sign},'#ff2346',1,.025);
+    effect(u.id+'start-edge','ring',p.from.x,p.from.y,p.r,'#ff2346',1,.07);
+   }
+   label(u.id+'impact',p.name+' · '+Math.max(0,p.wait).toFixed(1)+'s',p.x,p.y,.12,'danger');
   }
   game.fields.forEach((f,i)=>{const heal=f.kind==='healfield';effect('field'+i,'disk',f.x,f.y,f.r,heal?'#93e6ab':'#ff984f',.23);effect('field-edge'+i,'ring',f.x,f.y,f.r,heal?'#c2f8cf':'#ffc77d');label('field-label'+i,(heal?'恢复':'火区')+' '+Math.ceil(f.life)+'s',f.x,f.y,.12,heal?'heal':'gold');});
   function route(key,path){if(!path)return;for(let i=1;i<path.length;i++)beam(key+i,path[i-1],path[i],'#c3f4ff',.8,.012);const end=path[path.length-1];if(end){effect(key+'end','ring',end.x,end.y,17,'#c3f4ff');label(key+'text','施法位置',end.x,end.y,.12);}}
   for(const o of game.orders)route(o.id,o.path);if(preview?.approach&&hover)route('preview',preview.path);
-  for(const p of game.pending){const c=window.DeployGame.CARDS[p.card],u=game.mains.find(u=>u.id===p.casterId);effect(p.id+'target','ring',p.x,p.y,p.r,'#f7d89c',.6);if(p.stage==='windup'&&u){effect(p.id+'caster','ring',u.x,u.y,33,'#fff3c0');label(p.id+'text',c.name,u.x,u.y,(heights[u.kind]||.7)+.36,'gold');}else if(p.from){const t=1-clamp(p.wait/p.total,0,1);effect(p.id+'bolt','orb',p.from.x+(p.x-p.from.x)*t,p.from.y+(p.y-p.from.y)*t,8,'#ffe19f',1,.35+Math.sin(t*Math.PI)*.3);}}
-  game.effects.forEach((f,i)=>{const a=clamp(f.life/f.max,0,1);if(f.kind==='text')label('fx'+i,f.text,f.x,f.y,.9+(1-a)*.3,'damage',a);else if(f.kind==='line')beam('fx'+i,{x:f.x,y:f.y,h:.3},{x:f.tx,y:f.ty,h:.3},f.side?'#ffc4ac':'#edffcc',a,.015);else{effect('fx'+i,'ring',f.x,f.y,f.r*(1.3-a*.3),f.kind==='enemy-impact'?'#ff795f':'#ffe4a7',a,.085);if(f.text)label('fxlabel'+i,f.text,f.x,f.y,.65,'gold',a);}});
+  for(const p of game.pending){const c=window.DeployGame.CARDS[p.card],u=game.mains.find(u=>u.id===p.casterId);effect(p.id+'target','ring',p.x,p.y,p.r,'#8fe4ff',dangerActive?.2:.6);if(p.stage==='windup'&&u){effect(p.id+'caster','ring',u.x,u.y,33,'#fff3c0');label(p.id+'text',c.name,u.x,u.y,(heights[u.kind]||.7)+.36,'gold');}else if(p.from){const t=1-clamp(p.wait/p.total,0,1);effect(p.id+'bolt','orb',p.from.x+(p.x-p.from.x)*t,p.from.y+(p.y-p.from.y)*t,8,'#ffe19f',1,.35+Math.sin(t*Math.PI)*.3);}}
+  game.effects.forEach((f,i)=>{if(dangerActive&&['text','line'].includes(f.kind))return;const a=clamp(f.life/f.max,0,1)*(dangerActive?.3:1);if(f.kind==='text')label('fx'+i,f.text,f.x,f.y,.9+(1-a)*.3,'damage',a);else if(f.kind==='line')beam('fx'+i,{x:f.x,y:f.y,h:.3},{x:f.tx,y:f.ty,h:.3},f.side?'#ffc4ac':'#edffcc',a,.015);else{effect('fx'+i,'ring',f.x,f.y,f.r*(1.3-a*.3),f.kind==='enemy-impact'?'#ff795f':'#ffe4a7',a,.085);if(f.text)label('fxlabel'+i,f.text,f.x,f.y,.65,'gold',a);}});
   if(mode==='capture'){for(const u of game.units.filter(u=>u.side&&u.hp>0&&u.capturable)){effect(u.id+'capture','ring',u.x,u.y,35,'#ffe3a2');label(u.id+'capturetext',u.hp/u.max<=.5?Math.round(game.capturePreview(u.id).probability*100)+'%':'需削弱',u.x,u.y,(heights[u.kind]||.7)+.3,'gold');}}
   else if(selected>=0&&hover&&['battle','setup'].includes(game.phase)){
-   const setup=game.phase==='setup',c=window.DeployGame.CARDS[game.hand[selected]],valid=setup?game.valid(aim.x,aim.y,'home'):preview?.valid,col=valid?'#ffe3a6':'#ff826a';
+   const setup=game.phase==='setup',c=window.DeployGame.CARDS[game.hand[selected]],valid=setup?game.valid(aim.x,aim.y,'home'):preview?.valid,col=valid?'#8fffe1':'#a09aae';
    effect('aim','ring',aim.x,aim.y,setup?32:c?.r||32,col);effect('aim-fill','disk',aim.x,aim.y,setup?32:c?.r||32,col,.12);if(c?.centerRadius&&!setup)effect('aim-center','ring',aim.x,aim.y,c.centerRadius,'#fff2d2');
    if(preview?.caster&&!setup){effect('range','ring',preview.caster.x,preview.caster.y,preview.range,'#c6efde',.5);effect('caster','ring',preview.caster.x,preview.caster.y,34,'#fff5ba');beam('aimline',preview.caster,aim,col,.7,.013);}
    if(preview?.coop){for(const id of preview.coop.targets){const u=game.units.find(u=>u.id===id);if(u)effect(id+'coop','ring',u.x,u.y,39,'#c8ffa8');}preview.coop.links.forEach((l,i)=>beam('coop'+i,l.from,l.to,'#b4f5d0'));}

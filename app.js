@@ -48,7 +48,7 @@ function select(i){
   else notice('起手最多换两张；先取消一张。');
  }else if(game.phase==='setup'||game.phase==='battle'){
   selected=selected===i&&mode==='card'?-1:i;mode='card';preview=null;hover=true;touchTargeted=false;lockedCaster=null;hidePicker();
-  if(game.phase==='battle'&&selected>=0){const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;if(choices.length>1){const b=document.querySelector('[data-slot="'+selected+'"]');if(b)showPicker(selected,b.getBoundingClientRect());}}
+  if(game.phase==='battle'&&selected>=0){const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;}
   if(game.phase==='battle'&&selected>=0){const c=CARDS[game.hand[selected]],u=game.mains.find(u=>u.hero===c?.owner);if(u?.hp>0)aim={x:Math.min(900,u.x+(['heal','shield','healfield'].includes(c.type)?0:120)),y:u.y};}
  }
  ui();
@@ -71,7 +71,6 @@ function place(){
    if(target&&preview?.target?.id!==target.id){preview=game.capturePreview(target.id);notice(target.name+' · 成功率 '+Math.round(preview.probability*100)+'%，再次点击确认。');return;}
    const result=game.capture(preview?.target?.id);notice(game.message);if(result){mode='card';selected=-1;preview=null;}
   }else if(selected>=0){
-   if(game.casters(game.hand[selected]).units.length>1&&!lockedCaster){notice('先滑过或点选一个纹兽头像。');return;}
    if(game.commandCast(selected,aim.x,aim.y,preview?.casterId)){notice(game.message);selected=-1;preview=null;touchTargeted=false;}
    else {notice(game.message);updatePreview();}
   }
@@ -94,9 +93,9 @@ function partyUI(){
   const u=game.mains.find(u=>u.hero===i),dead=u&&u.hp<=0;
   const state=!game.activeHeroes.includes(i)?'候补 · 战前可换':game.phase==='setup'?(Math.ceil(game.journeyHP(i))+' / '+game.journeyMax(i)+(game.wounds[i]?' · 带伤':'')+' · 4招'):dead?'倒下 · 留下残响':u?Math.ceil(u.hp)+' / '+u.max+(u.shield>0?' · '+(game.wardInfo(u)?'援盾 ':'盾 ')+Math.ceil(u.shield)+' / '+Math.ceil(u.shieldTime)+'s':'')+(u.busy?' · 施法中':u.stun>0?' · 被控制':''):'';
   if(!game.activeHeroes.includes(i))return '';
-  const evade=u&&!dead?game.dodgePreview(u.id,u.x+20,u.y):null;const ready=evade?.valid;
   const danger=game.phase==='battle'&&threatened(u);
-  return '<button class="hero-status '+(dead?'fallen':'')+(danger?' threatened':'')+'" data-dodge-hero="'+i+'" '+(game.phase!=='battle'||dead?'disabled':'')+' aria-label="'+h.name+'，'+state+'。拖头像到战场闪避"><span class="hero-sigil">'+h.icon+'</span><span class="hero-copy"><b>'+h.name+'</b><small>'+state+'</small><span class="hero-health"><i style="width:'+(u?Math.max(0,u.hp/u.max)*100:100)+'%"></i></span><em>'+(danger?'危险 · ':'')+(dead?'残响支援':ready?'拖动闪避 · 1费＋牌':evade?.reason||'待命')+'</em></span></button>';
+  const evade=u&&!dead?(danger?game.escapePreview(u.id):game.dodgePreview(u.id,u.x+20,u.y)):null;const ready=evade?.valid;
+  return '<button class="hero-status '+(dead?'fallen':'')+(danger?' threatened':'')+'" data-dodge-hero="'+i+'" '+(game.phase!=='battle'||dead?'disabled':'')+' aria-label="'+h.name+'，'+state+'。拖头像到战场闪避"><span class="hero-sigil">'+h.icon+'</span><span class="hero-copy"><b>'+h.name+'</b><small>'+state+'</small><span class="hero-health"><i style="width:'+(u?Math.max(0,u.hp/u.max)*100:100)+'%"></i></span><em>'+(danger?'危险 · ':'')+(dead?'残响支援':ready?(danger?'点按避险 · 1费':'拖动闪避 · 1费＋牌'):evade?.reason||'待命')+'</em></span></button>';
  }).join('');
 }
 function ui(){
@@ -141,7 +140,7 @@ function ui(){
    $('detail').textContent=t&&!p.valid?p.reason:game.paused?'已暂停，预览后按空格继续。':'先削弱至半血以下；确认即判定，队伍不停火，失败也扣费。';
   }else if(c&&battle){
    const p=preview;
-   $('hint').textContent=c.name+' · '+(!lockedCaster&&game.casters(game.hand[selected]).units.length>1?'滑过头像选择施法者':(p?.echo?'残响 · ':'')+(p?.caster?.name||'无可用施法者'))+(p?.caster?' · 射程 '+Math.round(p.range):'');
+   $('hint').textContent=c.name+' · '+((p?.echo?'残响 · ':'')+(p?.caster?.name||'无可用施法者'))+(p?.caster?' · 射程 '+Math.round(p.range):'');
    $('detail').textContent=p&&!p.valid?p.reason:p?.approach?p.reason:game.paused?(touchMode?'已暂停，可调整落点；点右上角继续后再确认。':'已暂停，选好落点后按空格继续。'):cardDescription(c,p?.echo)+' · 前摇 '+c.wind+' 秒'+(p?.echo?' · 残响效力 45%':'')+(touchMode?' · 拖到落点松手施放；拖回手牌取消':' · Esc 取消');
   }else{$('hint').textContent=game.paused?'战术暂停 · 可查看手牌':'拖手牌到战场释放';$('detail').textContent='拖角色使用手中闪避牌 · 消耗1灵能';}
   if(dodgePreview){$('hint').textContent=dodgePreview.caster?.name+' · 拖动闪避';$('detail').textContent=dodgePreview.valid?'松手消耗一张闪避牌与1灵能 · 无无敌/护盾':dodgePreview.reason;}
@@ -211,14 +210,15 @@ function point(e,ground=!!dodgeDrag||!!CARDS[game.hand[selected]]?.quickDodge){i
 $('party').addEventListener('pointerdown',e=>{
  const b=e.target.closest('[data-dodge-hero]');if(!b||b.disabled||e.button!==0||cardDrag||dodgeDrag||game.phase!=='battle')return;
  const u=game.mains.find(u=>u.hero===+b.dataset.dodgeHero);if(!u||u.hp<=0)return;
- e.preventDefault();aim={x:u.x,y:u.y};dodgeDrag={id:u.id,pointer:e.pointerId,portrait:true,moved:false};selected=-1;mode='card';hover=true;hidePicker();$('party').setPointerCapture(e.pointerId);updatePreview();ui();
+ e.preventDefault();aim={x:u.x,y:u.y};dodgeDrag={id:u.id,pointer:e.pointerId,portrait:true,client:{x:e.clientX,y:e.clientY},moved:false};selected=-1;mode='card';hover=true;hidePicker();$('party').setPointerCapture(e.pointerId);updatePreview();ui();
 });
-$('party').addEventListener('pointermove',e=>{if(!dodgeDrag?.portrait||dodgeDrag.pointer!==e.pointerId)return;aim=point(e);dodgeDrag.moved=true;updatePreview();});
+$('party').addEventListener('pointermove',e=>{if(!dodgeDrag?.portrait||dodgeDrag.pointer!==e.pointerId)return;aim=point(e);dodgeDrag.moved ||= Math.hypot(e.clientX-dodgeDrag.client.x,e.clientY-dodgeDrag.client.y)>8;updatePreview();});
 function finishPortraitDodge(e,cancel=false){
  if(!dodgeDrag?.portrait||dodgeDrag.pointer!==e.pointerId)return;
  const drag=dodgeDrag,r=canvas.getBoundingClientRect();dodgeDrag=null;dodgePreview=null;
  if($('party').hasPointerCapture(e.pointerId))$('party').releasePointerCapture(e.pointerId);
  if(!cancel&&drag.moved&&e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){aim=point(e,true);game.dodge(drag.id,aim.x,aim.y);notice(game.message);}
+ else if(!cancel&&!drag.moved){game.escape(drag.id);notice(game.message);}
  else if(drag.moved)notice('已取消闪避');
  ui();
 }
@@ -229,7 +229,7 @@ $('hand').addEventListener('pointerdown',e=>{
  if(game.cancelOrder(+b.dataset.slot)){e.preventDefault();ignoreCardClick=performance.now()+400;notice(game.message);selected=-1;hidePicker();ui();return;}
  e.preventDefault();selected=+b.dataset.slot;mode='card';preview=null;hover=true;
  const choices=game.casters(game.hand[selected]).units;lockedCaster=choices.length===1?choices[0].id:null;
- showPicker(selected,b.getBoundingClientRect());cardDrag={pointer:e.pointerId,slot:selected,card:game.hand[selected],x:e.clientX,y:e.clientY,moved:false};
+ hidePicker();cardDrag={pointer:e.pointerId,slot:selected,card:game.hand[selected],x:e.clientX,y:e.clientY,moved:false};
  $('hand').setPointerCapture(e.pointerId);ui();
 });
 $('hand').addEventListener('pointermove',e=>{
@@ -243,7 +243,7 @@ function finishDrag(e,cancel=false){
  const drag=cardDrag;cardDrag=null;ignoreCardClick=performance.now()+400;
  if($('hand').hasPointerCapture(e.pointerId))$('hand').releasePointerCapture(e.pointerId);
  const r=canvas.getBoundingClientRect(),inside=e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom;
- if(!cancel&&drag.moved&&inside&&game.hand[drag.slot]===drag.card&&lockedCaster){aim=point(e);updatePreview();place();}
+ if(!cancel&&drag.moved&&inside&&game.hand[drag.slot]===drag.card){aim=point(e);updatePreview();place();}
  else if(drag.moved||cancel){selected=-1;preview=null;notice(cancel?'已取消':'已退回手牌，不消耗灵能');}
  if(drag.moved||cancel)hidePicker();ui();
 }
@@ -251,7 +251,7 @@ $('hand').addEventListener('pointerup',e=>finishDrag(e));
 $('hand').addEventListener('pointercancel',e=>finishDrag(e,true));
 canvas.addEventListener('pointerdown',e=>{
  if(e.button!==0||cardDrag||dodgeDrag)return;aim=point(e);hover=true;canvas.focus({preventScroll:true});
- if(game.phase==='battle'&&mode!=='capture'){const picked=window.battleView?.hero(e.clientX,e.clientY);const u=game.mains.find(u=>u.hp>0&&u.id===picked)||game.mains.filter(u=>u.hp>0&&distance(u,aim)<36).sort((a,b)=>distance(a,aim)-distance(b,aim))[0];if(u){e.preventDefault();aim={x:u.x,y:u.y};dodgeDrag={id:u.id,pointer:e.pointerId,start:{...aim},client:{x:e.clientX,y:e.clientY},previous:selected,moved:false};selected=-1;preview=null;hidePicker();canvas.setPointerCapture(e.pointerId);updatePreview();ui();return;}}
+ if(game.phase==='battle'&&mode!=='capture'&&selected<0){const picked=window.battleView?.hero(e.clientX,e.clientY);const u=game.mains.find(u=>u.hp>0&&u.id===picked)||game.mains.filter(u=>u.hp>0&&distance(u,aim)<36).sort((a,b)=>distance(a,aim)-distance(b,aim))[0];if(u){e.preventDefault();aim={x:u.x,y:u.y};dodgeDrag={id:u.id,pointer:e.pointerId,start:{...aim},client:{x:e.clientX,y:e.clientY},previous:selected,moved:false};selected=-1;preview=null;hidePicker();canvas.setPointerCapture(e.pointerId);updatePreview();ui();return;}}
  if(e.pointerType==='touch'&&game.phase==='battle'&&mode==='capture'){
   touchMode=true;document.documentElement.classList.add('touch-ui');touchTargeted=true;updatePreview();ui();return;
  }
@@ -262,7 +262,7 @@ canvas.addEventListener('pointerdown',e=>{
  place();
 });
 canvas.addEventListener('pointermove',e=>{aim=point(e);hover=true;if(dodgeDrag&&dodgeDrag.pointer===e.pointerId)dodgeDrag.moved ||=Math.hypot(e.clientX-dodgeDrag.client.x,e.clientY-dodgeDrag.client.y)>8;updatePreview();});
-canvas.addEventListener('pointerup',e=>{if(dodgeDrag&&dodgeDrag.pointer===e.pointerId){const drag=dodgeDrag;dodgeDrag=null;aim=point(e,true);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(drag.moved){const r=canvas.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){game.dodge(drag.id,aim.x,aim.y);notice(game.message);}else notice('已取消闪避');}else{selected=drag.previous;if(selected>=0)place();}dodgePreview=null;ui();return;}if(dragging){aim=point(e);dragging=false;place();}});
+canvas.addEventListener('pointerup',e=>{if(dodgeDrag&&dodgeDrag.pointer===e.pointerId){const drag=dodgeDrag;dodgeDrag=null;aim=point(e,true);if(canvas.hasPointerCapture(e.pointerId))canvas.releasePointerCapture(e.pointerId);if(drag.moved){const r=canvas.getBoundingClientRect();if(e.clientX>=r.left&&e.clientX<=r.right&&e.clientY>=r.top&&e.clientY<=r.bottom){game.dodge(drag.id,aim.x,aim.y);notice(game.message);}else notice('已取消闪避');}else{game.escape(drag.id);notice(game.message);selected=drag.previous;}dodgePreview=null;ui();return;}if(dragging){aim=point(e);dragging=false;place();}});
 canvas.addEventListener('pointercancel',()=>{dragging=false;dodgeDrag=null;dodgePreview=null;});
 canvas.addEventListener('pointerleave',()=>{if(!dragging&&!dodgeDrag&&!touchMode)hover=false;});
 canvas.addEventListener('contextmenu',e=>{e.preventDefault();selected=-1;mode='card';preview=null;lockedCaster=null;hidePicker();ui();});

@@ -584,6 +584,18 @@ class Game {
   this.hand=[];this.deck=[];this.discard=[];this.waveTime=0;this.control=0;this.seal=null;
   this.message='下一关 · '+this.mission.goal+'。损血保留，可调整阵型与配招。';return true;
  }
+ escapePreview(id){
+  const u=this.mains.find(u=>u.id===id),hazards=this.units.filter(e=>e.hp>0&&e.side&&e.special?.damage>0).map(e=>e.special);
+  if(!u||!hazards.some(p=>this.specialContains({...p,r:p.r+18},u)))return {valid:false,reason:'当前没有需要避开的预警。'};
+  let failure=null;
+  for(const radius of [85,60,40,20])for(let i=0;i<32;i++){
+   const a=Math.PI+i*Math.PI/16,p=this.dodgePreview(id,u.x+Math.cos(a)*radius,u.y+Math.sin(a)*radius);
+   if(!p.valid){failure=p;continue;}
+   if(hazards.every(h=>!this.specialContains({...h,r:h.r+18},p)))return p;
+  }
+  return {valid:false,reason:failure?.reason||'闪避范围内没有安全落点，请手动调整或防御。'};
+ }
+ escape(id){const p=this.escapePreview(id);return p.valid?this.dodge(id,p.x,p.y,p.slot):this.fail(p.reason);}
  dodgePreview(id,x,y,preferredSlot){
   const u=this.mains.find(u=>u.id===id);if(!u||u.hp<=0)return {valid:false,reason:'角色已离场。'};
   const slot=preferredSlot??this.hand.findIndex((c,i)=>c==='sidestep'&&!this.orderForSlot(i)),echo=this.casters('sidestep').echo;
