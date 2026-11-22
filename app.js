@@ -104,7 +104,7 @@ function ui(){
  document.body.dataset.phase=game.phase;
  document.body.classList.toggle('is-paused',game.paused);
  document.body.classList.toggle('is-aiming',selected>=0||!!dodgeDrag||mode==='capture');
- const intents=battle?game.units.map(u=>game.enemyIntent(u)).filter(Boolean).sort((a,b)=>Number(!!b.locked)-Number(!!a.locked)||Number(b.inRange)-Number(a.inRange)||a.readyIn-b.readyIn):[],intent=intents[0];
+ const intents=battle?game.units.map(u=>game.enemyIntent(u)).filter(Boolean).sort((a,b)=>Number(!!b.locked)-Number(!!a.locked)||Number(b.inRange)-Number(a.inRange)||a.readyIn-b.readyIn||(a.actor.lastSpecialAt??-1)-(b.actor.lastSpecialAt??-1)):[],intent=intents[0];
  $('danger').hidden=!intent;
  if(intent){$('danger-status').textContent=intent.locked?'落点已锁定 · 可打断':'下一次行动 · 预计';$('danger-name').textContent=intent.actor.name+' · '+intent.name;$('danger-detail').textContent=(intent.locked?'目标：':'预计目标：')+intent.targetName+' · '+(intent.damage?Math.round(intent.damage)+'伤害':'强化同伴');$('danger-time').textContent=intent.locked?Math.max(0,intent.wait).toFixed(1)+'s':intent.inRange?'≥'+intent.readyIn.toFixed(1)+'s':'接近后';$('danger-fill').style.width=(intent.locked?Math.min(100,Math.max(0,1-intent.wait/intent.wind)*100):Math.max(0,1-intent.readyIn/intent.cooldown)*100)+'%';$('danger').classList.toggle('urgent',!!intent.locked&&intent.wait<.6);$('danger').classList.toggle('forecast',!intent.locked);}
  const label={setup:'战前布阵',opening:'选择起手',battle:'实时交战',reward:'营地休整',victory:'旅程完成',defeat:'挑战失败'};

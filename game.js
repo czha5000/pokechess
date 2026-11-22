@@ -1,6 +1,7 @@
 (() => {
 'use strict';
 const LANES = [155, 345];
+const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:.9};
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
@@ -179,7 +180,7 @@ class Game {
   if(this.wave===2){this.seal=this.unit({kind:'seal',name:'裂隙封印',hp:this.activeHeroes.length===2?400:530,atk:0,range:0,speed:0},this.mission.x,this.mission.y,1);this.units.push(this.seal);}
   this.message=this.mission.goal+'。上场主力全倒下立即失败。';return true;
  }
- spawn(k,l){const spec={...ENEMIES[k]};if(this.activeHeroes.length===2){spec.hp=Math.round(spec.hp*.8);spec.atk*=.85;}const u=this.unit(spec,900,LANES[l],1);u.lastHurt=this.time;this.units.push(u);return u;}
+ spawn(k,l){const spec={...ENEMIES[k]};if(this.activeHeroes.length===2){spec.hp=Math.round(spec.hp*.8);spec.atk*=.85;}const u=this.unit(spec,900,LANES[l],1);u.lastHurt=this.time;u.attack=u.kind==='boss'?ENEMY_CADENCE.openingBossBasic:ENEMY_CADENCE.openingBasic;this.units.push(u);return u;}
  refill(){
   for(let i=0;i<4;i++)if(!this.hand[i]){
    if(!this.deck.length&&this.discard.length)this.deck=this.shuffle(this.discard.splice(0));
@@ -488,20 +489,29 @@ class Game {
   }
   this.effects.push({kind:p.card,x:p.x,y:p.y,r:c.r,life:.45,max:.45});
  }
- enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':null;return kind?{...{chant:{name:'共鸣吟唱',wind:2.2,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:1.5,range:260,r:48,damage:34,cooldown:9},charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:8},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
+ enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':null;return kind?{...{chant:{name:'共鸣吟唱',wind:2.2,range:250,r:180,damage:0,cooldown:8},ambush:{name:'后排伏击',wind:1.5,range:260,r:48,damage:34,cooldown:6},charge:{name:'蓄力冲撞',wind:1.3,range:190,r:28,damage:38,cooldown:5},slam:{name:'重锤砸地',wind:1.8,range:85,r:65,damage:48,cooldown:5.5},bomb:{name:'延迟轰炸',wind:1.6,range:240,r:58,damage:36,cooldown:6}}[kind],kind}:null;}
  enemyIntent(u){
   if(!u?.side||u.hp<=0)return null;const spec=this.enemySpec(u);if(!spec)return null;
   if(u.special)return {...u.special,actor:u,targetName:u.special.targetName||'范围目标',readyIn:0,locked:true,inRange:true,damage:u.special.damage*(this.activeHeroes.length===2?.85:1)};
   const enemies=this.units.filter(t=>t.hp>0&&!t.side&&t.kind!=='seal');let target=enemies.find(t=>t.kind==='lure'&&distance(u,t)<175)||enemies.filter(t=>t.lane===u.lane||distance(u,t)<170).sort((a,b)=>distance(u,a)-distance(u,b))[0];
   if(u.trait==='ambush')target=this.mains.filter(t=>t.hp>0&&distance(u,t)<=260).sort((a,b)=>b.range-a.range)[0]||target;
   if(!target)return {...spec,actor:u,targetName:'寻找目标',readyIn:Math.max(0,u.specialCooldown??2),inRange:false,damage:0};
-  const busy=this.units.find(e=>e.hp>0&&e.special),readyIn=Math.max(u.specialCooldown??2,u.stun||0,u.recovery||0,(this.nextThreatAt||0)-this.time,busy?busy.special.wait+1.4:0,0);
+  const busy=this.units.find(e=>e.hp>0&&e.special),readyIn=Math.max(u.specialCooldown??2,u.stun||0,u.recovery||0,(this.nextThreatAt||0)-this.time,busy?busy.special.wait+ENEMY_CADENCE.tellGap:0,0);
   return {...spec,actor:u,targetName:target.name||'灵核',targetId:target.id,readyIn,inRange:distance(u,target)<=spec.range,damage:spec.damage*(1+(u.rage||0)*.2)*((u.empoweredUntil||0)>this.time?1.25:1)*(this.activeHeroes.length===2?.85:1)};
  }
- enemySpecial(u,t){
+ specialTarget(u,t){
+  const spec=this.enemySpec(u);if(!spec||!t||t.objective||t.hp<=0)return null;
+  if(u.trait==='ambush')t=this.mains.filter(h=>h.hp>0&&this.valid(h.x,h.y)&&distance(u,h)<=260).sort((a,b)=>b.range-a.range)[0]||t;
+  if(distance(u,t)>spec.range)return null;
+  if(spec.kind==='ambush'&&!this.valid(t.x,t.y))return null;
+  if(spec.kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(t.x-u.x)*i/20,u.y+(t.y-u.y)*i/20))return null;
+  return t;
+ }
+ enemySpecial(u,t,fair=false){
   if(!u.side||(!['brute','archer','boss'].includes(u.kind)&&u.trait!=='ambush')||!t||t.objective||t.hp<=0)return false;
   if(this.time<(this.nextThreatAt||0)||this.units.some(e=>e.hp>0&&e.special))return false;
-  if(u.trait==='ambush'){const back=this.mains.filter(h=>h.hp>0&&this.valid(h.x,h.y)&&distance(u,h)<=260).sort((a,b)=>b.range-a.range)[0];if(back)t=back;}
+  t=this.specialTarget(u,t);if(!t)return false;
+  if(fair){const ready=this.units.filter(v=>v.side&&v.hp>0&&v.atk>0&&!v.special&&!v.busy&&!(v.stun>0)&&!(v.recovery>0)&&(v.specialCooldown??2)<=0&&this.specialTarget(v,this.target(v,false))).sort((a,b)=>(a.lastSpecialAt??-1)-(b.lastSpecialAt??-1));if(ready.length&&ready[0]!==u)return false;}
   const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
   const spec=this.enemySpec(u);
   if(distance(u,t)>spec.range)return false;
@@ -509,7 +519,7 @@ class Game {
   if(kind==='ambush'&&!this.valid(p.x,p.y))return false;
   if(kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(p.x-u.x)*i/20,u.y+(p.y-u.y)*i/20))return false;
   p.rage=u.rage||0;p.damage*=1+p.rage*.2;if(kind!=='chant'&&(u.empoweredUntil||0)>this.time){p.damage*=1.25;u.empoweredUntil=0;}
-  u.special=p;u.specialCooldown=spec.cooldown;this.nextThreatAt=this.time+spec.wind+1.4;return true;
+  u.special=p;u.lastSpecialAt=this.time;u.specialCooldown=spec.cooldown;this.nextThreatAt=this.time+spec.wind+ENEMY_CADENCE.tellGap;return true;
  }
  specialContains(p,t){
   if(p.kind!=='charge')return distance(p,t)<=p.r;
@@ -525,14 +535,14 @@ class Game {
   if(p.kind==='chant'){for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==u.id&&distance(t,u)<=180))t.empoweredUntil=this.time+10;this.effects.push({kind:'text',text:'共鸣 · 下次大招强化',x:u.x,y:u.y,life:1.2,max:1.2});}
   for(const t of [...this.units,this.core])if(p.damage>0&&t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
   if(p.kind==='charge'||p.kind==='ambush'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
-  u.recovery=p.kind==='slam'?1.4:1;u.attack=1.25;
+  u.recovery=p.kind==='slam'?1.4:1;u.attack=u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic;
   this.effects.push({kind:'enemy-impact',x:p.x,y:p.y,r:p.r,text:p.name,life:.45,max:.45});return true;
  }
- target(u){
+ target(u,track=true){
   const enemies=this.units.filter(t=>t.hp>0&&t.side!==u.side&&t.kind!=='seal');
   if(u.side){
    const lure=enemies.find(t=>t.kind==='lure'&&distance(u,t)<175);
-   if(lure){if(!u.lured){this.stats.lured++;u.lured=true;}return lure;}
+   if(lure){if(track&&!u.lured){this.stats.lured++;u.lured=true;}return lure;}
   }
   const candidates=enemies.filter(t=>t.lane===u.lane||distance(u,t)<170).sort((a,b)=>distance(u,a)-distance(u,b));
   if(candidates[0]&&distance(u,candidates[0])<(u.side?235:310))return candidates[0];
@@ -649,10 +659,10 @@ class Game {
    if(u.stun>0){u.stun=Math.max(0,u.stun-dt);continue;}
    if(u.busy||!u.atk)continue;
    u.attack-=dt;const t=this.target(u);if(!t)continue;
-   if(u.side&&u.specialCooldown<=0&&this.enemySpecial(u,t))continue;
+   if(u.side&&u.specialCooldown<=0&&this.enemySpecial(u,t,true))continue;
    if(t.objective){if(!u.hold&&distance(u,t)>35)this.move(u,t,dt);continue;}
    if(distance(u,t)>u.range+12){if(!u.hold)this.move(u,t,dt);}
-   else if(u.attack<=0){u.attack=u.kind==='boss'?1.6:1.25;this.hit(t,u.atk,{...u,direct:true,hitToken:'a'+(++this.serial)});}
+   else if(u.attack<=0){u.attack=u.side?(u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic):1.25;this.hit(t,u.atk,{...u,direct:true,hitToken:'a'+(++this.serial)});}
   }
   this.units=this.units.filter(u=>u.hp>0);
   if(this.phase!=='battle')return;
