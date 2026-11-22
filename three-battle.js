@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from './vendor/three-r180/addons/loaders/GLTFLoader.js';
+import { DRACOLoader } from './vendor/three-r180/addons/loaders/DRACOLoader.js';
+import { clone as cloneSkeleton } from './vendor/three-r180/addons/utils/SkeletonUtils.js';
 
 const WORLD=100, assetRoot=new URL('./assets/3d-v22/',import.meta.url);
 const world=(x,y,h=0)=>new THREE.Vector3((x-500)/WORLD,h,(y-250)/WORLD);
@@ -79,13 +81,16 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
  }
  for(const kind of ['bird','badger','raider','brute','wolf','archer','lure'])templates.set(kind,prototype(kind));
  const heights={fox:.82,turtle:.82,sprout:.70,boss:1.30,bird:.92,badger:.72,raider:.7,brute:.9,wolf:.65,archer:.98,lure:.78};
- const loader=new GLTFLoader();let loaded=0;
+ const draco=new DRACOLoader().setDecoderPath(new URL('./vendor/three-r180/draco/',import.meta.url).href);
+ const loader=new GLTFLoader().setDRACOLoader(draco),clips=new Map();let loaded=0;
  const modelLoad=Promise.all(['fox','turtle','sprout','boss'].map(async kind=>{
-  const gltf=await loader.loadAsync(new URL(kind+'.glb',assetRoot).href);if(disposed)return;
+  const url=kind==='sprout'?new URL('./assets/3d-v23/bulbasaur.glb',import.meta.url):new URL(kind+'.glb',assetRoot);
+  const gltf=await loader.loadAsync(url.href);if(disposed)return;
   const source=gltf.scene,bounds=new THREE.Box3().setFromObject(source),size=bounds.getSize(new THREE.Vector3()),center=bounds.getCenter(new THREE.Vector3());
-  const normalized=new THREE.Group();source.position.set(-center.x,-bounds.min.y,-center.z);normalized.add(source);normalized.scale.setScalar(heights[kind]/size.y);
+  const normalized=new THREE.Group(),offset=new THREE.Group();offset.position.set(-center.x,-bounds.min.y,-center.z);offset.add(source);normalized.add(offset);normalized.scale.setScalar(heights[kind]/size.y);
   // Blender +Y forward is glTF -Z. Use a common +Z actor forward for targeting.
-  normalized.rotation.y=Math.PI;
+  normalized.rotation.y=kind==='sprout'?0:Math.PI;
+  if(gltf.animations.length)clips.set(kind,gltf.animations);
   source.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material]){materials.add(m);if(m.map)textures.add(m.map);m.roughness=Math.max(.45,m.roughness||0);}}});
   templates.set(kind,normalized);loading.querySelector('span').textContent='载入角色模型 · '+(++loaded)+' / 4';
  })).then(()=>{if(disposed)return;ready=true;canvas.dataset.ready='true';loading.remove();}).catch(error=>{loading.innerHTML='<b>3D 模型加载未完成</b><span>请刷新页面重试</span>';console.error(error);});
@@ -108,19 +113,49 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   project(x,y,h=0){const p=project(x,y,h),r=canvas.getBoundingClientRect();return {x:r.left+p.x,y:r.top+p.y};}
  };
  const pickGeo=geo(new THREE.SphereGeometry(1,12,8)),pickMat=new THREE.MeshBasicMaterial({visible:false});materials.add(pickMat);
+ // Sample existing clips against game time. The renderer never schedules damage.
+ function pose(a,key,seconds){
+  const clip=a.clips.find(c=>c.name.endsWith(key));if(!clip)return;
+  if(a.clip!==clip){a.mixer.stopAllAction();a.action=a.mixer.clipAction(clip);a.action.reset().setLoop(THREE.LoopOnce,1);a.action.clampWhenFinished=true;a.action.play();a.clip=clip;}
+  a.action.paused=true;a.action.time=clamp(seconds,0,clip.duration);a.mixer.update(0);a.state=key;
+ }
+ function animate(a,u,game,target){
+  if(!a.mixer)return;
+  const dt=game.phase==='setup'?Math.min(.06,a.renderDelta||0):Math.max(0,game.time-a.gameTime);a.gameTime=game.time;a.clock+=dt;
+  const moved=Math.hypot(u.x-a.x,u.y-a.y);a.x=u.x;a.y=u.y;
+  const cast=game.pending.find(p=>p.casterId===u.id&&p.stage==='windup');
+  if(cast){a.cast={id:cast.id,release:game.time+cast.wait,point:{x:cast.x,y:cast.y}};const c=window.DeployGame.CARDS[cast.card];pose(a,'001fight_d',1.05*clamp(1-cast.wait/c.wind,0,1));}
+  else if(a.cast&&game.time-a.cast.release<.45&&(a.cast.released||game.pending.some(p=>p.id===a.cast.id&&p.stage==='flight'))){a.cast.released=true;pose(a,'001fight_d',1.05+Math.max(0,game.time-a.cast.release)/.45*(2.625-1.05));}
+  else{
+   a.cast=null;
+   if(a.lastAttack!==undefined&&u.attack>a.lastAttack+.5)a.strike=game.time;
+   const inRange=u.atk>0&&target&&!target.objective&&Math.hypot(u.x-target.x,u.y-target.y)<=u.range+12;
+   if(u.stun>0)pose(a,'001aidle',0);
+   else if(!u.busy&&inRange&&u.attack<=.20)pose(a,'001fight_b',.75*clamp(1-u.attack/.20,0,1));
+   else if(a.strike!==undefined&&game.time-a.strike<.42)pose(a,'001fight_b',.75+(game.time-a.strike)/.42);
+   else if(moved>.04&&dt>0){a.movingUntil=game.time+.09;pose(a,'001walk',a.clock%1.1666666);}
+   else if(game.time<(a.movingUntil||0))pose(a,'001walk',a.clock%1.1666666);
+   else pose(a,'001aidle',a.clock%1.6666666);
+  }
+  a.lastAttack=u.attack;
+ }
  function actor(u,game){
   let a=actors.get(u.id);
   if(!a){const template=templates.get(u.kind)||templates.get('raider');if(!template)return;
-   const root=new THREE.Group(),visual=template.clone(true),owned=new Set();root.add(visual);scene.add(root);
+   const root=new THREE.Group(),visual=clips.has(u.kind)?cloneSkeleton(template):template.clone(true),owned=new Set();root.add(visual);scene.add(root);
    visual.traverse(o=>{if(o.isMesh){o.material=Array.isArray(o.material)?o.material.map(m=>m.clone()):o.material.clone();for(const m of Array.isArray(o.material)?o.material:[o.material]){m.userData.baseEmission=m.emissive?.clone();m.userData.baseEmissionIntensity=m.emissiveIntensity;owned.add(m);}o.castShadow=true;o.receiveShadow=true;}});
    const hit=new THREE.Mesh(pickGeo,pickMat);hit.position.y=(heights[u.kind]||.7)*.42;hit.scale.set(u.kind==='boss'?.48:.30,(heights[u.kind]||.7)*.5,.32);root.add(hit);pickTargets.push(hit);
    const el=document.createElement('div');el.className='world-unit';el.innerHTML='<b></b><i><em></em></i><small></small>';labelsRoot.append(el);
-   a={root,visual,owned,hit,el};actors.set(u.id,a);
+   a={root,visual,owned,hit,el,x:u.x,y:u.y,clock:0,gameTime:game.time};
+   if(clips.has(u.kind)){a.clips=clips.get(u.kind);a.mixer=new THREE.AnimationMixer(visual);a.bones=[];a.skeletons=new Set();visual.traverse(o=>{if(o.isBone)a.bones.push(o);if(o.isSkinnedMesh){a.skeletons.add(o.skeleton);o.frustumCulled=false;}});}
+   actors.set(u.id,a);
   }
-  a.seen=true;a.hit.userData.unit=u;a.root.position.copy(world(u.x,u.y));
+  a.seen=true;a.unit=u;a.hit.userData.unit=u;a.root.position.copy(world(u.x,u.y));
   // Never call Game.target here: it records lure statistics. Facing is read-only.
   const target=game.phase==='battle'?game.units.filter(t=>t.hp>0&&t.side!==u.side&&t.kind!=='seal').sort((a,b)=>Math.hypot(a.x-u.x,a.y-u.y)-Math.hypot(b.x-u.x,b.y-u.y))[0]:null;const dx=target?target.x-u.x:u.side?-1:1,dz=target?target.y-u.y:0;
-  a.root.rotation.y=Math.atan2(dx,dz);a.visual.position.y=0;
+  const cast=game.pending.find(p=>p.casterId===u.id&&p.stage==='windup'),moving=Math.hypot(u.x-a.x,u.y-a.y)>.04;
+  a.root.rotation.y=cast?Math.atan2(cast.x-u.x,cast.y-u.y):moving?Math.atan2(u.x-a.x,u.y-a.y):Math.atan2(dx,dz);a.visual.position.y=0;
+  a.renderDelta=frameDelta;animate(a,u,game,target);
   for(const m of a.owned)if(m.emissive){m.emissive.copy(m.userData.baseEmission);if(u.flash>0)m.emissive.set('#fff4bf');m.emissiveIntensity=u.flash>0?.35:m.userData.baseEmissionIntensity;}
   const h=heights[u.kind]||.7,p=project(u.x,u.y,h+.12);a.el.style.transform=`translate(${p.x}px,${Math.max(30,p.y)}px) translate(-50%,-100%)`;
   a.el.classList.toggle('enemy',!!u.side);a.el.querySelector('b').textContent=u.name||'';a.el.querySelector('em').style.width=(u.max?Math.max(0,u.hp/u.max)*100:100)+'%';
@@ -129,10 +164,11 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   effect(u.id+'team','ring',u.x,u.y,u.kind==='boss'?43:25,u.side?'#e69b80':'#a6f5de',.72);
   if(u.shield>0)effect(u.id+'shield','orb',u.x,u.y,34,'#8cddf1',.12,h*.45);
  }
- function removeActor(id,a){scene.remove(a.root);a.el.remove();for(const m of a.owned)m.dispose();const i=pickTargets.indexOf(a.hit);if(i>=0)pickTargets.splice(i,1);actors.delete(id);}
+ function removeActor(id,a){a.mixer?.stopAllAction();a.mixer?.uncacheRoot(a.visual);for(const s of a.skeletons||[])s.dispose();scene.remove(a.root);a.el.remove();for(const m of a.owned)m.dispose();const i=pickTargets.indexOf(a.hit);if(i>=0)pickTargets.splice(i,1);actors.delete(id);}
  function resize(){const r=canvas.getBoundingClientRect();if(r.width<1||r.height<1)return;viewW=r.width;viewH=r.height;renderer.setSize(viewW,viewH,false);const aspect=viewW/viewH,height=Math.max(4.5,11.7/aspect);camera.left=-height*aspect/2;camera.right=height*aspect/2;camera.top=height/2;camera.bottom=-height/2;camera.updateProjectionMatrix();camera.updateMatrixWorld();}
  const observer=new ResizeObserver(resize);observer.observe(canvas.parentElement);resize();
- function frame(now){if(disposed)return;const delta=Math.min(60,last?now-last:0);last=now;advance(now,delta);const v=readView(),{game,selected,aim,hover,preview,mode,dodgePreview}=v;
+ let frameDelta=0;
+ function frame(now){if(disposed)return;const delta=Math.min(60,last?now-last:0);frameDelta=delta/1000;last=now;advance(now,delta);const v=readView(),{game,selected,aim,hover,preview,mode,dodgePreview}=v;
   if(model!==game){for(const [id,a]of actors)removeActor(id,a);model=game;}
   for(const a of actors.values())a.seen=false;for(const o of effects.values())o.seen=false;for(const el of labels.values())el.seen=false;
   if(!reduced.matches){coreMesh.rotation.y=game.time*.35;ripples.forEach((o,i)=>o.position.z=-2.4+((i*.3+game.time*.05)%4.8));}
@@ -162,7 +198,13 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
    if(preview?.coop){for(const id of preview.coop.targets){const u=game.units.find(u=>u.id===id);if(u)effect(id+'coop','ring',u.x,u.y,39,'#c8ffa8');}preview.coop.links.forEach((l,i)=>beam('coop'+i,l.from,l.to,'#b4f5d0'));}
   }
   if(dodgePreview?.caster){const p=dodgePreview,c=p.valid?'#b9ffe1':'#ff9e84';effect('dodge-range','ring',p.caster.x,p.caster.y,85,c,.5);effect('dodge-end','ring',p.x,p.y,24,c);beam('dodge-line',p.caster,p,c);}
-  for(const [id,a]of actors)if(!a.seen)removeActor(id,a);
+  for(const [id,a]of actors)if(!a.seen){
+   if(a.mixer&&a.unit?.hp<=0&&!['setup','opening'].includes(game.phase)){
+    a.deathTime??=0;a.deathTime+=game.paused?0:game.phase==='battle'?Math.max(0,game.time-a.gameTime):frameDelta;a.gameTime=game.time;
+    a.el.hidden=true;a.hit.userData.unit=null;pose(a,'001ko',Math.min(2,a.deathTime));if(a.deathTime<2.4)continue;
+   }
+   removeActor(id,a);
+  }
   for(const [key,o]of effects){if(!o.seen){o.visible=false;o.userData.idle=(o.userData.idle||0)+1;if(o.userData.idle>90){scene.remove(o);o.material.dispose();materials.delete(o.material);effects.delete(key);}}else o.userData.idle=0;}
   for(const [key,el]of labels){if(!el.seen){el.hidden=true;el.idle=(el.idle||0)+1;if(el.idle>90){el.remove();labels.delete(key);}}else el.idle=0;}
   renderer.render(scene,camera);frames++;
@@ -170,6 +212,6 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
  const lost=e=>{e.preventDefault();onSuspend('3D 画面连接中断，已暂停；恢复后继续。');};canvas.addEventListener('webglcontextlost',lost);
  canvas.dataset.engine='three';canvas.dataset.renderer='webgl2';canvas.dataset.quality='hd';
  renderer.setAnimationLoop(frame);
- return {ready:modelLoad,diagnostics:()=>({frames,actors:actors.size,effects:effects.size,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,pixelRatio:renderer.getPixelRatio(),width:canvas.width,height:canvas.height}),destroy(){disposed=true;renderer.setAnimationLoop(null);observer.disconnect();canvas.removeEventListener('webglcontextlost',lost);for(const [id,a]of actors)removeActor(id,a);labelsRoot.remove();loading.remove();for(const g of geometries)g.dispose();for(const m of materials)m.dispose();for(const t of textures)t.dispose();renderer.dispose();delete window.battleView;}};
+ return {ready:modelLoad,diagnostics:()=>({frames,actors:actors.size,effects:effects.size,geometries:renderer.info.memory.geometries,textures:renderer.info.memory.textures,pixelRatio:renderer.getPixelRatio(),width:canvas.width,height:canvas.height,animated:[...actors].filter(([,a])=>a.mixer).map(([id,a])=>({id,state:a.state,time:a.action?.time,yaw:a.root.rotation.y,bones:a.bones.length,rigIds:[...a.skeletons].map(s=>s.uuid),pose:a.bones.reduce((s,b)=>s+b.quaternion.x+b.quaternion.y*2+b.quaternion.z*3,0),dead:a.deathTime!==undefined}))}),destroy(){disposed=true;renderer.setAnimationLoop(null);draco.dispose();observer.disconnect();canvas.removeEventListener('webglcontextlost',lost);for(const [id,a]of actors)removeActor(id,a);labelsRoot.remove();loading.remove();for(const g of geometries)g.dispose();for(const m of materials)m.dispose();for(const t of textures)t.dispose();renderer.dispose();delete window.battleView;}};
 };
 window.dispatchEvent(new Event('battle-renderer-ready'));

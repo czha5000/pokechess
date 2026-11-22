@@ -1,0 +1,6 @@
+Bulbasaur / Pokemon model, used in a personal prototype.
+Source: https://github.com/Pokemon-3D-api/assets/blob/429de1288cea0d43f5b4f56305d2276e94239d65/models/opt/regular/1.glb
+SHA256: f858e644251443d4011ef4b3c01f119d732307a3e6658c6cc60db51fd4e72eb4
+Upstream credits Pokemon model rights to Nintendo / Creatures Inc. / GAME FREAK inc.
+No individual artist credit is embedded in this GLB. The repository's code license is not a license to Pokemon characters.
+Model, embedded textures and nine source animation clips kept byte-for-byte unchanged. Runtime clip sampling, scale and direction mapping added by the prototype.
