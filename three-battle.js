@@ -182,7 +182,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   a.renderDelta=frameDelta;animate(a,u,game,target);
   for(const m of a.owned)if(m.emissive){m.emissive.copy(m.userData.baseEmission);if(u.flash>0)m.emissive.set('#fff4bf');m.emissiveIntensity=u.flash>0?.35:m.userData.baseEmissionIntensity;}
   const h=heights[u.kind]||.7,p=project(u.x,u.y,h+.12);a.el.style.transform=`translate(${p.x}px,${Math.max(30,p.y)}px) translate(-50%,-100%)`;
-  a.el.classList.toggle('enemy',!!u.side);a.el.querySelector('b').textContent=u.name||'';a.el.querySelector('em').style.width=(u.max?Math.max(0,u.hp/u.max)*100:100)+'%';
+  a.el.classList.toggle('enemy',!!u.side);a.el.querySelector('b').textContent=(u.name||'')+(u.side?' · '+window.DeployGame.enemyMovement(u).name:'');a.el.querySelector('em').style.width=(u.max?Math.max(0,u.hp/u.max)*100:100)+'%';
   const trait=u.trait==='crystal'?((u.vulnerableUntil||0)>game.time?'虚弱':'晶甲 '+(u.crystalHits||0)+'/4'):u.trait==='rage'?'蓄怒 '+(u.rage||0)+'/3':u.trait==='regen'?'回生':u.trait==='guard'?'护链':u.trait==='priest'?'共鸣':u.trait==='ambush'?'伏击':'';
   a.el.querySelector('small').textContent=u.stun>0?'眩晕':u.recovery>0?'反击窗口':game.active(u.poison)?'孢毒 '+u.poison.stacks:game.active(u.controlTag)?(u.controlTag.kind==='paralysis'?'麻痹':'牵制')+' '+Math.max(0,u.controlTag.until-game.time).toFixed(1)+'s':game.active(u.burn)?'灼烧':u.shield>0?'护盾 '+Math.ceil(u.shield):trait;
   effect(u.id+'team','ring',u.x,u.y,u.kind==='boss'?43:25,u.side?'#e69b80':'#a6f5de',.72);

@@ -121,6 +121,15 @@ const ENEMIES = {
  ambush:{name:'伏击影兽',kind:'raider',trait:'ambush',hp:115,atk:7,range:33,speed:48,capturable:true},
  boss:{name:'喷火龙',kind:'boss',hp:650,atk:12,range:50,speed:30,capturable:false}
 };
+
+const ENEMY_MOVEMENT={
+ chase:{name:'追击',stop:38,resume:48},
+ boss:{name:'稳步压阵',stop:55,resume:64},
+ ranged:{name:'远程驻足',stop:205,resume:235},
+ sentry:{name:'区域驻守',stop:75,resume:120,leash:160}
+};
+function enemyMovement(u){return ENEMY_MOVEMENT[u.kind==='boss'?'boss':u.trait==='guard'||u.trait==='crystal'||u.trait==='regen'?'sentry':u.kind==='archer'?'ranged':'chase'];}
+
 const WAVE_PLANS=[
  [[0,'boss',0,760,155],[0,'rage',0,850,95],[0,'crystal',1,800,345],[0,'archer',0,870,225]],
  [[0,'boss',0,760,155],[0,'regen',1,800,345],[0,'guard',0,850,95],[0,'priest',0,870,225]],
@@ -183,7 +192,7 @@ class Game {
   this.stats={played:0,damage:0,healed:0,lured:0,captureAttempts:0,captures:0,cooperations:0,trios:0,coopDamage:0};
   this.message='七只候选精灵，上场两或三只，每只四招。';
  }
- get enemyIntel(){return [...new Set(WAVE_PLANS[this.wave].map(w=>w[1]))].map(id=>({id,name:ENEMIES[id].name,advice:ENEMY_INFO[id]}));}
+ get enemyIntel(){return [...new Set(WAVE_PLANS[this.wave].map(w=>w[1]))].map(id=>({id,name:ENEMIES[id].name,advice:enemyMovement(ENEMIES[id]).name+' · '+ENEMY_INFO[id]}));}
  exportBuild(){return {version:1,activeHeroes:[...this.activeHeroes],loadouts:this.loadouts.map(a=>[...a])};}
  applyBuild(b){if(this.phase!=='setup'||!validBuild(b))return false;this.activeHeroes=[...b.activeHeroes].sort();this.loadouts=HEROES.map((h,i)=>upgradeLoadout(b.loadouts[i]||h.skills.slice(0,4),i));this.tactic=null;this.quick();return true;}
  get partyCards(){return this.activeHeroes.flatMap(i=>this.loadouts[i]);}
@@ -549,7 +558,7 @@ class Game {
   }
   this.effects.push({kind:p.card,x:p.x,y:p.y,r:c.r,life:.45,max:.45});
  }
- enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':u.kind==='raider'?'strike':null;return kind?{...{strike:{name:'蓄力扑击',wind:2,range:95,r:42,damage:18,cooldown:9},chant:{name:'共鸣吟唱',wind:2.5,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:2.2,range:260,r:48,damage:34,cooldown:10},charge:{name:'蓄力冲撞',wind:2,range:190,r:28,damage:38,cooldown:9},slam:{name:'重锤砸地',wind:2.5,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:2.3,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
+ enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':u.kind==='raider'?'strike':null;return kind?{...{strike:{name:'蓄力扑击',wind:2,range:95,r:42,damage:18,cooldown:9},chant:{name:'共鸣吟唱',wind:2.5,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:2.2,range:260,r:48,damage:34,cooldown:10},charge:{name:'蓄力冲撞',wind:2,range:190,r:28,damage:38,cooldown:9},slam:{name:'重锤砸地',wind:2.5,range:65,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:2.3,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
  enemyIntent(u){
   if(!u?.side||u.hp<=0)return null;const spec=this.enemySpec(u);if(!spec)return null;
   if(u.special)return {...u.special,actor:u,targetName:u.special.targetName||'范围目标',readyIn:0,locked:true,inRange:true,damage:u.special.damage*(this.activeHeroes.length===2?.85:1)};
@@ -563,6 +572,7 @@ class Game {
   const spec=this.enemySpec(u);if(!spec||!t||t.objective||t.hp<=0)return null;
   if(u.trait==='ambush')t=this.mains.filter(h=>h.hp>0&&this.valid(h.x,h.y)&&distance(u,h)<=260).sort((a,b)=>b.range-a.range)[0]||t;
   if(distance(u,t)>spec.range)return null;
+  const motion=enemyMovement(u);if(motion.leash&&u.anchor&&distance(t,u.anchor)>motion.leash)return null;
   if(spec.kind==='ambush'&&!this.valid(t.x,t.y))return null;
   if(spec.kind==='charge')for(let i=0;i<=20;i++)if(!this.valid(u.x+(t.x-u.x)*i/20,u.y+(t.y-u.y)*i/20))return null;
   return t;
@@ -609,6 +619,19 @@ class Game {
   if(this.wave===1)return {...this.mission,objective:true};
   if(this.wave===2)return this.seal;
   return null;
+ }
+ enemyMove(u,t,dt){
+  const m=enemyMovement(u);u.anchor??=m.leash&&this.wave===1?{x:this.mission.x+35,y:this.mission.y}:{x:u.x,y:u.y};
+  if(u.kind==='boss'&&(u.specialCooldown||0)>0)return;
+  let destination=t,stop=m.stop;
+  if(m.leash&&(t.objective||distance(t,u.anchor)>m.leash)){destination=u.anchor;stop=8;u.advancing=true;}
+  const d=distance(u,destination);
+  if(d<=stop){u.advancing=false;return;}
+  if(d>m.resume||u.advancing===undefined)u.advancing=true;
+  if(!u.advancing||u.hold)return;
+  // Stop at the desired distance instead of stepping into the target's position.
+  const scale=Math.max(0,(d-stop)/d),point={x:u.x+(destination.x-u.x)*scale,y:u.y+(destination.y-u.y)*scale};
+  this.move(u,point,dt);
  }
  move(u,t,dt){
   if(!u.speed)return;let tx=t.x,ty=t.y;
@@ -677,7 +700,7 @@ class Game {
   this.time+=dt;this.waveTime+=dt;this.energy=Math.min(this.maxEnergy,this.energy+this.regen*dt);
   this.captureCooldown=Math.max(0,this.captureCooldown-dt);
   this.effects.forEach(f=>f.life-=dt);this.effects=this.effects.filter(f=>f.life>0);
-  while(this.schedule.length&&this.schedule[0].t<=this.waveTime){const s=this.schedule.shift();const enemy=this.spawn(s.k,s.l);if(Number.isFinite(s.x)&&Number.isFinite(s.y)){enemy.x=s.x;enemy.y=s.y;enemy.lane=s.l;}}
+  while(this.schedule.length&&this.schedule[0].t<=this.waveTime){const s=this.schedule.shift();const enemy=this.spawn(s.k,s.l);if(Number.isFinite(s.x)&&Number.isFinite(s.y)){enemy.x=s.x;enemy.y=s.y;enemy.lane=s.l;}if(enemyMovement(enemy).leash)enemy.anchor=this.wave===1?{x:this.mission.x+35,y:this.mission.y}:{x:enemy.x,y:enemy.y};}
   this.tickOrders(dt);
   for(const p of [...this.pending]){
    if(this.phase!=='battle')break;
@@ -732,8 +755,9 @@ class Game {
    if(u.busy||!u.atk)continue;
    u.attack-=dt;const t=this.target(u);if(!t)continue;
    if(u.side&&u.specialCooldown<=0&&this.enemySpecial(u,t,true))continue;
-   if(t.objective){if(!u.hold&&distance(u,t)>35)this.move(u,t,dt);continue;}
-   if(distance(u,t)>u.range+12){if(!u.hold)this.move(u,t,dt);}
+   if(t.objective){if(u.side)this.enemyMove(u,t,dt);else if(!u.hold&&distance(u,t)>35)this.move(u,t,dt);continue;}
+   if(u.side){this.enemyMove(u,t,dt);}
+   if(distance(u,t)>u.range+12){if(!u.side&&!u.hold)this.move(u,t,dt);}
    else if(u.attack<=0){if(u.side){if(!(u.basicCredits>0)||this.units.some(e=>e.hp>0&&e.side&&e.special))continue;u.basicCredits--;this.stats.enemyBasics=(this.stats.enemyBasics||0)+1;}u.attack=u.side?(u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic):1.25;this.hit(t,u.atk,{...u,direct:true,hitToken:'a'+(++this.serial)});}
   }
   this.units=this.units.filter(u=>u.hp>0);
@@ -748,6 +772,6 @@ class Game {
   else if(this.wave===0&&!this.schedule.length&&!this.units.some(u=>u.side))this.finish(true,'溪口守住了。');
  }
 }
-const api={MECHANICS,validBuild,canLearn,Game,CARDS,HEROES,TACTICS,RELICS,MISSIONS,LANES,distance};
+const api={enemyMovement,MECHANICS,validBuild,canLearn,Game,CARDS,HEROES,TACTICS,RELICS,MISSIONS,LANES,distance};
 if(typeof module!=='undefined')module.exports=api;else window.DeployGame=api;
 })();
