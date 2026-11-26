@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const LANES = [155, 345];
-const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:2.5,telegraphsPerBasic:4};
+const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:5,telegraphsPerBasic:4};
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
@@ -101,13 +101,13 @@ Object.values(TACTICS).forEach(t=>t.loadouts=t.loadouts.map(upgradeLoadout));
 TACTICS.tactical.guide='输出、防御和闪避共享灵能。闪避只耗1灵能，不占配招或手牌；损血带到下关。';
 const RELICS = [
  {id:'power',name:'雷火铭文',desc:'所有技能伤害 +20%（残响仅结算一次）'},
- {id:'flow',name:'灵能泉眼',desc:'灵能恢复从每秒 1 提高至 1.25'},
+ {id:'flow',name:'灵能泉眼',desc:'灵能恢复提高25%：每秒0.5提高至0.625'},
  {id:'vital',name:'生命枝芽',desc:'上场主力最大生命 +35'}
 ];
 const MISSIONS = [
- {id:'guard',name:'溪口守卫',goal:'击败首领与三名随从，守住灵核',limit:100},
- {id:'occupy',name:'夺取风眼',goal:'主力占据风眼累计 14 秒，敌人在圈内时停计',limit:100,x:660,y:155,r:88,required:14},
- {id:'break',name:'摧毁裂隙',goal:'推进并摧毁右下方封印',limit:100,x:825,y:345}
+ {id:'guard',name:'溪口守卫',goal:'击败首领与三名随从，守住灵核',limit:150},
+ {id:'occupy',name:'夺取风眼',goal:'主力占据风眼累计 14 秒，敌人在圈内时停计',limit:150,x:660,y:155,r:88,required:14},
+ {id:'break',name:'摧毁裂隙',goal:'推进并摧毁右下方封印',limit:150,x:825,y:345}
 ];
 const ENEMIES = {
  raider:{name:'刺牙',kind:'raider',hp:100,atk:8,range:33,speed:45,capturable:true},
@@ -182,7 +182,7 @@ function validBuild(b){return !!b&&b.version===1&&Array.isArray(b.activeHeroes)&
 class Game {
  constructor({seed = (Date.now() ^ Math.floor(Math.random()*1e9)) >>> 0} = {}) {
   this.seed=seed; this.randomState=seed; this.phase='setup'; this.paused=false; this.wave=0;
-  this.time=0; this.waveTime=0; this.maxEnergy=6;this.energy=6; this.regen=1; this.power=1; this.serial=0;
+  this.time=0; this.waveTime=0; this.maxEnergy=8;this.energy=6; this.regen=.5; this.power=1; this.serial=0;
   this.core={id:'core',x:65,y:250,hp:260,max:260,side:0,kind:'core'};
   this.units=[]; this.mains=[]; this.fields=[]; this.effects=[]; this.pending=[];this.orders=[];
   this.activeHeroes=[0,1,2];this.placed=HEROES.map(()=>null); this.loadouts=HEROES.map(h=>h.skills.slice(0,4));
@@ -231,7 +231,7 @@ class Game {
   });
   this.units=[...this.mains];this.fields=[];this.effects=[];this.pending=[];this.orders=[];this.discard=[];this.coopEvents=[];this.coopSeen.clear();
   this.deck=this.shuffle(this.partyCards);this.hand=this.deck.splice(0,4);
-  this.phase='opening';this.mulliganUsed=false;this.waveTime=0;this.energy=this.maxEnergy;this.control=0;
+  this.phase='opening';this.mulliganUsed=false;this.waveTime=0;this.energy=6;this.control=0;
   this.core.hp=this.core.max;this.captureCooldown=0;this.nextThreatAt=0;this.seal=null;
   this.message='最多选择两张换掉，或直接保留。确认后立刻开战。';return true;
  }
@@ -659,7 +659,7 @@ class Game {
  }
  choose(id){
   if(this.phase!=='reward'||this.campHealUsed||this.relics.includes(id)||!RELICS.some(r=>r.id===id))return false;
-  this.relics.push(id);if(id==='power')this.power=1.2;if(id==='flow')this.regen=1.25;return this.leaveCamp();
+  this.relics.push(id);if(id==='power')this.power=1.2;if(id==='flow')this.regen=.625;return this.leaveCamp();
  }
  leaveCamp(){
   this.wave++;this.phase='setup';this.units=[];this.mains=[];this.fields=[];this.pending=[];this.orders=[];this.effects=[];

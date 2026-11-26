@@ -150,9 +150,9 @@ function ui(){
    const p=preview;
    $('hint').textContent=c.name+' · '+((p?.echo?'残响 · ':'')+(p?.caster?.name||'无可用施法者'))+(p?.caster?' · 射程 '+Math.round(p.range):'');
    $('detail').textContent=p&&!p.valid?p.reason:p?.approach?p.reason:game.paused?(touchMode?'已暂停，可调整落点；点右上角继续后再确认。':'已暂停，选好落点后按空格继续。'):cardDescription(c,p?.echo)+' · 前摇 '+c.wind+' 秒'+(p?.echo?' · 残响效力 45%':'')+(touchMode?' · 拖到落点松手施放；拖回手牌取消':' · Esc 取消');
-  }else{$('hint').textContent=game.paused?'战术暂停 · 可查看手牌':'拖手牌到战场释放';$('detail').textContent='拖角色使用手中闪避牌 · 消耗1灵能';}
+  }else{$('hint').textContent=game.paused?'战术暂停 · 可查看手牌':'拖手牌到战场释放';$('detail').textContent='拖角色闪避 · 仅消耗1灵能';}
   if(dodgePreview){$('hint').textContent=dodgePreview.caster?.name+' · 拖动闪避';$('detail').textContent=dodgePreview.valid?'松手仅消耗1灵能 · 无无敌/护盾':dodgePreview.reason;}
- $('energy').textContent=game.availableEnergy.toFixed(1)+' / '+game.maxEnergy+(game.reservedEnergy?'（预留 '+game.reservedEnergy+'）':'');$('energy-fill').style.width=Math.max(0,game.availableEnergy)/game.maxEnergy*100+'%';$('regen').textContent='每秒 +'+game.regen.toFixed(2);
+ $('energy').textContent=game.availableEnergy.toFixed(1)+' / '+game.maxEnergy+(game.reservedEnergy?'（预留 '+game.reservedEnergy+'）':'');$('energy-fill').style.width=Math.max(0,game.availableEnergy)/game.maxEnergy*100+'%';$('regen').textContent='每'+(1/game.regen).toFixed(1)+'秒 +1';
  const spend=mode==='capture'?3:CARDS[game.hand[selected]]?.cost||0;
  $('energy-reserved').style.left=game.availableEnergy/game.maxEnergy*100+'%';$('energy-reserved').style.width=game.reservedEnergy/game.maxEnergy*100+'%';
  $('energy-spend').style.left=Math.max(0,game.availableEnergy-spend)/game.maxEnergy*100+'%';$('energy-spend').style.width=Math.min(spend,game.availableEnergy)/game.maxEnergy*100+'%';
