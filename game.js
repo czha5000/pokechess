@@ -1,7 +1,7 @@
 (() => {
 'use strict';
 const LANES = [155, 345];
-const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:2.5};
+const ENEMY_CADENCE={basic:3.2,bossBasic:4,openingBasic:1.6,openingBossBasic:2.2,tellGap:2.5,telegraphsPerBasic:4};
 const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 // Legacy spell IDs are preserved for saved-build compatibility; displayed names and mechanics are current.
 const CARDS = {
@@ -549,7 +549,7 @@ class Game {
   }
   this.effects.push({kind:p.card,x:p.x,y:p.y,r:c.r,life:.45,max:.45});
  }
- enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':null;return kind?{...{chant:{name:'共鸣吟唱',wind:2.5,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:2.2,range:260,r:48,damage:34,cooldown:10},charge:{name:'蓄力冲撞',wind:2,range:190,r:28,damage:38,cooldown:9},slam:{name:'重锤砸地',wind:2.5,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:2.3,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
+ enemySpec(u){const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':u.kind==='archer'?'bomb':u.kind==='raider'?'strike':null;return kind?{...{strike:{name:'蓄力扑击',wind:2,range:95,r:42,damage:18,cooldown:9},chant:{name:'共鸣吟唱',wind:2.5,range:250,r:180,damage:0,cooldown:12},ambush:{name:'后排伏击',wind:2.2,range:260,r:48,damage:34,cooldown:10},charge:{name:'蓄力冲撞',wind:2,range:190,r:28,damage:38,cooldown:9},slam:{name:'重锤砸地',wind:2.5,range:85,r:65,damage:48,cooldown:9},bomb:{name:'延迟轰炸',wind:2.3,range:240,r:58,damage:36,cooldown:10}}[kind],kind}:null;}
  enemyIntent(u){
   if(!u?.side||u.hp<=0)return null;const spec=this.enemySpec(u);if(!spec)return null;
   if(u.special)return {...u.special,actor:u,targetName:u.special.targetName||'范围目标',readyIn:0,locked:true,inRange:true,damage:u.special.damage*(this.activeHeroes.length===2?.85:1)};
@@ -568,12 +568,11 @@ class Game {
   return t;
  }
  enemySpecial(u,t,fair=false){
-  if(!u.side||(!['brute','archer','boss'].includes(u.kind)&&u.trait!=='ambush')||!t||t.objective||t.hp<=0)return false;
+  if(!u.side||!this.enemySpec(u)||!t||t.objective||t.hp<=0)return false;
   if(this.time<(this.nextThreatAt||0)||this.units.some(e=>e.hp>0&&e.special))return false;
   t=this.specialTarget(u,t);if(!t)return false;
   if(fair){const ready=this.units.filter(v=>v.side&&v.hp>0&&v.atk>0&&!v.special&&!v.busy&&!(v.stun>0)&&!(v.recovery>0)&&(v.specialCooldown??2)<=0&&this.specialTarget(v,this.target(v,false))).sort((a,b)=>(a.lastSpecialAt??-1)-(b.lastSpecialAt??-1));if(ready.length&&ready[0]!==u)return false;}
-  const kind=u.trait==='priest'?'chant':u.trait==='ambush'?'ambush':u.kind==='brute'?'charge':u.kind==='boss'?'slam':'bomb';
-  const spec=this.enemySpec(u);
+  const spec=this.enemySpec(u),kind=spec.kind;
   if(distance(u,t)>spec.range)return false;
   const p={...spec,kind,id:'e'+(++this.serial),from:{x:u.x,y:u.y},targetId:t.id,targetName:t.name||'灵核',x:['slam','chant'].includes(kind)?u.x:t.x,y:['slam','chant'].includes(kind)?u.y:t.y,wait:spec.wind};
   if(kind==='ambush'&&!this.valid(p.x,p.y))return false;
@@ -591,7 +590,7 @@ class Game {
   const p=u.special;if(!p)return false;
   if(u.stun>0){u.special=null;if(u.trait==='rage'){u.rage=0;u.rageClock=0;}u.recovery=.8;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
   p.wait-=dt;if(p.wait>0)return true;
-  u.special=null;if(u.trait==='rage'){u.rage=0;u.rageClock=0;}
+  u.special=null;if(p.damage>0){u.telegraphedAttacks=(u.telegraphedAttacks||0)+1;if(u.telegraphedAttacks%ENEMY_CADENCE.telegraphsPerBasic===0)u.basicCredits=Math.min(1,(u.basicCredits||0)+1);this.stats.enemyTelegraphs=(this.stats.enemyTelegraphs||0)+1;}if(u.trait==='rage'){u.rage=0;u.rageClock=0;}
   if(p.kind==='chant'){for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==u.id&&distance(t,u)<=180))t.empoweredUntil=this.time+10;this.effects.push({kind:'text',text:'共鸣 · 下次大招强化',x:u.x,y:u.y,life:1.2,max:1.2});}
   for(const t of [...this.units,this.core])if(p.damage>0&&t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
   if(p.kind==='charge'||p.kind==='ambush'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
@@ -735,7 +734,7 @@ class Game {
    if(u.side&&u.specialCooldown<=0&&this.enemySpecial(u,t,true))continue;
    if(t.objective){if(!u.hold&&distance(u,t)>35)this.move(u,t,dt);continue;}
    if(distance(u,t)>u.range+12){if(!u.hold)this.move(u,t,dt);}
-   else if(u.attack<=0){u.attack=u.side?(u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic):1.25;this.hit(t,u.atk,{...u,direct:true,hitToken:'a'+(++this.serial)});}
+   else if(u.attack<=0){if(u.side){if(!(u.basicCredits>0)||this.units.some(e=>e.hp>0&&e.side&&e.special))continue;u.basicCredits--;this.stats.enemyBasics=(this.stats.enemyBasics||0)+1;}u.attack=u.side?(u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic):1.25;this.hit(t,u.atk,{...u,direct:true,hitToken:'a'+(++this.serial)});}
   }
   this.units=this.units.filter(u=>u.hp>0);
   if(this.phase!=='battle')return;
