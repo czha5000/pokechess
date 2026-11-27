@@ -43,6 +43,8 @@ const CARDS = {
  pack:    {owner:2,name:'风狼',icon:'双',cost:4,range:250,r:38,wind:.5,type:'pack',desc:'召唤两只风狼 · 10 秒 / 最多 4 只'}
 };
 
+Object.assign(CARDS.bulwark,{doubleShield:true,desc:'区域友军已有护盾翻倍，再增加65护盾'});
+Object.assign(CARDS.meteor,{expose:4,desc:'中心最近单体160，附加4秒易伤；其余溅射56。易伤使直接伤害提高25%'});
 Object.assign(CARDS.venom,{damage:4,poison:3,desc:'单体4伤害 · 附加3层中毒，无层数上限'});
 Object.assign(CARDS.harvest,{cost:2,wind:.4,damage:10,desc:'命中消耗全部毒层，造成10＋毒层×2伤害'});
 Object.assign(CARDS.shieldstrike,{name:'碎甲重击',wind:.7,damage:20,desc:'命中消耗自身全部护盾，造成20＋消耗盾量×1.5伤害'});
@@ -159,13 +161,15 @@ const MECHANICS={
 Object.entries(CARDS).forEach(([id,c])=>{
  const keys=[],notes=[];c.controlKind=c.control?(c.requires==='lightning'?'paralysis':'control'):null;
  if(c.poison){keys.push('poison');notes.push('施加中毒'+c.poison+'层；无上限，不重置结算计时。');}
+ if(c.doubleShield)notes.push('先按命中时已有护盾额外增加100%，再加本招护盾；残响按效力缩减增加量。');
+ if(c.expose)notes.push('中心目标易伤4秒：受到直接伤害提高25%，不叠层，不提高中毒或灼烧。');
  if(c.shieldBash){keys.push('armor','shield');notes.push('按命中时盾量追加50%伤害，不消耗护盾。');}
  if(c.poisonGrow||c.poisonBurst){keys.push('poison');notes.push(c.poisonGrow?'增加当前毒层的50%，向下取整。':'立即结算一次毒伤，保留层数和自然计时。');}
  if(c.control){keys.push(c.controlKind);notes.push('施加'+(c.controlKind==='paralysis'?'麻痹':'牵制')+c.control+'秒：移动减速35%，不叠加。');}
  if(c.stun){keys.push('stun');notes.push('眩晕'+c.stun+'秒，并打断蓄力。');}
  if(c.allySetupBonus){keys.push('setup');notes.push('异常增伤：同伴施加的中毒／麻痹／牵制满足条件，额外+'+c.allySetupBonus+'伤害，不随状态数量叠加。');}
  if(c.harvest){keys.push('harvest','poison');notes.push('收割全部毒层，每层+2伤害；可消费自身毒层。');}
- if(c.shieldStrike){keys.push('armor','shield');notes.push('护甲转伤：命中才消耗自身至多30盾，每盾+1.5伤害。');}
+ if(c.shieldStrike){keys.push('armor','shield');notes.push('护甲转伤：命中才消耗自身全部护盾，每盾+1.5伤害。');}
  if(c.type==='shield'||c.shield||c.allyShield){keys.push('shield');notes.push('护盾可累加；4秒未获盾后开始逐步衰减。');}
  if(c.type==='dash'&&!c.quickDodge){keys.push('displacement','breach');notes.push('携援盾位移至少45并命中落点，可消耗至多20盾施加5秒破绽。');}
  if(c.pull||c.push)keys.push('displacement');
@@ -471,6 +475,7 @@ class Game {
  }
  hit(u,n,source){
   if(this.phase!=='battle'||u.hp<=0)return;
+  if(u.side&&n>0&&source?.side===0&&source.direct&&(u.exposedUntil||0)>this.time)n*=1.25;
   if(u.side&&n>0){
    u.lastHurt=this.time;
    if(u.trait==='crystal'){
@@ -511,6 +516,7 @@ class Game {
    const extra=c.detonate&&burn?c.detonate*s*this.power:0;
    if(c.damage>0||armorExtra>0)this.skillHit(u,(u===center?c.centerDamage:c.damage)*s*this.power+extra+armorExtra,p,source);
    if(extra){this.cooperate('接力爆燃',u,[burn.sourceId,p.casterId],p.id+':detonate:'+u.id);this.effects.push({kind:'text',text:'接力爆燃 +'+Math.round(extra),x:u.x,y:u.y-30,life:1.2,max:1.2});}
+   if(c.expose&&u===center&&u.hp>0)u.exposedUntil=Math.max(u.exposedUntil||0,this.time+c.expose*s);
    if(c.stun)u.stun=Math.max(u.stun,c.stun*s);if(c.push)this.push(u,source,c.push*s);
    if(c.pull)this.push(u,p,-c.pull*s);if(c.control&&u.kind!=='seal')u.controlTag={kind:c.controlKind,sourceId:p.casterId,token:p.id,strength:s,until:this.time+c.control*s};
    if(c.poison)this.applyPoison(u,p);
@@ -527,7 +533,7 @@ class Game {
   }
   if(c.spread&&spreadTo.size){this.message='扩散命中 ×'+spreadTo.size;this.effects.push({kind:'text',text:this.message,x:p.x,y:p.y,life:1.4,max:1.4});}
   if(c.type==='heal')allies.forEach(u=>{this.heal(u,c.amount*s);if(c.allyShield)this.grantShield(u,c.allyShield*s,p.casterId);});
-  if(c.type==='shield'||c.type==='cycle')allies.forEach(u=>this.grantShield(u,c.amount*s,p.casterId));
+  if(c.type==='shield'||c.type==='cycle')allies.forEach(u=>this.grantShield(u,(c.amount+(c.doubleShield?u.shield:0))*s,p.casterId));
   if(c.type==='healfield')this.fields=this.fields.filter(f=>f.kind!=='healfield');
   if(c.type==='healfield'||c.type==='firefield')this.fields.push({id:p.id,sourceId:p.casterId,kind:c.type,x:p.x,y:p.y,r:c.r,life:c.life,amount:c.amount*s*(c.type==='firefield'?this.power:1),burn:c.burn*s*this.power});
   if(c.type==='lure'){
@@ -598,13 +604,15 @@ class Game {
  }
  tickSpecial(u,dt){
   const p=u.special;if(!p)return false;
-  if(u.stun>0){u.special=null;if(u.trait==='rage'){u.rage=0;u.rageClock=0;}u.recovery=.8;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
+  if(u.stun>0){u.special=null;if(u.trait==='rage'){u.rage=0;u.rageClock=0;}u.recovery=4;this.stats.interrupts=(this.stats.interrupts||0)+1;this.effects.push({kind:'text',text:'大招打断',x:u.x,y:u.y,life:.8,max:.8});return false;}
   p.wait-=dt;if(p.wait>0)return true;
   u.special=null;if(p.damage>0){u.telegraphedAttacks=(u.telegraphedAttacks||0)+1;if(u.telegraphedAttacks%ENEMY_CADENCE.telegraphsPerBasic===0)u.basicCredits=Math.min(1,(u.basicCredits||0)+1);this.stats.enemyTelegraphs=(this.stats.enemyTelegraphs||0)+1;}if(u.trait==='rage'){u.rage=0;u.rageClock=0;}
   if(p.kind==='chant'){for(const t of this.units.filter(t=>t.side&&t.hp>0&&t.id!==u.id&&distance(t,u)<=180))t.empoweredUntil=this.time+10;this.effects.push({kind:'text',text:'共鸣 · 下次大招强化',x:u.x,y:u.y,life:1.2,max:1.2});}
-  for(const t of [...this.units,this.core])if(p.damage>0&&t.hp>0&&!t.side&&this.specialContains(p,t))this.hit(t,p.damage*(this.activeHeroes.length===2?.85:1),u);
+  let blocked=false;
+  for(const t of [...this.units,this.core])if(p.damage>0&&t.hp>0&&!t.side&&this.specialContains(p,t)){const damage=p.damage*(this.activeHeroes.length===2?.85:1);if(t.hero!==undefined&&t.shield>=damage)blocked=true;this.hit(t,damage,u);}
+  if(blocked){this.stats.fullBlocks=(this.stats.fullBlocks||0)+1;this.effects.push({kind:'text',text:'完整格挡 · 反击4秒',x:u.x,y:u.y,life:1.2,max:1.2});}
   if(p.kind==='charge'||p.kind==='ambush'){u.x=p.x;u.y=p.y;u.lane=u.y<250?0:1;}
-  u.recovery=2;u.attack=u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic;
+  u.recovery=blocked?4:2;u.attack=u.kind==='boss'?ENEMY_CADENCE.bossBasic:ENEMY_CADENCE.basic;
   this.effects.push({kind:'enemy-impact',x:p.x,y:p.y,r:p.r,text:p.name,life:.45,max:.45});return true;
  }
  target(u,track=true){
@@ -750,10 +758,12 @@ class Game {
 
    u.hold=Math.max(0,u.hold-dt);u.dodgeCooldown=Math.max(0,(u.dodgeCooldown||0)-dt);
    if(u.life!==undefined){u.life-=dt;if(u.life<=0){u.hp=0;continue;}}
-   if(u.side){this.tickTrait(u,dt);u.specialCooldown=Math.max(0,(u.specialCooldown??2)-dt);if(this.tickSpecial(u,dt))continue;if(u.recovery>0){u.recovery=Math.max(0,u.recovery-dt);continue;}}
+   if(u.side){this.tickTrait(u,dt);u.specialCooldown=Math.max(0,(u.specialCooldown??2)-dt);if(this.tickSpecial(u,dt))continue;if(u.recovery>0){u.recovery=Math.max(0,u.recovery-dt);u.stun=Math.max(0,u.stun-dt);continue;}}
    if(u.stun>0){u.stun=Math.max(0,u.stun-dt);continue;}
    if(u.busy||!u.atk)continue;
    u.attack-=dt;const t=this.target(u);if(!t)continue;
+   const cleanup=!u.side&&u.hero!==undefined&&this.wave>0&&!this.schedule.length&&!this.units.some(e=>e.side&&e.hp>0&&e.kind!=='seal');
+   if(cleanup&&distance(u,t)>(t.objective?35:u.range+12)){this.move(u,t,dt*2);continue;}
    if(u.side&&u.specialCooldown<=0&&this.enemySpecial(u,t,true))continue;
    if(t.objective){if(u.side)this.enemyMove(u,t,dt);else if(!u.hold&&distance(u,t)>35)this.move(u,t,dt);continue;}
    if(u.side){this.enemyMove(u,t,dt);}

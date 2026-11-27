@@ -27,9 +27,10 @@ function skillArt(id){const c=CARDS[id],color=skillPalette[c.requires]||'#c8f6ef
 function cardDescription(c,echo=false){
  const s=echo?.45:1,n=value=>Number((value*s).toFixed(2)),damage=n((c.damage||0)*game.power);
  if(c.quickDodge)return '1灵能＋本牌 · 立即位移'+(echo?59.5:85)+' · 可拖角色触发';
- if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage;
+ if(c.centerRadius)return '中心单体 '+n(c.centerDamage*game.power)+' · 其余溅射 '+damage+(c.expose?' · 中心易伤'+n(c.expose)+'秒':'');
  if(c.poisonGrow||c.poisonBurst||c.shieldBash)return c.desc;
  if(c.type==='blast')return (c.single?'单体伤害 ':'范围伤害 ')+damage+(c.poison?' · 中毒'+Math.max(1,Math.floor(c.poison*(echo?.45:1)))+'层':'')+(c.harvest?' · 每层孢毒追加'+n(2*game.power):'')+(c.shieldStrike?' · 消耗全部盾转伤':'')+(c.stun?' · 控制 '+n(c.stun)+' 秒':c.push?' · 击退 '+n(c.push):c.pull?' · 聚拢 '+n(c.pull):'')+(c.allySetupBonus?' · 同伴标记至多 +'+n(c.allySetupBonus*game.power):'')+(c.control?' · '+(c.controlKind==='paralysis'?'麻痹':'牵制')+'35% / '+n(c.control)+'秒':'')+(c.burn?' · 灼烧 '+n(c.burn*game.power)+'/s':'');
+ if(c.doubleShield)return '已有盾增加'+n(100)+'% · 再增加'+n(c.amount)+'盾';
  if(c.type==='shield')return (c.singleAlly?'单体':'区域')+'增加护盾 '+n(c.amount)+' · 可累加';
  if(c.type==='heal')return '区域治疗 '+n(c.amount)+(c.allyShield?' · 护盾 '+n(c.allyShield):'');
  if(c.type==='healfield')return '每秒治疗 '+n(c.amount)+' · '+c.life+' 秒 · 全队限1个';
@@ -93,17 +94,24 @@ function threatened(u){
   return Math.hypot(u.x-p.from.x-dx*t,u.y-p.from.y-dy*t)<=p.r+18;
  });
 }
+function canBlockWarning(u){
+ if(!u||u.hp<=0)return false;
+ const p=game.units.find(e=>e.hp>0&&e.side&&e.special?.damage>0&&game.specialContains(e.special,u))?.special;
+ if(!p)return false;
+ const predicted=u.shield*Math.pow(.9,Math.max(0,p.wait-u.shieldTime));
+ return predicted>=p.damage*(game.activeHeroes.length===2?.85:1);
+}
 function partyUI(){
  if(dodgeDrag?.portrait)return;
- const key=game.hand.join()+Math.floor(game.availableEnergy)+game.damageCarry.join()+game.orders.length+game.paused+game.phase+'|'+(game.phase==='setup'?game.wounds.join()+game.tactic+game.activeHeroes.join():game.mains.map(u=>Math.ceil(u.hp)+':'+Math.ceil(u.shield)+':'+Math.ceil(u.dodgeCooldown)+':'+!!u.busy+':'+(u.stun>0)+':'+threatened(u)).join());
+ const key=game.hand.join()+Math.floor(game.availableEnergy)+game.damageCarry.join()+game.orders.length+game.paused+game.phase+'|'+(game.phase==='setup'?game.wounds.join()+game.tactic+game.activeHeroes.join():game.mains.map(u=>Math.ceil(u.hp)+':'+Math.ceil(u.shield)+':'+Math.ceil(u.dodgeCooldown)+':'+!!u.busy+':'+(u.stun>0)+':'+threatened(u)+':'+canBlockWarning(u)).join());
  if($('party').dataset.key===key)return;$('party').dataset.key=key;
  $('party').innerHTML=HEROES.map((h,i)=>{
   const u=game.mains.find(u=>u.hero===i),dead=u&&u.hp<=0;
   const state=!game.activeHeroes.includes(i)?'候补 · 战前可换':game.phase==='setup'?(Math.ceil(game.journeyHP(i))+' / '+game.journeyMax(i)+(game.wounds[i]?' · 带伤':'')+' · 4招'):dead?'倒下 · 留下残响':u?Math.ceil(u.hp)+' / '+u.max+(u.shield>0?' · '+(game.wardInfo(u)?'援盾 ':'盾 ')+Math.ceil(u.shield)+(u.shieldTime>0?' · '+Math.ceil(u.shieldTime)+'s后衰减':' · 衰减中'):'')+(u.busy?' · 施法中':u.stun>0?' · 被控制':''):'';
   if(!game.activeHeroes.includes(i))return '';
-  const danger=game.phase==='battle'&&threatened(u);
+  const danger=game.phase==='battle'&&threatened(u),guarded=danger&&canBlockWarning(u);
   const evade=u&&!dead?(danger?game.escapePreview(u.id):game.dodgePreview(u.id,u.x+20,u.y)):null;const ready=evade?.valid;
-  return '<button class="hero-status '+(dead?'fallen':'')+(danger?' threatened':'')+'" data-dodge-hero="'+i+'" '+(game.phase!=='battle'||dead?'disabled':'')+' aria-label="'+h.name+'，'+state+'。拖头像到战场闪避"><span class="hero-sigil">'+h.icon+'</span><span class="hero-copy"><b>'+h.name+'</b><small>'+state+'</small><span class="hero-health"><i style="width:'+(u?Math.max(0,u.hp/u.max)*100:100)+'%"></i></span><em>'+(danger?'危险 · ':'')+(dead?'残响支援':ready?(danger?'点按避险 · 1费':'拖动闪避 · 1费'):evade?.reason||'待命')+'</em></span></button>';
+  return '<button class="hero-status '+(dead?'fallen':'')+(danger?' threatened':'')+(guarded?' guarded':'')+'" data-dodge-hero="'+i+'" '+(game.phase!=='battle'||dead?'disabled':'')+' aria-label="'+h.name+'，'+state+'。拖头像到战场闪避"><span class="hero-sigil">'+h.icon+'</span><span class="hero-copy"><b>'+h.name+'</b><small>'+state+'</small><span class="hero-health"><i style="width:'+(u?Math.max(0,u.hp/u.max)*100:100)+'%"></i></span><em>'+(danger&&!guarded?'危险 · ':'')+(guarded?'◈ 可挡 · 留盾反击':dead?'残响支援':ready?(danger?'点按避险 · 1费':'拖动闪避 · 1费'):evade?.reason||'待命')+'</em></span></button>';
  }).join('');
 }
 function ui(){

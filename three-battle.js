@@ -184,7 +184,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   const h=heights[u.kind]||.7,p=project(u.x,u.y,h+.12);a.el.style.transform=`translate(${p.x}px,${Math.max(30,p.y)}px) translate(-50%,-100%)`;
   a.el.classList.toggle('enemy',!!u.side);a.el.querySelector('b').textContent=(u.name||'')+(u.side?' · '+window.DeployGame.enemyMovement(u).name:'');a.el.querySelector('em').style.width=(u.max?Math.max(0,u.hp/u.max)*100:100)+'%';
   const trait=u.trait==='crystal'?((u.vulnerableUntil||0)>game.time?'虚弱':'晶甲 '+(u.crystalHits||0)+'/4'):u.trait==='rage'?'蓄怒 '+(u.rage||0)+'/3':u.trait==='regen'?'回生':u.trait==='guard'?'护链':u.trait==='priest'?'共鸣':u.trait==='ambush'?'伏击':'';
-  a.el.querySelector('small').textContent=u.stun>0?'眩晕':u.recovery>0?'反击窗口':game.active(u.poison)?'孢毒 '+u.poison.stacks:game.active(u.controlTag)?(u.controlTag.kind==='paralysis'?'麻痹':'牵制')+' '+Math.max(0,u.controlTag.until-game.time).toFixed(1)+'s':game.active(u.burn)?'灼烧':u.shield>0?'护盾 '+Math.ceil(u.shield):trait;
+  a.el.querySelector('small').textContent=u.stun>0?'眩晕':u.recovery>0?'反击 '+u.recovery.toFixed(1)+'s':(u.exposedUntil||0)>game.time?'易伤 '+(u.exposedUntil-game.time).toFixed(1)+'s':game.active(u.poison)?'孢毒 '+u.poison.stacks:game.active(u.controlTag)?(u.controlTag.kind==='paralysis'?'麻痹':'牵制')+' '+Math.max(0,u.controlTag.until-game.time).toFixed(1)+'s':game.active(u.burn)?'灼烧':u.shield>0?'护盾 '+Math.ceil(u.shield):trait;
   effect(u.id+'team','ring',u.x,u.y,u.kind==='boss'?43:25,u.side?'#e69b80':'#a6f5de',.72);
   if(u.shield>0)effect(u.id+'shield','orb',u.x,u.y,34,'#8cddf1',.12,h*.45);
  }
