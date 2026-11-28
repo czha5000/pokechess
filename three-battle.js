@@ -10,12 +10,12 @@ const clamp=THREE.MathUtils.clamp;
 window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
  const renderer=new THREE.WebGLRenderer({canvas,antialias:true,alpha:false,powerPreference:'high-performance'});
  renderer.setPixelRatio(Math.min(devicePixelRatio||1,2));renderer.shadowMap.enabled=true;renderer.shadowMap.type=THREE.PCFSoftShadowMap;
- renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.12;
- const scene=new THREE.Scene();scene.background=new THREE.Color('#b9d8da');scene.fog=new THREE.Fog('#b9d8da',20,38);
+ renderer.outputColorSpace=THREE.SRGBColorSpace;renderer.toneMapping=THREE.ACESFilmicToneMapping;renderer.toneMappingExposure=1.04;
+ const scene=new THREE.Scene();scene.background=new THREE.Color('#65777a');scene.fog=new THREE.Fog('#65777a',18,36);
  const camera=new THREE.OrthographicCamera(-6,6,2,-2,.1,60);camera.position.set(0,10,14);camera.lookAt(0,.32,0);
- scene.add(new THREE.HemisphereLight('#d6f4ff','#8c7656',2.25));
- const sun=new THREE.DirectionalLight('#fff1cb',3.1);sun.position.set(-5,10,6);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-7,right:7,top:5,bottom:-5,near:1,far:24});sun.shadow.normalBias=.035;sun.shadow.bias=-.00025;sun.shadow.radius=3;scene.add(sun);
- const rim=new THREE.DirectionalLight('#b5e9ff',1.5);rim.position.set(4,4,-7);scene.add(rim);
+ scene.add(new THREE.HemisphereLight('#c6d4df','#706c55',2.1));
+ const sun=new THREE.DirectionalLight('#fff0d3',2.7);sun.position.set(-3,9,4);sun.castShadow=true;sun.shadow.mapSize.set(2048,2048);Object.assign(sun.shadow.camera,{left:-7,right:7,top:5,bottom:-5,near:1,far:24});sun.shadow.normalBias=.035;sun.shadow.bias=-.00025;sun.shadow.radius=5;scene.add(sun);
+ const rim=new THREE.DirectionalLight('#aec2d1',.7);rim.position.set(4,4,-7);scene.add(rim);
  const geometries=new Set(),materials=new Set(),textures=new Set(),templates=new Map(),actors=new Map(),effects=new Map(),labels=new Map();
  const labelsRoot=document.createElement('div');labelsRoot.className='world-labels';canvas.parentElement.append(labelsRoot);
  const loading=document.createElement('div');loading.className='world-loading';loading.setAttribute('role','status');loading.innerHTML='<b>准备高清 3D 战场</b><span>载入角色模型 · 0 / 4</span>';canvas.parentElement.append(loading);
@@ -27,34 +27,47 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
  const box=geo(new THREE.BoxGeometry(1,1,1)),sphere=geo(new THREE.SphereGeometry(1,24,16)),cone=geo(new THREE.ConeGeometry(1,1,24)),cylinder=geo(new THREE.CylinderGeometry(1,1,1,20));
  const mesh=(parent,g,m,x,y,z,sx=1,sy=sx,sz=sx)=>{const o=new THREE.Mesh(g,m);o.position.set(x,y,z);o.scale.set(sx,sy,sz);o.castShadow=true;o.receiveShadow=true;parent.add(o);return o;};
  const terrain=new THREE.Group();scene.add(terrain);
- const grass=mat('#86a867'),edge=mat('#6b7f61'),rock=mat('#758b8a'),sand=mat('#c3b98d'),stone=mat('#d4d8b5'),wood=mat('#a38b63'),leaf=mat('#54886c'),leafLight=mat('#72a57b'),trunk=mat('#74604d');
- // A raised diorama: topology still matches the same two bridges and forbidden river.
- mesh(terrain,box,rock,0,-.52,0,10.5,.8,5.4);
- mesh(terrain,box,edge,-2.82,-.2,0,4.45,.36,5.05);mesh(terrain,box,edge,2.82,-.2,0,4.45,.36,5.05);
- mesh(terrain,box,grass,-2.82,-.035,0,4.44,.07,5.04);mesh(terrain,box,grass,2.82,-.035,0,4.44,.07,5.04);
- const waterMat=new THREE.MeshPhysicalMaterial({color:'#36a7b0',roughness:.23,metalness:.18,transparent:true,opacity:.87,clearcoat:.75});materials.add(waterMat);
- const water=mesh(terrain,box,waterMat,0,-.13,0,1.25,.08,5.3);water.castShadow=false;
- const rippleMat=basic('#b9f4e4',.5),ripples=[];
- for(let i=0;i<16;i++){const o=mesh(terrain,box,rippleMat,((i*17)%9-4)*.105,-.079,-2.4+i*.3,.16,.003,.012);o.castShadow=false;ripples.push(o);}
+ const environmentLoads=[],textureLoader=new THREE.TextureLoader();
+ function surface(id,color,rx,ry,normal=.65){const m=mat(color,.96);for(const [suffix,slot]of [['color','map'],['normal','normalMap']])environmentLoads.push(textureLoader.loadAsync(new URL('./assets/environment-v40/'+id+'-'+suffix+'.jpg',import.meta.url).href).then(t=>{if(disposed){t.dispose();return;}t.wrapS=t.wrapT=THREE.RepeatWrapping;t.repeat.set(rx,ry);t.anisotropy=Math.min(4,renderer.capabilities.getMaxAnisotropy());if(slot==='map')t.colorSpace=THREE.SRGBColorSpace;textures.add(t);m[slot]=t;m.normalScale.set(normal,normal);m.needsUpdate=true;}));return m;}
+ const grass=surface('sparse_grass','#eeeee1',2.7,3.2,.75),edge=surface('forest_ground_04','#817c63',2,2,.9),rock=surface('rock_3','#dbded5',1,1,.8),sand=surface('forest_ground_04','#ddd6c6',3,.65,.6),stone=surface('rock_3','#e1dfd2',1.5,.65,.65),wood=mat('#554a36'),leaf=mat('#35482f'),leafLight=mat('#52613c'),trunk=surface('rock_3','#574d3c',.35,2,.7);
+ const random=n=>{const v=Math.sin(n*127.1+311.7)*43758.5453;return v-Math.floor(v);};
+ // Ground remains at y=0 in the playable area: camera picking and hit rings match navigation.
+ mesh(terrain,box,edge,0,-.39,0,18,.5,12);
+ for(const x of [-4.85,4.85])mesh(terrain,box,grass,x,-.065,0,8.3,.13,10);
+ const skyCanvas=document.createElement('canvas');skyCanvas.width=512;skyCanvas.height=256;const sky=skyCanvas.getContext('2d'),skyGradient=sky.createLinearGradient(0,0,0,256);skyGradient.addColorStop(0,'#819da8');skyGradient.addColorStop(.45,'#d7dedb');skyGradient.addColorStop(.52,'#879383');skyGradient.addColorStop(1,'#3e4839');sky.fillStyle=skyGradient;sky.fillRect(0,0,512,256);for(let i=0;i<16;i++){const x=random(i+2)*512,y=random(i+9)*95,r=20+random(i+11)*45,g=sky.createRadialGradient(x,y,0,x,y,r);g.addColorStop(0,'#ffffff77');g.addColorStop(1,'#ffffff00');sky.fillStyle=g;sky.fillRect(x-r,y-r,r*2,r*2);}const skyTexture=new THREE.CanvasTexture(skyCanvas);skyTexture.colorSpace=THREE.SRGBColorSpace;skyTexture.mapping=THREE.EquirectangularReflectionMapping;textures.add(skyTexture);scene.environment=skyTexture;scene.environmentIntensity=.3;
+ const waveCanvas=document.createElement('canvas');waveCanvas.width=waveCanvas.height=128;const wc=waveCanvas.getContext('2d'),wi=wc.createImageData(128,128);for(let y=0;y<128;y++)for(let x=0;x<128;x++){const i=(y*128+x)*4;wi.data[i]=128+12*Math.sin(y*.5+x*.25);wi.data[i+1]=128+20*Math.sin(x*.2+y*.7);wi.data[i+2]=252;wi.data[i+3]=255;}wc.putImageData(wi,0,0);const waveTexture=new THREE.CanvasTexture(waveCanvas);waveTexture.wrapS=waveTexture.wrapT=THREE.RepeatWrapping;waveTexture.repeat.set(2,12);textures.add(waveTexture);
+ const waterMat=new THREE.MeshPhysicalMaterial({color:'#3a6061',normalMap:waveTexture,normalScale:new THREE.Vector2(.3,.3),roughness:.3,metalness:.1,transparent:true,opacity:.93,clearcoat:1});materials.add(waterMat);
+ const water=mesh(terrain,box,waterMat,0,-.11,0,1.4,.04,12);water.castShadow=false;
+ const rippleMat=basic('#c5d8ce',.19),ripples=[];
+ for(let i=0;i<32;i++){const o=mesh(terrain,box,rippleMat,(random(i)-.5)*1.2,-.086,-2.7+i*.17,.09+random(i+1)*.24,.002,.006);o.rotation.y=random(i+3)*.3;o.castShadow=false;ripples.push(o);}
+ const boulder=geo(new THREE.SphereGeometry(1,12,9));const bp=boulder.attributes.position;for(let i=0;i<bp.count;i++){const x=bp.getX(i),y=bp.getY(i),z=bp.getZ(i),r=1+.13*Math.sin(x*9+y*7+z*12)+.08*Math.cos(z*13-y*11);bp.setXYZ(i,x*r,y*r,z*r);}boulder.computeVertexNormals();
+ // Broken river margins and stones are kept clear of both bridge corridors.
+ for(let i=0;i<100;i++){const z=-4.8+i*.097;if(Math.abs(z-.95)<.43||Math.abs(z+.95)<.43)continue;for(const side of [-1,1]){const r=.08+random(i+44)*.14;const o=mesh(terrain,boulder,i%4?rock:edge,side*(.73+random(i)*.13),-.055,z,r,.06+random(i+8)*.13,r*.8);o.rotation.y=i*.7;}}
+ const pathGeo=geo(new THREE.PlaneGeometry(4.15,.62,24,4));const pathPoints=pathGeo.attributes.position;for(let i=0;i<pathPoints.count;i++){const x=pathPoints.getX(i),y=pathPoints.getY(i);pathPoints.setY(i,y*(1+.17*Math.sin(x*11)+.09*Math.cos(x*29)));}pathGeo.computeVertexNormals();
  for(const z of [-.95,.95]){
-  for(const x of [-2.65,2.65])mesh(terrain,box,sand,x,.006,z,3.9,.018,.62);
-  for(let i=0;i<9;i++)mesh(terrain,box,stone,-.65+i*.16,.028,z,.145,.10,.78);
-  for(const side of [-1,1]){
-   mesh(terrain,box,wood,0,.14,z+side*.39,1.5,.10,.065);
-   for(const x of [-.7,.7])mesh(terrain,box,stone,x,.16,z+side*.39,.14,.32,.14);
-  }
+  for(const x of [-2.82,2.82]){const path=mesh(terrain,pathGeo,sand,x,.009,z);path.rotation.x=-Math.PI/2;path.castShadow=false;}
+  // Individually weathered masonry with visible joints, shallow deck and low parapets.
+  for(let row=0;row<3;row++)for(let i=0;i<8;i++){const o=mesh(terrain,box,stone,-.68+i*.195,.017,z+(row-1)*.24,.185,.055,.228);o.rotation.y=(random(i+row*9)-.5)*.018;}
+  for(const side of [-1,1])for(let i=0;i<8;i++)mesh(terrain,box,rock,-.68+i*.195,.11,z+side*.42,.184,.19,.105);
+  for(const x of [-.78,.78])for(const side of [-1,1])mesh(terrain,box,stone,x,.13,z+side*.42,.16,.26,.16);
  }
- // Border dressing stays outside the navigable play area.
- for(let i=0;i<28;i++){
-  const x=-4.9+(i%14)*.75,z=i<14?-2.48:2.48;if(Math.abs(x)<.7)continue;
-  const r=mesh(terrain,sphere,i%3?rock:edge,x,-.09,z,.22+(i%3)*.08,.22,.19);r.rotation.set(i*.8,i*.5,i*.2);
- }
- function tree(x,z,s){const g=new THREE.Group();terrain.add(g);g.position.set(x,0,z);mesh(g,cylinder,trunk,0,.22,0,.055,.5,.055);for(let i=0;i<3;i++){const canopy=mesh(g,sphere,i%2?leaf:leafLight,(i-1)*.16,.58+i*.13,0,.3,.35,.3);canopy.rotation.z=i*.5;}g.scale.setScalar(s);}
- for(const [x,z,s]of [[-4.85,-2.3,.8],[-3.65,-2.43,.75],[-1.4,-2.38,.65],[1.35,-2.4,.7],[3.45,-2.4,.75],[4.8,-2.25,.85],[-4.9,2.35,.65],[4.85,2.35,.65]])tree(x,z,s);
+ // Detailed evergreen branch cards instead of rounded toy canopies; one instanced draw.
+ const needles=document.createElement('canvas');needles.width=needles.height=256;const ctx=needles.getContext('2d');
+ for(let i=0;i<40;i++){const y=20+i*5.5,w=(y/256)*105;for(const side of [-1,1]){ctx.strokeStyle=i%3?'#46543a':'#69724e';ctx.lineWidth=1.8;ctx.beginPath();ctx.moveTo(128,y);ctx.lineTo(128+side*w,y+14);ctx.stroke();for(let j=0;j<9;j++){const x=128+side*w*j/9;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(x,y+14*j/9);ctx.lineTo(x+side*9,y-9+14*j/9);ctx.stroke();}}}
+ const needleTexture=new THREE.CanvasTexture(needles);needleTexture.colorSpace=THREE.SRGBColorSpace;textures.add(needleTexture);
+ const foliage=new THREE.MeshStandardMaterial({map:needleTexture,color:'#c6d0ad',roughness:1,alphaTest:.45,side:THREE.DoubleSide});materials.add(foliage);
+ const treeSites=[[-4.9,-2.8,1.3],[-3.8,-2.95,1.5],[-2.5,-3.05,1.1],[-1.5,-2.95,1.25],[1.6,-2.9,1.2],[2.6,-3,1.45],[3.8,-3,1.1],[4.9,-2.8,1.35],[-5.2,2.8,.9],[5.2,2.8,.95]];
+ const branches=new THREE.InstancedMesh(geo(new THREE.PlaneGeometry(1,1)),foliage,treeSites.length*28);branches.castShadow=true;branches.receiveShadow=true;terrain.add(branches);let bi=0;const dummy=new THREE.Object3D();
+ for(const [x,z,h]of treeSites){mesh(terrain,cone,trunk,x,h*.45,z,.065,h,.065);for(let tier=0;tier<7;tier++)for(let side=0;side<4;side++){const a=side*Math.PI/2+tier*.73,size=(.65-tier*.065)*h;dummy.position.set(x+Math.sin(a)*size*.18,.26*h+tier*h*.11,z+Math.cos(a)*size*.18);dummy.rotation.set(-1.08,a,.08*Math.sin(tier));dummy.scale.set(size,size,1);dummy.updateMatrix();branches.setMatrixAt(bi++,dummy.matrix);}}
+ branches.instanceMatrix.needsUpdate=true;
+ // Peripheral rubble breaks the rectangular board silhouette without adding collision blockers.
+ for(let i=0;i<38;i++){const x=-5.3+random(i+70)*10.6,z=(i%2?-1:1)*(2.65+random(i+25)*.7);if(Math.abs(x)<.9)continue;const o=mesh(terrain,boulder,rock,x,-.04,z,.12+random(i+4)*.23,.10+random(i+8)*.18,.13+random(i+9)*.18);o.rotation.set(i*.4,i*.7,i*.2);}
  const gold=mat('#d6bf7c',.45,.25),crystal=mat('#a0efdf',.2,.15);crystal.emissive.set('#3a9a8d');crystal.emissiveIntensity=.35;
  mesh(terrain,cylinder,stone,-4.35,.08,0,.38,.16,.38);mesh(terrain,cylinder,gold,-4.35,.18,0,.27,.1,.27);
  const coreMesh=mesh(terrain,geo(new THREE.OctahedronGeometry(.33)),crystal,-4.35,.57,0,.7,1.25,.7);
- for(const z of [-.95,.95]){const portal=mesh(terrain,geo(new THREE.TorusGeometry(.23,.065,10,40)),mat('#a77b8a',.5,.3),4.42,.32,z);portal.rotation.y=Math.PI/2;mesh(terrain,cylinder,rock,4.42,.04,z,.32,.08,.32);}
+ for(const z of [-.95,.95]){const portal=mesh(terrain,geo(new THREE.TorusGeometry(.23,.065,10,40)),rock,4.42,.32,z);portal.rotation.y=Math.PI/2;mesh(terrain,cylinder,rock,4.42,.04,z,.32,.08,.32);}
+ // Batch static dressing by geometry/material: detail does not imply hundreds of draw calls.
+ const staticBatches=new Map();for(const o of [...terrain.children]){if(!o.isMesh||o.isInstancedMesh||o===coreMesh||o===water||ripples.includes(o)||o.material.transparent)continue;const key=o.geometry.uuid+o.material.uuid;if(!staticBatches.has(key))staticBatches.set(key,[]);staticBatches.get(key).push(o);}for(const items of staticBatches.values()){if(items.length<2)continue;const batch=new THREE.InstancedMesh(items[0].geometry,items[0].material,items.length);items.forEach((o,i)=>{o.updateMatrix();batch.setMatrixAt(i,o.matrix);terrain.remove(o);});batch.castShadow=items.some(o=>o.castShadow);batch.receiveShadow=true;batch.instanceMatrix.needsUpdate=true;terrain.add(batch);}
  // Original 3D prototypes for roles without matching production models. +Z faces forward.
  function prototype(kind){
   const g=new THREE.Group(),cream=mat('#f7e5b2'),dark=mat('#203745'),brown=mat('#8b7d67'),blue=mat('#4a7d99'),white=mat('#f1e9d3'),orange=mat('#e6aa5b');
@@ -95,7 +108,7 @@ window.createBattleRenderer=function(canvas,advance,readView,onSuspend){
   source.traverse(o=>{if(o.isSkinnedMesh)rigged.add(kind);});
   source.traverse(o=>{if(o.isMesh){o.castShadow=true;o.receiveShadow=true;geometries.add(o.geometry);for(const m of Array.isArray(o.material)?o.material:[o.material]){materials.add(m);if(m.map)textures.add(m.map);m.roughness=Math.max(.45,m.roughness||0);}}});
   templates.set(kind,normalized);loading.querySelector('span').textContent='载入角色模型 · '+(++loaded)+' / 6';
- })).then(()=>{if(disposed)return;ready=true;canvas.dataset.ready='true';loading.remove();}).catch(error=>{loading.innerHTML='<b>3D 模型加载未完成</b><span>请刷新页面重试</span>';console.error(error);});
+ })).then(()=>Promise.all(environmentLoads)).then(()=>{if(disposed)return;ready=true;canvas.dataset.ready='true';loading.remove();}).catch(error=>{loading.innerHTML='<b>3D 模型加载未完成</b><span>请刷新页面重试</span>';console.error(error);});
  const corridorGeo=geo(new THREE.PlaneGeometry(1,1));
  const ringGeo=geo(new THREE.RingGeometry(.92,1,64)),diskGeo=geo(new THREE.CircleGeometry(1,64)),orbGeo=geo(new THREE.SphereGeometry(1,12,8));
  function effect(key,type,x,y,r,c,opacity=.9,h=.045){

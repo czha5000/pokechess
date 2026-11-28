@@ -1,0 +1,38 @@
+[
+  {
+    "file": "forest_ground_04-color.jpg",
+    "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_diff_1k.jpg",
+    "sha256": "50a4dda30875020c64385261aa7e00e2155b592302fa6794165f58fae73cbd2c",
+    "bytes": 1113899
+  },
+  {
+    "file": "forest_ground_04-normal.jpg",
+    "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/forest_ground_04/forest_ground_04_nor_gl_1k.jpg",
+    "sha256": "9c3a0200e02ce40edffbbf9f5f623ef08ea9b1b7812b556182ec978f88887151",
+    "bytes": 1326812
+  },
+  {
+    "file": "rock_3-color.jpg",
+    "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_3/rock_3_diff_1k.jpg",
+    "sha256": "e68a81e113a4173c0e19f58bedda41b3b13adcfdeb2f8ae4808f63ec5de10225",
+    "bytes": 850585
+  },
+  {
+    "file": "rock_3-normal.jpg",
+    "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/rock_3/rock_3_nor_gl_1k.jpg",
+    "sha256": "a83383a7468879605b0f2e72ffc7432b0b813f02a12c169a204409040f6ea4b3",
+    "bytes": 1188433
+  },
+  {
+    "file": "sparse_grass-color.jpg",
+    "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sparse_grass/sparse_grass_diff_1k.jpg",
+    "sha256": "ae94f2b34597b9108eefd88217f55eccaec6d6b382e858a478ee92df90e66617",
+    "bytes": 955945
+  },
+  {
+    "file": "sparse_grass-normal.jpg",
+    "source": "https://dl.polyhaven.org/file/ph-assets/Textures/jpg/1k/sparse_grass/sparse_grass_nor_gl_1k.jpg",
+    "sha256": "1c840a24807346ddaaf94a5057aee4078fcec3a4cd84bfe45da7d3b480ef460b",
+    "bytes": 1440314
+  }
+]

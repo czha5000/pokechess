@@ -1,0 +1,6 @@
+Environment textures: Poly Haven, CC0. Downloaded 2026-11-28.
+https://polyhaven.com/a/forest_ground_04
+https://polyhaven.com/a/rock_3
+https://polyhaven.com/a/sparse_grass
+https://polyhaven.com/license
+Original 1K diffuse and OpenGL normal JPG maps. Source URLs and SHA256 in manifest.json.
